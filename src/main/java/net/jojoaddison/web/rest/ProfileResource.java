@@ -174,27 +174,4 @@ public class ProfileResource {
         profileService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /profiles/_search?query=:query} : search for the profile corresponding
-     * to the query.
-     *
-     * @param query the query of the profile search.
-     * @param pageable the pagination information.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public ResponseEntity<List<Profile>> searchProfiles(
-        @RequestParam("query") String query,
-        @org.springdoc.core.annotations.ParameterObject Pageable pageable
-    ) {
-        log.debug("REST request to search for a page of Profiles for query {}", query);
-        try {
-            Page<Profile> page = profileService.search(query, pageable);
-            HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
-            return ResponseEntity.ok().headers(headers).body(page.getContent());
-        } catch (RuntimeException e) {
-            throw new RuntimeException(e);
-        }
-    }
 }

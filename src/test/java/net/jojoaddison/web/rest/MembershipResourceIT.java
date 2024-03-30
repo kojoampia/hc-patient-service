@@ -51,7 +51,6 @@ class MembershipResourceIT {
 
     private static final String ENTITY_API_URL = "/api/memberships";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/memberships/_search";
 
     @Autowired
     private MembershipRepository membershipRepository;
@@ -290,7 +289,12 @@ class MembershipResourceIT {
         Membership partialUpdatedMembership = new Membership();
         partialUpdatedMembership.setId(membership.getId());
 
-        partialUpdatedMembership.description(UPDATED_DESCRIPTION).createdDate(UPDATED_CREATED_DATE).modifiedDate(UPDATED_MODIFIED_DATE);
+        partialUpdatedMembership
+            .name(UPDATED_NAME)
+            .description(UPDATED_DESCRIPTION)
+            .status(UPDATED_STATUS)
+            .createdBy(UPDATED_CREATED_BY)
+            .modifiedBy(UPDATED_MODIFIED_BY);
 
         restMembershipMockMvc
             .perform(
@@ -304,13 +308,13 @@ class MembershipResourceIT {
         List<Membership> membershipList = membershipRepository.findAll();
         assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
         Membership testMembership = membershipList.get(membershipList.size() - 1);
-        assertThat(testMembership.getName()).isEqualTo(DEFAULT_NAME);
+        assertThat(testMembership.getName()).isEqualTo(UPDATED_NAME);
         assertThat(testMembership.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testMembership.getStatus()).isEqualTo(DEFAULT_STATUS);
-        assertThat(testMembership.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testMembership.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testMembership.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testMembership.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertThat(testMembership.getStatus()).isEqualTo(UPDATED_STATUS);
+        assertThat(testMembership.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
+        assertThat(testMembership.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testMembership.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testMembership.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
     }
 
     @Test
@@ -424,25 +428,5 @@ class MembershipResourceIT {
         // Validate the database contains one less item
         List<Membership> membershipList = membershipRepository.findAll();
         assertThat(membershipList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchMembership() throws Exception {
-        // Initialize the database
-        membership = membershipRepository.save(membership);
-
-        // Search the membership
-        restMembershipMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + membership.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(membership.getId())))
-            .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].status").value(hasItem(DEFAULT_STATUS)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
     }
 }

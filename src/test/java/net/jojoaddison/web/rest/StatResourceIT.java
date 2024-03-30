@@ -54,7 +54,6 @@ class StatResourceIT {
 
     private static final String ENTITY_API_URL = "/api/stats";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/stats/_search";
 
     @Autowired
     private StatRepository statRepository;
@@ -300,7 +299,13 @@ class StatResourceIT {
         Stat partialUpdatedStat = new Stat();
         partialUpdatedStat.setId(stat.getId());
 
-        partialUpdatedStat.name(UPDATED_NAME).note(UPDATED_NOTE).createdDate(UPDATED_CREATED_DATE);
+        partialUpdatedStat
+            .type(UPDATED_TYPE)
+            .name(UPDATED_NAME)
+            .description(UPDATED_DESCRIPTION)
+            .value(UPDATED_VALUE)
+            .note(UPDATED_NOTE)
+            .createdDate(UPDATED_CREATED_DATE);
 
         restStatMockMvc
             .perform(
@@ -314,10 +319,10 @@ class StatResourceIT {
         List<Stat> statList = statRepository.findAll();
         assertThat(statList).hasSize(databaseSizeBeforeUpdate);
         Stat testStat = statList.get(statList.size() - 1);
-        assertThat(testStat.getType()).isEqualTo(DEFAULT_TYPE);
+        assertThat(testStat.getType()).isEqualTo(UPDATED_TYPE);
         assertThat(testStat.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testStat.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testStat.getValue()).isEqualTo(DEFAULT_VALUE);
+        assertThat(testStat.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
+        assertThat(testStat.getValue()).isEqualTo(UPDATED_VALUE);
         assertThat(testStat.getNote()).isEqualTo(UPDATED_NOTE);
         assertThat(testStat.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
         assertThat(testStat.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
@@ -435,26 +440,5 @@ class StatResourceIT {
         // Validate the database contains one less item
         List<Stat> statList = statRepository.findAll();
         assertThat(statList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchStat() throws Exception {
-        // Initialize the database
-        stat = statRepository.save(stat);
-
-        // Search the stat
-        restStatMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + stat.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(stat.getId())))
-            .andExpect(jsonPath("$.[*].type").value(hasItem(DEFAULT_TYPE)))
-            .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].value").value(hasItem(DEFAULT_VALUE.doubleValue())))
-            .andExpect(jsonPath("$.[*].note").value(hasItem(DEFAULT_NOTE)))
-            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)));
     }
 }

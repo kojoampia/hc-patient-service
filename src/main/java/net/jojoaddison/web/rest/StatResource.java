@@ -185,21 +185,4 @@ public class StatResource {
         statRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /stats/_search?query=:query} : search for the stat corresponding
-     * to the query.
-     *
-     * @param query the query of the stat search.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public List<Stat> searchStats(@RequestParam("query") String query) {
-        log.debug("REST request to search Stats for query {}", query);
-        try {
-            return statRepository.search(query);
-        } catch (RuntimeException e) {
-            throw e;
-        }
-    }
 }

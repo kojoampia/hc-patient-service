@@ -37,7 +37,6 @@ class HCPayOptionResourceIT {
 
     private static final String ENTITY_API_URL = "/api/hc-pay-options";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/hc-pay-options/_search";
 
     @Autowired
     private HCPayOptionRepository hCPayOptionRepository;
@@ -239,7 +238,7 @@ class HCPayOptionResourceIT {
         HCPayOption partialUpdatedHCPayOption = new HCPayOption();
         partialUpdatedHCPayOption.setId(hCPayOption.getId());
 
-        partialUpdatedHCPayOption.type(UPDATED_TYPE).userID(UPDATED_USER_ID).metadata(UPDATED_METADATA);
+        partialUpdatedHCPayOption.type(UPDATED_TYPE).userID(UPDATED_USER_ID);
 
         restHCPayOptionMockMvc
             .perform(
@@ -255,7 +254,7 @@ class HCPayOptionResourceIT {
         HCPayOption testHCPayOption = hCPayOptionList.get(hCPayOptionList.size() - 1);
         assertThat(testHCPayOption.getType()).isEqualTo(UPDATED_TYPE);
         assertThat(testHCPayOption.getUserID()).isEqualTo(UPDATED_USER_ID);
-        assertThat(testHCPayOption.getMetadata()).isEqualTo(UPDATED_METADATA);
+        assertThat(testHCPayOption.getMetadata()).isEqualTo(DEFAULT_METADATA);
     }
 
     @Test
@@ -358,21 +357,5 @@ class HCPayOptionResourceIT {
         // Validate the database contains one less item
         List<HCPayOption> hCPayOptionList = hCPayOptionRepository.findAll();
         assertThat(hCPayOptionList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchHCPayOption() throws Exception {
-        // Initialize the database
-        hCPayOption = hCPayOptionRepository.save(hCPayOption);
-
-        // Search the hCPayOption
-        restHCPayOptionMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + hCPayOption.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(hCPayOption.getId())))
-            .andExpect(jsonPath("$.[*].type").value(hasItem(DEFAULT_TYPE)))
-            .andExpect(jsonPath("$.[*].userID").value(hasItem(DEFAULT_USER_ID)))
-            .andExpect(jsonPath("$.[*].metadata").value(hasItem(DEFAULT_METADATA)));
     }
 }

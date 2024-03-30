@@ -177,21 +177,4 @@ public class HCPayOptionResource {
         hCPayOptionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /hc-pay-options/_search?query=:query} : search for the hCPayOption corresponding
-     * to the query.
-     *
-     * @param query the query of the hCPayOption search.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public List<HCPayOption> searchHCPayOptions(@RequestParam("query") String query) {
-        log.debug("REST request to search HCPayOptions for query {}", query);
-        try {
-            return hCPayOptionRepository.search(query);
-        } catch (RuntimeException e) {
-            throw e;
-        }
-    }
 }

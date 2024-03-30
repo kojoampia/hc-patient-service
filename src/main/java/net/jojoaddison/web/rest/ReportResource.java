@@ -190,21 +190,4 @@ public class ReportResource {
         reportRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /reports/_search?query=:query} : search for the report corresponding
-     * to the query.
-     *
-     * @param query the query of the report search.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public List<Report> searchReports(@RequestParam("query") String query) {
-        log.debug("REST request to search Reports for query {}", query);
-        try {
-            return reportRepository.search(query);
-        } catch (RuntimeException e) {
-            throw e;
-        }
-    }
 }

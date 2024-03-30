@@ -8,6 +8,10 @@
   "entityTableName": "condition",
   "fields": [
     {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
       "fieldName": "name",
       "fieldType": "String"
     },
@@ -36,11 +40,11 @@
       "fieldType": "String"
     }
   ],
-  "microserviceName": "patientMS",
+  "microserviceName": "hcPatientService",
   "name": "Condition",
   "pagination": "no",
   "readOnly": false,
   "relationships": [],
-  "searchEngine": true,
+  "searchEngine": "no",
   "service": "no"
 }

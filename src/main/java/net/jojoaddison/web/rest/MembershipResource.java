@@ -189,21 +189,4 @@ public class MembershipResource {
         membershipRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /memberships/_search?query=:query} : search for the membership corresponding
-     * to the query.
-     *
-     * @param query the query of the membership search.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public List<Membership> searchMemberships(@RequestParam("query") String query) {
-        log.debug("REST request to search Memberships for query {}", query);
-        try {
-            return membershipRepository.search(query);
-        } catch (RuntimeException e) {
-            throw e;
-        }
-    }
 }

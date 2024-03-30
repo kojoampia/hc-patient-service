@@ -72,7 +72,6 @@ class ProfileResourceIT {
 
     private static final String ENTITY_API_URL = "/api/profiles";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/profiles/_search";
 
     @Autowired
     private ProfileRepository profileRepository;
@@ -360,7 +359,14 @@ class ProfileResourceIT {
         Profile partialUpdatedProfile = new Profile();
         partialUpdatedProfile.setId(profile.getId());
 
-        partialUpdatedProfile.sex(UPDATED_SEX).email(UPDATED_EMAIL).cardType(UPDATED_CARD_TYPE);
+        partialUpdatedProfile
+            .sex(UPDATED_SEX)
+            .phoneNumber(UPDATED_PHONE_NUMBER)
+            .email(UPDATED_EMAIL)
+            .cardNumber(UPDATED_CARD_NUMBER)
+            .contacts(UPDATED_CONTACTS)
+            .address(UPDATED_ADDRESS)
+            .team(UPDATED_TEAM);
 
         restProfileMockMvc
             .perform(
@@ -381,13 +387,13 @@ class ProfileResourceIT {
         assertThat(testProfile.getBirthDate()).isEqualTo(DEFAULT_BIRTH_DATE);
         assertThat(testProfile.getSex()).isEqualTo(UPDATED_SEX);
         assertThat(testProfile.getMobilePhone()).isEqualTo(DEFAULT_MOBILE_PHONE);
-        assertThat(testProfile.getPhoneNumber()).isEqualTo(DEFAULT_PHONE_NUMBER);
+        assertThat(testProfile.getPhoneNumber()).isEqualTo(UPDATED_PHONE_NUMBER);
         assertThat(testProfile.getEmail()).isEqualTo(UPDATED_EMAIL);
-        assertThat(testProfile.getCardType()).isEqualTo(UPDATED_CARD_TYPE);
-        assertThat(testProfile.getCardNumber()).isEqualTo(DEFAULT_CARD_NUMBER);
-        assertThat(testProfile.getContacts()).isEqualTo(DEFAULT_CONTACTS);
-        assertThat(testProfile.getAddress()).isEqualTo(DEFAULT_ADDRESS);
-        assertThat(testProfile.getTeam()).isEqualTo(DEFAULT_TEAM);
+        assertThat(testProfile.getCardType()).isEqualTo(DEFAULT_CARD_TYPE);
+        assertThat(testProfile.getCardNumber()).isEqualTo(UPDATED_CARD_NUMBER);
+        assertThat(testProfile.getContacts()).isEqualTo(UPDATED_CONTACTS);
+        assertThat(testProfile.getAddress()).isEqualTo(UPDATED_ADDRESS);
+        assertThat(testProfile.getTeam()).isEqualTo(UPDATED_TEAM);
     }
 
     @Test
@@ -513,32 +519,5 @@ class ProfileResourceIT {
         // Validate the database contains one less item
         List<Profile> profileList = profileRepository.findAll();
         assertThat(profileList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchProfile() throws Exception {
-        // Initialize the database
-        profile = profileRepository.save(profile);
-
-        // Search the profile
-        restProfileMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + profile.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(profile.getId())))
-            .andExpect(jsonPath("$.[*].firstName").value(hasItem(DEFAULT_FIRST_NAME)))
-            .andExpect(jsonPath("$.[*].middleNames").value(hasItem(DEFAULT_MIDDLE_NAMES)))
-            .andExpect(jsonPath("$.[*].lastName").value(hasItem(DEFAULT_LAST_NAME)))
-            .andExpect(jsonPath("$.[*].membership").value(hasItem(DEFAULT_MEMBERSHIP)))
-            .andExpect(jsonPath("$.[*].birthDate").value(hasItem(DEFAULT_BIRTH_DATE.toString())))
-            .andExpect(jsonPath("$.[*].sex").value(hasItem(DEFAULT_SEX)))
-            .andExpect(jsonPath("$.[*].mobilePhone").value(hasItem(DEFAULT_MOBILE_PHONE)))
-            .andExpect(jsonPath("$.[*].phoneNumber").value(hasItem(DEFAULT_PHONE_NUMBER)))
-            .andExpect(jsonPath("$.[*].email").value(hasItem(DEFAULT_EMAIL)))
-            .andExpect(jsonPath("$.[*].cardType").value(hasItem(DEFAULT_CARD_TYPE)))
-            .andExpect(jsonPath("$.[*].cardNumber").value(hasItem(DEFAULT_CARD_NUMBER)))
-            .andExpect(jsonPath("$.[*].contacts").value(hasItem(DEFAULT_CONTACTS)))
-            .andExpect(jsonPath("$.[*].address").value(hasItem(DEFAULT_ADDRESS)))
-            .andExpect(jsonPath("$.[*].team").value(hasItem(DEFAULT_TEAM)));
     }
 }

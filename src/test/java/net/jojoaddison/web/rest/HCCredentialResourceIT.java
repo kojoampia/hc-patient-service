@@ -51,7 +51,6 @@ class HCCredentialResourceIT {
 
     private static final String ENTITY_API_URL = "/api/hc-credentials";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/hc-credentials/_search";
 
     @Autowired
     private HCCredentialRepository hCCredentialRepository;
@@ -290,7 +289,14 @@ class HCCredentialResourceIT {
         HCCredential partialUpdatedHCCredential = new HCCredential();
         partialUpdatedHCCredential.setId(hCCredential.getId());
 
-        partialUpdatedHCCredential.role(UPDATED_ROLE).createdDate(UPDATED_CREATED_DATE);
+        partialUpdatedHCCredential
+            .email(UPDATED_EMAIL)
+            .phoneNumber(UPDATED_PHONE_NUMBER)
+            .password(UPDATED_PASSWORD)
+            .role(UPDATED_ROLE)
+            .createdDate(UPDATED_CREATED_DATE)
+            .active(UPDATED_ACTIVE)
+            .modifiedDate(UPDATED_MODIFIED_DATE);
 
         restHCCredentialMockMvc
             .perform(
@@ -304,13 +310,13 @@ class HCCredentialResourceIT {
         List<HCCredential> hCCredentialList = hCCredentialRepository.findAll();
         assertThat(hCCredentialList).hasSize(databaseSizeBeforeUpdate);
         HCCredential testHCCredential = hCCredentialList.get(hCCredentialList.size() - 1);
-        assertThat(testHCCredential.getEmail()).isEqualTo(DEFAULT_EMAIL);
-        assertThat(testHCCredential.getPhoneNumber()).isEqualTo(DEFAULT_PHONE_NUMBER);
-        assertThat(testHCCredential.getPassword()).isEqualTo(DEFAULT_PASSWORD);
+        assertThat(testHCCredential.getEmail()).isEqualTo(UPDATED_EMAIL);
+        assertThat(testHCCredential.getPhoneNumber()).isEqualTo(UPDATED_PHONE_NUMBER);
+        assertThat(testHCCredential.getPassword()).isEqualTo(UPDATED_PASSWORD);
         assertThat(testHCCredential.getRole()).isEqualTo(UPDATED_ROLE);
         assertThat(testHCCredential.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testHCCredential.getActive()).isEqualTo(DEFAULT_ACTIVE);
-        assertThat(testHCCredential.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testHCCredential.getActive()).isEqualTo(UPDATED_ACTIVE);
+        assertThat(testHCCredential.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
     }
 
     @Test
@@ -424,25 +430,5 @@ class HCCredentialResourceIT {
         // Validate the database contains one less item
         List<HCCredential> hCCredentialList = hCCredentialRepository.findAll();
         assertThat(hCCredentialList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchHCCredential() throws Exception {
-        // Initialize the database
-        hCCredential = hCCredentialRepository.save(hCCredential);
-
-        // Search the hCCredential
-        restHCCredentialMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + hCCredential.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(hCCredential.getId())))
-            .andExpect(jsonPath("$.[*].email").value(hasItem(DEFAULT_EMAIL)))
-            .andExpect(jsonPath("$.[*].phoneNumber").value(hasItem(DEFAULT_PHONE_NUMBER)))
-            .andExpect(jsonPath("$.[*].password").value(hasItem(DEFAULT_PASSWORD)))
-            .andExpect(jsonPath("$.[*].role").value(hasItem(DEFAULT_ROLE)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].active").value(hasItem(DEFAULT_ACTIVE.booleanValue())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())));
     }
 }

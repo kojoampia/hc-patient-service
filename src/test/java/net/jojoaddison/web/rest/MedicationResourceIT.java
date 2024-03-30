@@ -54,7 +54,6 @@ class MedicationResourceIT {
 
     private static final String ENTITY_API_URL = "/api/medications";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/medications/_search";
 
     @Autowired
     private MedicationRepository medicationRepository;
@@ -300,11 +299,7 @@ class MedicationResourceIT {
         Medication partialUpdatedMedication = new Medication();
         partialUpdatedMedication.setId(medication.getId());
 
-        partialUpdatedMedication
-            .name(UPDATED_NAME)
-            .description(UPDATED_DESCRIPTION)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .createdBy(UPDATED_CREATED_BY);
+        partialUpdatedMedication.name(UPDATED_NAME).prescription(UPDATED_PRESCRIPTION).createdDate(UPDATED_CREATED_DATE);
 
         restMedicationMockMvc
             .perform(
@@ -319,12 +314,12 @@ class MedicationResourceIT {
         assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
         Medication testMedication = medicationList.get(medicationList.size() - 1);
         assertThat(testMedication.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMedication.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
+        assertThat(testMedication.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
         assertThat(testMedication.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testMedication.getPrescription()).isEqualTo(DEFAULT_PRESCRIPTION);
-        assertThat(testMedication.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testMedication.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testMedication.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testMedication.getPrescription()).isEqualTo(UPDATED_PRESCRIPTION);
+        assertThat(testMedication.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
+        assertThat(testMedication.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testMedication.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
         assertThat(testMedication.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
     }
 
@@ -441,26 +436,5 @@ class MedicationResourceIT {
         // Validate the database contains one less item
         List<Medication> medicationList = medicationRepository.findAll();
         assertThat(medicationList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchMedication() throws Exception {
-        // Initialize the database
-        medication = medicationRepository.save(medication);
-
-        // Search the medication
-        restMedicationMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + medication.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(medication.getId())))
-            .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
-            .andExpect(jsonPath("$.[*].prescription").value(hasItem(DEFAULT_PRESCRIPTION)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
     }
 }

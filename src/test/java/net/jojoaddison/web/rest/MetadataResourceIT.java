@@ -45,7 +45,6 @@ class MetadataResourceIT {
 
     private static final String ENTITY_API_URL = "/api/metadata";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/metadata/_search";
 
     @Autowired
     private MetadataRepository metadataRepository;
@@ -270,6 +269,8 @@ class MetadataResourceIT {
         Metadata partialUpdatedMetadata = new Metadata();
         partialUpdatedMetadata.setId(metadata.getId());
 
+        partialUpdatedMetadata.modifiedBy(UPDATED_MODIFIED_BY).modifiedDate(UPDATED_MODIFIED_DATE);
+
         restMetadataMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedMetadata.getId())
@@ -283,9 +284,9 @@ class MetadataResourceIT {
         assertThat(metadataList).hasSize(databaseSizeBeforeUpdate);
         Metadata testMetadata = metadataList.get(metadataList.size() - 1);
         assertThat(testMetadata.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testMetadata.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertThat(testMetadata.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
         assertThat(testMetadata.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testMetadata.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testMetadata.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
         assertThat(testMetadata.getData()).isEqualTo(DEFAULT_DATA);
     }
 
@@ -394,23 +395,5 @@ class MetadataResourceIT {
         // Validate the database contains one less item
         List<Metadata> metadataList = metadataRepository.findAll();
         assertThat(metadataList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchMetadata() throws Exception {
-        // Initialize the database
-        metadata = metadataRepository.save(metadata);
-
-        // Search the metadata
-        restMetadataMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + metadata.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(metadata.getId())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].data").value(hasItem(DEFAULT_DATA)));
     }
 }

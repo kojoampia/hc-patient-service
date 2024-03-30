@@ -8,6 +8,10 @@
   "entityTableName": "stat",
   "fields": [
     {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
       "fieldName": "type",
       "fieldType": "String"
     },
@@ -45,6 +49,6 @@
   "pagination": "no",
   "readOnly": false,
   "relationships": [],
-  "searchEngine": true,
+  "searchEngine": "no",
   "service": "no"
 }

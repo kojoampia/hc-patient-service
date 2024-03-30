@@ -69,7 +69,6 @@ class AddressResourceIT {
 
     private static final String ENTITY_API_URL = "/api/addresses";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/addresses/_search";
 
     @Autowired
     private AddressRepository addressRepository;
@@ -350,12 +349,7 @@ class AddressResourceIT {
         Address partialUpdatedAddress = new Address();
         partialUpdatedAddress.setId(address.getId());
 
-        partialUpdatedAddress
-            .digitalAddress(UPDATED_DIGITAL_ADDRESS)
-            .streetAddress(UPDATED_STREET_ADDRESS)
-            .city(UPDATED_CITY)
-            .createdDate(UPDATED_CREATED_DATE)
-            .createdBy(UPDATED_CREATED_BY);
+        partialUpdatedAddress.streetAddress(UPDATED_STREET_ADDRESS).region(UPDATED_REGION).createdBy(UPDATED_CREATED_BY);
 
         restAddressMockMvc
             .perform(
@@ -369,16 +363,16 @@ class AddressResourceIT {
         List<Address> addressList = addressRepository.findAll();
         assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
         Address testAddress = addressList.get(addressList.size() - 1);
-        assertThat(testAddress.getDigitalAddress()).isEqualTo(UPDATED_DIGITAL_ADDRESS);
+        assertThat(testAddress.getDigitalAddress()).isEqualTo(DEFAULT_DIGITAL_ADDRESS);
         assertThat(testAddress.getStreetAddress()).isEqualTo(UPDATED_STREET_ADDRESS);
         assertThat(testAddress.getAreaCode()).isEqualTo(DEFAULT_AREA_CODE);
         assertThat(testAddress.getTown()).isEqualTo(DEFAULT_TOWN);
-        assertThat(testAddress.getCity()).isEqualTo(UPDATED_CITY);
+        assertThat(testAddress.getCity()).isEqualTo(DEFAULT_CITY);
         assertThat(testAddress.getDistrict()).isEqualTo(DEFAULT_DISTRICT);
         assertThat(testAddress.getState()).isEqualTo(DEFAULT_STATE);
-        assertThat(testAddress.getRegion()).isEqualTo(DEFAULT_REGION);
+        assertThat(testAddress.getRegion()).isEqualTo(UPDATED_REGION);
         assertThat(testAddress.getCountry()).isEqualTo(DEFAULT_COUNTRY);
-        assertThat(testAddress.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
+        assertThat(testAddress.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
         assertThat(testAddress.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
         assertThat(testAddress.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
         assertThat(testAddress.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
@@ -505,31 +499,5 @@ class AddressResourceIT {
         // Validate the database contains one less item
         List<Address> addressList = addressRepository.findAll();
         assertThat(addressList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchAddress() throws Exception {
-        // Initialize the database
-        address = addressRepository.save(address);
-
-        // Search the address
-        restAddressMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + address.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(address.getId())))
-            .andExpect(jsonPath("$.[*].digitalAddress").value(hasItem(DEFAULT_DIGITAL_ADDRESS)))
-            .andExpect(jsonPath("$.[*].streetAddress").value(hasItem(DEFAULT_STREET_ADDRESS)))
-            .andExpect(jsonPath("$.[*].areaCode").value(hasItem(DEFAULT_AREA_CODE)))
-            .andExpect(jsonPath("$.[*].town").value(hasItem(DEFAULT_TOWN)))
-            .andExpect(jsonPath("$.[*].city").value(hasItem(DEFAULT_CITY)))
-            .andExpect(jsonPath("$.[*].district").value(hasItem(DEFAULT_DISTRICT)))
-            .andExpect(jsonPath("$.[*].state").value(hasItem(DEFAULT_STATE)))
-            .andExpect(jsonPath("$.[*].region").value(hasItem(DEFAULT_REGION)))
-            .andExpect(jsonPath("$.[*].country").value(hasItem(DEFAULT_COUNTRY)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
     }
 }

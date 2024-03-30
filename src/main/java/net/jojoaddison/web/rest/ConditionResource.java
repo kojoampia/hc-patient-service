@@ -189,21 +189,4 @@ public class ConditionResource {
         conditionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /conditions/_search?query=:query} : search for the condition corresponding
-     * to the query.
-     *
-     * @param query the query of the condition search.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public List<Condition> searchConditions(@RequestParam("query") String query) {
-        log.debug("REST request to search Conditions for query {}", query);
-        try {
-            return conditionRepository.search(query);
-        } catch (RuntimeException e) {
-            throw e;
-        }
-    }
 }

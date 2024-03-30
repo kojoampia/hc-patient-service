@@ -57,7 +57,6 @@ class ReportResourceIT {
 
     private static final String ENTITY_API_URL = "/api/reports";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/reports/_search";
 
     @Autowired
     private ReportRepository reportRepository;
@@ -311,10 +310,10 @@ class ReportResourceIT {
         partialUpdatedReport.setId(report.getId());
 
         partialUpdatedReport
-            .url(UPDATED_URL)
-            .createdDate(UPDATED_CREATED_DATE)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .createdBy(UPDATED_CREATED_BY);
+            .description(UPDATED_DESCRIPTION)
+            .name(UPDATED_NAME)
+            .patientId(UPDATED_PATIENT_ID)
+            .createdDate(UPDATED_CREATED_DATE);
 
         restReportMockMvc
             .perform(
@@ -329,13 +328,13 @@ class ReportResourceIT {
         assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
         Report testReport = reportList.get(reportList.size() - 1);
         assertThat(testReport.getCategory()).isEqualTo(DEFAULT_CATEGORY);
-        assertThat(testReport.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testReport.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testReport.getUrl()).isEqualTo(UPDATED_URL);
-        assertThat(testReport.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
+        assertThat(testReport.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
+        assertThat(testReport.getName()).isEqualTo(UPDATED_NAME);
+        assertThat(testReport.getUrl()).isEqualTo(DEFAULT_URL);
+        assertThat(testReport.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
         assertThat(testReport.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testReport.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testReport.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testReport.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testReport.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
         assertThat(testReport.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
     }
 
@@ -452,27 +451,5 @@ class ReportResourceIT {
         // Validate the database contains one less item
         List<Report> reportList = reportRepository.findAll();
         assertThat(reportList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchReport() throws Exception {
-        // Initialize the database
-        report = reportRepository.save(report);
-
-        // Search the report
-        restReportMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + report.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(report.getId())))
-            .andExpect(jsonPath("$.[*].category").value(hasItem(DEFAULT_CATEGORY)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
-            .andExpect(jsonPath("$.[*].url").value(hasItem(DEFAULT_URL)))
-            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
     }
 }

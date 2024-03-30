@@ -9,6 +9,10 @@
   "entityTableName": "profile",
   "fields": [
     {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
       "fieldName": "firstName",
       "fieldType": "String"
     },
@@ -65,11 +69,11 @@
       "fieldType": "String"
     }
   ],
-  "microserviceName": "patientMS",
+  "microserviceName": "hcPatientService",
   "name": "Profile",
   "pagination": "pagination",
   "readOnly": false,
   "relationships": [],
-  "searchEngine": true,
+  "searchEngine": "no",
   "service": "serviceClass"
 }

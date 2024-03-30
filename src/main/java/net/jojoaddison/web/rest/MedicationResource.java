@@ -192,21 +192,4 @@ public class MedicationResource {
         medicationRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
-
-    /**
-     * {@code SEARCH  /medications/_search?query=:query} : search for the medication corresponding
-     * to the query.
-     *
-     * @param query the query of the medication search.
-     * @return the result of the search.
-     */
-    @GetMapping("/_search")
-    public List<Medication> searchMedications(@RequestParam("query") String query) {
-        log.debug("REST request to search Medications for query {}", query);
-        try {
-            return medicationRepository.search(query);
-        } catch (RuntimeException e) {
-            throw e;
-        }
-    }
 }

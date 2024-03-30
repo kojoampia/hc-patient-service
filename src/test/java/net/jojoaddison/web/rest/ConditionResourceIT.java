@@ -51,7 +51,6 @@ class ConditionResourceIT {
 
     private static final String ENTITY_API_URL = "/api/conditions";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/conditions/_search";
 
     @Autowired
     private ConditionRepository conditionRepository;
@@ -290,11 +289,7 @@ class ConditionResourceIT {
         Condition partialUpdatedCondition = new Condition();
         partialUpdatedCondition.setId(condition.getId());
 
-        partialUpdatedCondition
-            .patientId(UPDATED_PATIENT_ID)
-            .createdDate(UPDATED_CREATED_DATE)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .createdBy(UPDATED_CREATED_BY);
+        partialUpdatedCondition.name(UPDATED_NAME);
 
         restConditionMockMvc
             .perform(
@@ -308,12 +303,12 @@ class ConditionResourceIT {
         List<Condition> conditionList = conditionRepository.findAll();
         assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
         Condition testCondition = conditionList.get(conditionList.size() - 1);
-        assertThat(testCondition.getName()).isEqualTo(DEFAULT_NAME);
+        assertThat(testCondition.getName()).isEqualTo(UPDATED_NAME);
         assertThat(testCondition.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testCondition.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testCondition.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testCondition.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testCondition.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testCondition.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
+        assertThat(testCondition.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
+        assertThat(testCondition.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testCondition.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
         assertThat(testCondition.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
     }
 
@@ -428,25 +423,5 @@ class ConditionResourceIT {
         // Validate the database contains one less item
         List<Condition> conditionList = conditionRepository.findAll();
         assertThat(conditionList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchCondition() throws Exception {
-        // Initialize the database
-        condition = conditionRepository.save(condition);
-
-        // Search the condition
-        restConditionMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + condition.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(condition.getId())))
-            .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
     }
 }

@@ -238,6 +238,8 @@ class TeamResourceIT {
         Team partialUpdatedTeam = new Team();
         partialUpdatedTeam.setId(team.getId());
 
+        partialUpdatedTeam.name(UPDATED_NAME);
+
         restTeamMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedTeam.getId())
@@ -250,7 +252,7 @@ class TeamResourceIT {
         List<Team> teamList = teamRepository.findAll();
         assertThat(teamList).hasSize(databaseSizeBeforeUpdate);
         Team testTeam = teamList.get(teamList.size() - 1);
-        assertThat(testTeam.getName()).isEqualTo(DEFAULT_NAME);
+        assertThat(testTeam.getName()).isEqualTo(UPDATED_NAME);
         assertThat(testTeam.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
         assertThat(testTeam.getContact()).isEqualTo(DEFAULT_CONTACT);
     }

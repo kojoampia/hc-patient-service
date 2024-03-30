@@ -66,7 +66,6 @@ class TaskResourceIT {
 
     private static final String ENTITY_API_URL = "/api/tasks";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-    private static final String ENTITY_SEARCH_API_URL = "/api/tasks/_search";
 
     @Autowired
     private TaskRepository taskRepository;
@@ -341,12 +340,11 @@ class TaskResourceIT {
         partialUpdatedTask.setId(task.getId());
 
         partialUpdatedTask
-            .attendantId(UPDATED_ATTENDANT_ID)
+            .schedule(UPDATED_SCHEDULE)
             .teamId(UPDATED_TEAM_ID)
             .patientId(UPDATED_PATIENT_ID)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .createdBy(UPDATED_CREATED_BY)
-            .modifiedBy(UPDATED_MODIFIED_BY);
+            .attendant(UPDATED_ATTENDANT)
+            .modifiedDate(UPDATED_MODIFIED_DATE);
 
         restTaskMockMvc
             .perform(
@@ -362,16 +360,16 @@ class TaskResourceIT {
         Task testTask = taskList.get(taskList.size() - 1);
         assertThat(testTask.getName()).isEqualTo(DEFAULT_NAME);
         assertThat(testTask.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testTask.getSchedule()).isEqualTo(DEFAULT_SCHEDULE);
+        assertThat(testTask.getSchedule()).isEqualTo(UPDATED_SCHEDULE);
         assertThat(testTask.getDuration()).isEqualTo(DEFAULT_DURATION);
-        assertThat(testTask.getAttendantId()).isEqualTo(UPDATED_ATTENDANT_ID);
+        assertThat(testTask.getAttendantId()).isEqualTo(DEFAULT_ATTENDANT_ID);
         assertThat(testTask.getTeamId()).isEqualTo(UPDATED_TEAM_ID);
         assertThat(testTask.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testTask.getAttendant()).isEqualTo(DEFAULT_ATTENDANT);
+        assertThat(testTask.getAttendant()).isEqualTo(UPDATED_ATTENDANT);
         assertThat(testTask.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
         assertThat(testTask.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testTask.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testTask.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+        assertThat(testTask.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
+        assertThat(testTask.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
     }
 
     @Test
@@ -493,30 +491,5 @@ class TaskResourceIT {
         // Validate the database contains one less item
         List<Task> taskList = taskRepository.findAll();
         assertThat(taskList).hasSize(databaseSizeBeforeDelete - 1);
-    }
-
-    @Test
-    void searchTask() throws Exception {
-        // Initialize the database
-        task = taskRepository.save(task);
-
-        // Search the task
-        restTaskMockMvc
-            .perform(get(ENTITY_SEARCH_API_URL + "?query=id:" + task.getId()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(task.getId())))
-            .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
-            .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].schedule").value(hasItem(DEFAULT_SCHEDULE.toString())))
-            .andExpect(jsonPath("$.[*].duration").value(hasItem(DEFAULT_DURATION.doubleValue())))
-            .andExpect(jsonPath("$.[*].attendantId").value(hasItem(DEFAULT_ATTENDANT_ID)))
-            .andExpect(jsonPath("$.[*].teamId").value(hasItem(DEFAULT_TEAM_ID)))
-            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
-            .andExpect(jsonPath("$.[*].attendant").value(hasItem(DEFAULT_ATTENDANT)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
     }
 }
