@@ -10,7 +10,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A Medication.
  */
 @Document(collection = "medication")
-@SuppressWarnings("common-java:DuplicatedBlocks")
 public class Medication implements Serializable {
 
     private static final long serialVersionUID = 1L;

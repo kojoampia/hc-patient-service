@@ -1,6 +1,6 @@
 package net.jojoaddison.config;
 
-import net.jojoaddison.security.*;
+import net.jojoaddison.security.AuthoritiesConstants;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,6 +19,7 @@ import tech.jhipster.config.JHipsterProperties;
 @EnableMethodSecurity(securedEnabled = true)
 public class SecurityConfiguration {
 
+    @SuppressWarnings("unused")
     private final JHipsterProperties jHipsterProperties;
 
     public SecurityConfiguration(JHipsterProperties jHipsterProperties) {

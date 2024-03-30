@@ -10,7 +10,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A Task.
  */
 @Document(collection = "task")
-@SuppressWarnings("common-java:DuplicatedBlocks")
 public class Task implements Serializable {
 
     private static final long serialVersionUID = 1L;

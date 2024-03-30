@@ -9,7 +9,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A Team.
  */
 @Document(collection = "team")
-@SuppressWarnings("common-java:DuplicatedBlocks")
 public class Team implements Serializable {
 
     private static final long serialVersionUID = 1L;

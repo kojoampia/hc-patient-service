@@ -10,7 +10,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A Address.
  */
 @Document(collection = "address")
-@SuppressWarnings("common-java:DuplicatedBlocks")
 public class Address implements Serializable {
 
     private static final long serialVersionUID = 1L;

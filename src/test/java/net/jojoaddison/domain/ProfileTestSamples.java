@@ -1,10 +1,26 @@
 package net.jojoaddison.domain;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 public class ProfileTestSamples {
 
+    public static Set<Profile> getProfiles() {
+        Set<Profile> profiles = new HashSet<>();
+        profiles.add(getProfileRandomSampleGenerator());
+        profiles.add(getProfileRandomSampleGenerator());
+        profiles.add(getProfileRandomSampleGenerator());
+        profiles.add(getProfileRandomSampleGenerator());
+        profiles.add(getProfileRandomSampleGenerator());
+        profiles.add(getProfileRandomSampleGenerator());
+        profiles.add(getProfileRandomSampleGenerator());
+        return profiles;
+    }
+
     public static Profile getProfileSample1() {
+        Set<Profile> contacts = getProfiles();
+
         return new Profile()
             .id("id1")
             .firstName("firstName1")
@@ -17,12 +33,14 @@ public class ProfileTestSamples {
             .email("email1")
             .cardType("cardType1")
             .cardNumber("cardNumber1")
-            .contacts("contacts1")
-            .address("address1")
-            .team("team1");
+            .contacts(contacts)
+            .address(AddressTestSamples.getAddressRandomSampleGenerator())
+            .team(TeamTestSamples.getTeamRandomSampleGenerator());
     }
 
     public static Profile getProfileSample2() {
+        Set<Profile> contacts = getProfiles();
+
         return new Profile()
             .id("id2")
             .firstName("firstName2")
@@ -35,9 +53,9 @@ public class ProfileTestSamples {
             .email("email2")
             .cardType("cardType2")
             .cardNumber("cardNumber2")
-            .contacts("contacts2")
-            .address("address2")
-            .team("team2");
+            .contacts(contacts)
+            .address(AddressTestSamples.getAddressRandomSampleGenerator())
+            .team(TeamTestSamples.getTeamRandomSampleGenerator());
     }
 
     public static Profile getProfileRandomSampleGenerator() {
@@ -53,8 +71,7 @@ public class ProfileTestSamples {
             .email(UUID.randomUUID().toString())
             .cardType(UUID.randomUUID().toString())
             .cardNumber(UUID.randomUUID().toString())
-            .contacts(UUID.randomUUID().toString())
-            .address(UUID.randomUUID().toString())
-            .team(UUID.randomUUID().toString());
+            .address(AddressTestSamples.getAddressRandomSampleGenerator())
+            .team(TeamTestSamples.getTeamRandomSampleGenerator());
     }
 }
