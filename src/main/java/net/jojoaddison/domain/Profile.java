@@ -2,10 +2,7 @@ package net.jojoaddison.domain;
 
 import java.io.Serializable;
 import java.time.LocalDate;
-import java.util.HashSet;
-import java.util.Set;
 import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.DBRef;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -13,6 +10,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A Profile.
  */
 @Document(collection = "profile")
+@SuppressWarnings("common-java:DuplicatedBlocks")
 public class Profile implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -54,15 +52,13 @@ public class Profile implements Serializable {
     private String cardNumber;
 
     @Field("contacts")
-    private Set<Profile> contacts = new HashSet<>();
+    private String contacts;
 
     @Field("address")
-    @DBRef
-    private Address address;
+    private String address;
 
     @Field("team")
-    @DBRef
-    private Team team;
+    private String team;
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -222,42 +218,42 @@ public class Profile implements Serializable {
         this.cardNumber = cardNumber;
     }
 
-    public Set<Profile> getContacts() {
+    public String getContacts() {
         return this.contacts;
     }
 
-    public Profile contacts(Set<Profile> contacts) {
+    public Profile contacts(String contacts) {
         this.setContacts(contacts);
         return this;
     }
 
-    public void setContacts(Set<Profile> contacts) {
+    public void setContacts(String contacts) {
         this.contacts = contacts;
     }
 
-    public Address getAddress() {
+    public String getAddress() {
         return this.address;
     }
 
-    public Profile address(Address address) {
+    public Profile address(String address) {
         this.setAddress(address);
         return this;
     }
 
-    public void setAddress(Address address) {
+    public void setAddress(String address) {
         this.address = address;
     }
 
-    public Team getTeam() {
+    public String getTeam() {
         return this.team;
     }
 
-    public Profile team(Team team) {
+    public Profile team(String team) {
         this.setTeam(team);
         return this;
     }
 
-    public void setTeam(Team team) {
+    public void setTeam(String team) {
         this.team = team;
     }
 

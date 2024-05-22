@@ -1,7 +1,6 @@
 package net.jojoaddison.domain;
 
-import static net.jojoaddison.domain.MembershipTestSamples.getMembershipSample1;
-import static net.jojoaddison.domain.MembershipTestSamples.getMembershipSample2;
+import static net.jojoaddison.domain.MembershipTestSamples.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import net.jojoaddison.web.rest.TestUtil;

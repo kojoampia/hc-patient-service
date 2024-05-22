@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A Stat.
  */
 @Document(collection = "stat")
+@SuppressWarnings("common-java:DuplicatedBlocks")
 public class Stat implements Serializable {
 
     private static final long serialVersionUID = 1L;

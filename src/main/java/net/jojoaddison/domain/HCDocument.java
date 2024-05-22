@@ -6,11 +6,11 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A Team.
+ * A HCDocument.
  */
-@Document(collection = "team")
+@Document(collection = "hcdocument")
 @SuppressWarnings("common-java:DuplicatedBlocks")
-public class Team implements Serializable {
+public class HCDocument implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
@@ -20,19 +20,13 @@ public class Team implements Serializable {
     @Field("name")
     private String name;
 
-    @Field("description")
-    private String description;
-
-    @Field("contact")
-    private String contact;
-
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
     public String getId() {
         return this.id;
     }
 
-    public Team id(String id) {
+    public HCDocument id(String id) {
         this.setId(id);
         return this;
     }
@@ -45,39 +39,13 @@ public class Team implements Serializable {
         return this.name;
     }
 
-    public Team name(String name) {
+    public HCDocument name(String name) {
         this.setName(name);
         return this;
     }
 
     public void setName(String name) {
         this.name = name;
-    }
-
-    public String getDescription() {
-        return this.description;
-    }
-
-    public Team description(String description) {
-        this.setDescription(description);
-        return this;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public String getContact() {
-        return this.contact;
-    }
-
-    public Team contact(String contact) {
-        this.setContact(contact);
-        return this;
-    }
-
-    public void setContact(String contact) {
-        this.contact = contact;
     }
 
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here
@@ -87,10 +55,10 @@ public class Team implements Serializable {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof Team)) {
+        if (!(o instanceof HCDocument)) {
             return false;
         }
-        return getId() != null && getId().equals(((Team) o).getId());
+        return getId() != null && getId().equals(((HCDocument) o).getId());
     }
 
     @Override
@@ -102,11 +70,9 @@ public class Team implements Serializable {
     // prettier-ignore
     @Override
     public String toString() {
-        return "Team{" +
+        return "HCDocument{" +
             "id=" + getId() +
             ", name='" + getName() + "'" +
-            ", description='" + getDescription() + "'" +
-            ", contact='" + getContact() + "'" +
             "}";
     }
 }

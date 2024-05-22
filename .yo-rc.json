@@ -24,12 +24,14 @@
       "Metadata",
       "Profile",
       "HCCredential",
-      "HCPayOption"
+      "HCPayOption",
+      "HCDocument"
     ],
     "feignClient": false,
     "gradleEnterpriseHost": null,
     "jhipsterVersion": "8.1.0",
     "jwtSecretKey": "ZjJjMjE3YWJlOGFlZjBjODViMmRhZjE3ZGIzOGViMTIwNjBhZTdhMWEzOTA0YjM3ZDE5Njc5NTIwZjhjOWFlZTdjMjcyMzk1MDg1ZWIzY2FkYWI2N2M2YWZiYTkzN2EzYWZhNTczMjdmNzAxNzI3ODhkMDcwMzgwZjZkY2I3MGU=",
+    "lastLiquibaseTimestamp": 1711842441000,
     "messageBroker": "kafka",
     "nativeLanguage": "en",
     "packageName": "net.jojoaddison",

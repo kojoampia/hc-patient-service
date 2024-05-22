@@ -1,0 +1,21 @@
+{
+  "annotations": {
+    "changelogDate": "20240330234721"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "entityTableName": "hcdocument",
+  "fields": [
+    {
+      "fieldName": "name",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "HCDocument",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "no"
+}

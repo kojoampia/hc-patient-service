@@ -2,27 +2,15 @@ package net.jojoaddison.web.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
-import net.jojoaddison.domain.Address;
-import net.jojoaddison.domain.AddressTestSamples;
 import net.jojoaddison.domain.Profile;
-import net.jojoaddison.domain.ProfileTestSamples;
-import net.jojoaddison.domain.Team;
-import net.jojoaddison.domain.TeamTestSamples;
 import net.jojoaddison.repository.ProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,14 +61,14 @@ class ProfileResourceIT {
     private static final String DEFAULT_CARD_NUMBER = "AAAAAAAAAA";
     private static final String UPDATED_CARD_NUMBER = "BBBBBBBBBB";
 
-    private static final Set<Profile> DEFAULT_CONTACTS = ProfileTestSamples.getProfiles();
-    private static final Set<Profile> UPDATED_CONTACTS = ProfileTestSamples.getProfiles();
+    private static final String DEFAULT_CONTACTS = "AAAAAAAAAA";
+    private static final String UPDATED_CONTACTS = "BBBBBBBBBB";
 
-    private static final Address DEFAULT_ADDRESS = AddressTestSamples.getAddressSample1();
-    private static final Address UPDATED_ADDRESS = AddressTestSamples.getAddressSample2();
+    private static final String DEFAULT_ADDRESS = "AAAAAAAAAA";
+    private static final String UPDATED_ADDRESS = "BBBBBBBBBB";
 
-    private static final Team DEFAULT_TEAM = TeamTestSamples.getTeamSample1();
-    private static final Team UPDATED_TEAM = TeamTestSamples.getTeamSample2();
+    private static final String DEFAULT_TEAM = "AAAAAAAAAA";
+    private static final String UPDATED_TEAM = "BBBBBBBBBB";
 
     private static final String ENTITY_API_URL = "/api/profiles";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";

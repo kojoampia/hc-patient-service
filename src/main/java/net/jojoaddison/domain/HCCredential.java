@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * A HCCredential.
  */
 @Document(collection = "hccredential")
+@SuppressWarnings("common-java:DuplicatedBlocks")
 public class HCCredential implements Serializable {
 
     private static final long serialVersionUID = 1L;
