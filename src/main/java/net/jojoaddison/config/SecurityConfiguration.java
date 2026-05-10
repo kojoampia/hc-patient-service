@@ -27,22 +27,22 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, MvcRequestMatcher.Builder mvc) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, HandlerMappingIntrospector introspector) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(authz ->
                 // prettier-ignore
                 authz
-                    .requestMatchers(mvc.pattern(HttpMethod.POST, "/api/authenticate")).permitAll()
-                    .requestMatchers(mvc.pattern(HttpMethod.GET, "/api/authenticate")).permitAll()
-                    .requestMatchers(mvc.pattern("/api/admin/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                    .requestMatchers(mvc.pattern("/api/**")).authenticated()
-                    .requestMatchers(mvc.pattern("/v3/api-docs/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                    .requestMatchers(mvc.pattern("/management/health")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/health/**")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/info")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/prometheus")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc(introspector, HttpMethod.POST, "/api/authenticate")).permitAll()
+                    .requestMatchers(mvc(introspector, HttpMethod.GET, "/api/authenticate")).permitAll()
+                    .requestMatchers(mvc(introspector, "/api/admin/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc(introspector, "/api/**")).authenticated()
+                    .requestMatchers(mvc(introspector, "/v3/api-docs/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc(introspector, "/management/health")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/health/**")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/info")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/prometheus")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/**")).hasAuthority(AuthoritiesConstants.ADMIN)
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(exceptions ->
@@ -54,8 +54,12 @@ public class SecurityConfiguration {
         return http.build();
     }
 
-    @Bean
-    MvcRequestMatcher.Builder mvc(HandlerMappingIntrospector introspector) {
-        return new MvcRequestMatcher.Builder(introspector);
+    private MvcRequestMatcher mvc(HandlerMappingIntrospector introspector, String pattern) {
+        return new MvcRequestMatcher(introspector, pattern);
+    }
+
+    private MvcRequestMatcher mvc(HandlerMappingIntrospector introspector, HttpMethod method, String pattern) {
+        return new MvcRequestMatcher(introspector, method, pattern);
     }
 }
+
