@@ -33,16 +33,16 @@ public class SecurityConfiguration {
             .authorizeHttpRequests(authz ->
                 // prettier-ignore
                 authz
-                    .requestMatchers(new MvcRequestMatcher(introspector, HttpMethod.POST, "/api/authenticate")).permitAll()
-                    .requestMatchers(new MvcRequestMatcher(introspector, HttpMethod.GET, "/api/authenticate")).permitAll()
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/api/admin/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/api/**")).authenticated()
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/v3/api-docs/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/management/health")).permitAll()
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/management/health/**")).permitAll()
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/management/info")).permitAll()
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/management/prometheus")).permitAll()
-                    .requestMatchers(new MvcRequestMatcher(introspector, "/management/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc(introspector, HttpMethod.POST, "/api/authenticate")).permitAll()
+                    .requestMatchers(mvc(introspector, HttpMethod.GET, "/api/authenticate")).permitAll()
+                    .requestMatchers(mvc(introspector, "/api/admin/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc(introspector, "/api/**")).authenticated()
+                    .requestMatchers(mvc(introspector, "/v3/api-docs/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc(introspector, "/management/health")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/health/**")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/info")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/prometheus")).permitAll()
+                    .requestMatchers(mvc(introspector, "/management/**")).hasAuthority(AuthoritiesConstants.ADMIN)
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(exceptions ->
@@ -53,4 +53,13 @@ public class SecurityConfiguration {
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
         return http.build();
     }
+
+    private MvcRequestMatcher mvc(HandlerMappingIntrospector introspector, String pattern) {
+        return new MvcRequestMatcher(introspector, pattern);
+    }
+
+    private MvcRequestMatcher mvc(HandlerMappingIntrospector introspector, HttpMethod method, String pattern) {
+        return new MvcRequestMatcher(introspector, method, pattern);
+    }
 }
+
