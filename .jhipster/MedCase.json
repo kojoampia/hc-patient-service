@@ -1,0 +1,45 @@
+{
+  "annotations": {
+    "changelogDate": "20260720214037"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "dto": "no",
+  "fields": [
+    {
+      "fieldName": "symptoms",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "diagnoses",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "recommendations",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "MedCase",
+  "pagination": "infinite-scroll",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}
