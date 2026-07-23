@@ -1,17 +1,20 @@
 package net.jojoaddison.web.rest;
 
+import static net.jojoaddison.domain.MembershipAsserts.*;
+import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.repository.MembershipRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,12 +56,17 @@ class MembershipResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
+    private ObjectMapper om;
+
+    @Autowired
     private MembershipRepository membershipRepository;
 
     @Autowired
     private MockMvc restMembershipMockMvc;
 
     private Membership membership;
+
+    private Membership insertedMembership;
 
     /**
      * Create an entity for this test.
@@ -67,7 +75,7 @@ class MembershipResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Membership createEntity() {
-        Membership membership = new Membership()
+        return new Membership()
             .name(DEFAULT_NAME)
             .description(DEFAULT_DESCRIPTION)
             .status(DEFAULT_STATUS)
@@ -75,7 +83,6 @@ class MembershipResourceIT {
             .modifiedDate(DEFAULT_MODIFIED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedBy(DEFAULT_MODIFIED_BY);
-        return membership;
     }
 
     /**
@@ -85,7 +92,7 @@ class MembershipResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Membership createUpdatedEntity() {
-        Membership membership = new Membership()
+        return new Membership()
             .name(UPDATED_NAME)
             .description(UPDATED_DESCRIPTION)
             .status(UPDATED_STATUS)
@@ -93,34 +100,40 @@ class MembershipResourceIT {
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedBy(UPDATED_MODIFIED_BY);
-        return membership;
     }
 
     @BeforeEach
-    public void initTest() {
-        membershipRepository.deleteAll();
+    void initTest() {
         membership = createEntity();
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (insertedMembership != null) {
+            membershipRepository.delete(insertedMembership);
+            insertedMembership = null;
+        }
     }
 
     @Test
     void createMembership() throws Exception {
-        int databaseSizeBeforeCreate = membershipRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
         // Create the Membership
-        restMembershipMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(membership)))
-            .andExpect(status().isCreated());
+        var returnedMembership = om.readValue(
+            restMembershipMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(membership)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            Membership.class
+        );
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeCreate + 1);
-        Membership testMembership = membershipList.get(membershipList.size() - 1);
-        assertThat(testMembership.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testMembership.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testMembership.getStatus()).isEqualTo(DEFAULT_STATUS);
-        assertThat(testMembership.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testMembership.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testMembership.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testMembership.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
+        assertMembershipUpdatableFieldsEquals(returnedMembership, getPersistedMembership(returnedMembership));
+
+        insertedMembership = returnedMembership;
     }
 
     @Test
@@ -128,22 +141,21 @@ class MembershipResourceIT {
         // Create the Membership with an existing ID
         membership.setId("existing_id");
 
-        int databaseSizeBeforeCreate = membershipRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restMembershipMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(membership)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(membership)))
             .andExpect(status().isBadRequest());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeCreate);
+        assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllMemberships() throws Exception {
         // Initialize the database
-        membershipRepository.save(membership);
+        insertedMembership = membershipRepository.save(membership);
 
         // Get all the membershipList
         restMembershipMockMvc
@@ -163,7 +175,7 @@ class MembershipResourceIT {
     @Test
     void getMembership() throws Exception {
         // Initialize the database
-        membershipRepository.save(membership);
+        insertedMembership = membershipRepository.save(membership);
 
         // Get the membership
         restMembershipMockMvc
@@ -189,9 +201,9 @@ class MembershipResourceIT {
     @Test
     void putExistingMembership() throws Exception {
         // Initialize the database
-        membershipRepository.save(membership);
+        insertedMembership = membershipRepository.save(membership);
 
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the membership
         Membership updatedMembership = membershipRepository.findById(membership.getId()).orElseThrow();
@@ -208,45 +220,34 @@ class MembershipResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedMembership.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedMembership))
+                    .content(om.writeValueAsBytes(updatedMembership))
             )
             .andExpect(status().isOk());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
-        Membership testMembership = membershipList.get(membershipList.size() - 1);
-        assertThat(testMembership.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMembership.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testMembership.getStatus()).isEqualTo(UPDATED_STATUS);
-        assertThat(testMembership.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testMembership.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testMembership.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testMembership.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertPersistedMembershipToMatchAllProperties(updatedMembership);
     }
 
     @Test
     void putNonExistingMembership() throws Exception {
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         membership.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restMembershipMockMvc
             .perform(
-                put(ENTITY_API_URL_ID, membership.getId())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(membership))
+                put(ENTITY_API_URL_ID, membership.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(membership))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchMembership() throws Exception {
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         membership.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -254,75 +255,64 @@ class MembershipResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(membership))
+                    .content(om.writeValueAsBytes(membership))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamMembership() throws Exception {
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         membership.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restMembershipMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(membership)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(membership)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateMembershipWithPatch() throws Exception {
         // Initialize the database
-        membershipRepository.save(membership);
+        insertedMembership = membershipRepository.save(membership);
 
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the membership using partial update
         Membership partialUpdatedMembership = new Membership();
         partialUpdatedMembership.setId(membership.getId());
 
-        partialUpdatedMembership
-            .name(UPDATED_NAME)
-            .description(UPDATED_DESCRIPTION)
-            .status(UPDATED_STATUS)
-            .createdBy(UPDATED_CREATED_BY)
-            .modifiedBy(UPDATED_MODIFIED_BY);
+        partialUpdatedMembership.name(UPDATED_NAME).status(UPDATED_STATUS).modifiedBy(UPDATED_MODIFIED_BY);
 
         restMembershipMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedMembership.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedMembership))
+                    .content(om.writeValueAsBytes(partialUpdatedMembership))
             )
             .andExpect(status().isOk());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
-        Membership testMembership = membershipList.get(membershipList.size() - 1);
-        assertThat(testMembership.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMembership.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testMembership.getStatus()).isEqualTo(UPDATED_STATUS);
-        assertThat(testMembership.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testMembership.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testMembership.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testMembership.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertMembershipUpdatableFieldsEquals(
+            createUpdateProxyForBean(partialUpdatedMembership, membership),
+            getPersistedMembership(membership)
+        );
     }
 
     @Test
     void fullUpdateMembershipWithPatch() throws Exception {
         // Initialize the database
-        membershipRepository.save(membership);
+        insertedMembership = membershipRepository.save(membership);
 
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the membership using partial update
         Membership partialUpdatedMembership = new Membership();
@@ -341,26 +331,19 @@ class MembershipResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedMembership.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedMembership))
+                    .content(om.writeValueAsBytes(partialUpdatedMembership))
             )
             .andExpect(status().isOk());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
-        Membership testMembership = membershipList.get(membershipList.size() - 1);
-        assertThat(testMembership.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMembership.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testMembership.getStatus()).isEqualTo(UPDATED_STATUS);
-        assertThat(testMembership.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testMembership.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testMembership.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testMembership.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertMembershipUpdatableFieldsEquals(partialUpdatedMembership, getPersistedMembership(partialUpdatedMembership));
     }
 
     @Test
     void patchNonExistingMembership() throws Exception {
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         membership.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
@@ -368,18 +351,17 @@ class MembershipResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, membership.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(membership))
+                    .content(om.writeValueAsBytes(membership))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchMembership() throws Exception {
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         membership.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -387,38 +369,34 @@ class MembershipResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(membership))
+                    .content(om.writeValueAsBytes(membership))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamMembership() throws Exception {
-        int databaseSizeBeforeUpdate = membershipRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         membership.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restMembershipMockMvc
-            .perform(
-                patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(membership))
-            )
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(membership)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Membership in the database
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteMembership() throws Exception {
         // Initialize the database
-        membershipRepository.save(membership);
+        insertedMembership = membershipRepository.save(membership);
 
-        int databaseSizeBeforeDelete = membershipRepository.findAll().size();
+        long databaseSizeBeforeDelete = getRepositoryCount();
 
         // Delete the membership
         restMembershipMockMvc
@@ -426,7 +404,34 @@ class MembershipResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        List<Membership> membershipList = membershipRepository.findAll();
-        assertThat(membershipList).hasSize(databaseSizeBeforeDelete - 1);
+        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
+    }
+
+    protected long getRepositoryCount() {
+        return membershipRepository.count();
+    }
+
+    protected void assertIncrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertDecrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertSameRepositoryCount(long countBefore) {
+        assertThat(countBefore).isEqualTo(getRepositoryCount());
+    }
+
+    protected Membership getPersistedMembership(Membership membership) {
+        return membershipRepository.findById(membership.getId()).orElseThrow();
+    }
+
+    protected void assertPersistedMembershipToMatchAllProperties(Membership expectedMembership) {
+        assertMembershipAllPropertiesEquals(expectedMembership, getPersistedMembership(expectedMembership));
+    }
+
+    protected void assertPersistedMembershipToMatchUpdatableProperties(Membership expectedMembership) {
+        assertMembershipAllUpdatablePropertiesEquals(expectedMembership, getPersistedMembership(expectedMembership));
     }
 }

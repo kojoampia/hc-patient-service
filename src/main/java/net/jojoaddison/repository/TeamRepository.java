@@ -7,6 +7,5 @@ import org.springframework.stereotype.Repository;
 /**
  * Spring Data MongoDB repository for the Team entity.
  */
-@SuppressWarnings("unused")
 @Repository
 public interface TeamRepository extends MongoRepository<Team, String> {}

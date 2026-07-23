@@ -7,6 +7,5 @@ import org.springframework.stereotype.Repository;
 /**
  * Spring Data MongoDB repository for the Profile entity.
  */
-@SuppressWarnings("unused")
 @Repository
 public interface ProfileRepository extends MongoRepository<Profile, String> {}

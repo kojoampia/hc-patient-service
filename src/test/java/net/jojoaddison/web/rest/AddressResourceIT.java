@@ -1,17 +1,20 @@
 package net.jojoaddison.web.rest;
 
+import static net.jojoaddison.domain.AddressAsserts.*;
+import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Address;
 import net.jojoaddison.repository.AddressRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,12 +74,17 @@ class AddressResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
+    private ObjectMapper om;
+
+    @Autowired
     private AddressRepository addressRepository;
 
     @Autowired
     private MockMvc restAddressMockMvc;
 
     private Address address;
+
+    private Address insertedAddress;
 
     /**
      * Create an entity for this test.
@@ -85,7 +93,7 @@ class AddressResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Address createEntity() {
-        Address address = new Address()
+        return new Address()
             .digitalAddress(DEFAULT_DIGITAL_ADDRESS)
             .streetAddress(DEFAULT_STREET_ADDRESS)
             .areaCode(DEFAULT_AREA_CODE)
@@ -99,7 +107,6 @@ class AddressResourceIT {
             .modifiedDate(DEFAULT_MODIFIED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedBy(DEFAULT_MODIFIED_BY);
-        return address;
     }
 
     /**
@@ -109,7 +116,7 @@ class AddressResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Address createUpdatedEntity() {
-        Address address = new Address()
+        return new Address()
             .digitalAddress(UPDATED_DIGITAL_ADDRESS)
             .streetAddress(UPDATED_STREET_ADDRESS)
             .areaCode(UPDATED_AREA_CODE)
@@ -123,40 +130,40 @@ class AddressResourceIT {
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedBy(UPDATED_MODIFIED_BY);
-        return address;
     }
 
     @BeforeEach
-    public void initTest() {
-        addressRepository.deleteAll();
+    void initTest() {
         address = createEntity();
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (insertedAddress != null) {
+            addressRepository.delete(insertedAddress);
+            insertedAddress = null;
+        }
     }
 
     @Test
     void createAddress() throws Exception {
-        int databaseSizeBeforeCreate = addressRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
         // Create the Address
-        restAddressMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(address)))
-            .andExpect(status().isCreated());
+        var returnedAddress = om.readValue(
+            restAddressMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(address)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            Address.class
+        );
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeCreate + 1);
-        Address testAddress = addressList.get(addressList.size() - 1);
-        assertThat(testAddress.getDigitalAddress()).isEqualTo(DEFAULT_DIGITAL_ADDRESS);
-        assertThat(testAddress.getStreetAddress()).isEqualTo(DEFAULT_STREET_ADDRESS);
-        assertThat(testAddress.getAreaCode()).isEqualTo(DEFAULT_AREA_CODE);
-        assertThat(testAddress.getTown()).isEqualTo(DEFAULT_TOWN);
-        assertThat(testAddress.getCity()).isEqualTo(DEFAULT_CITY);
-        assertThat(testAddress.getDistrict()).isEqualTo(DEFAULT_DISTRICT);
-        assertThat(testAddress.getState()).isEqualTo(DEFAULT_STATE);
-        assertThat(testAddress.getRegion()).isEqualTo(DEFAULT_REGION);
-        assertThat(testAddress.getCountry()).isEqualTo(DEFAULT_COUNTRY);
-        assertThat(testAddress.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testAddress.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testAddress.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testAddress.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
+        assertAddressUpdatableFieldsEquals(returnedAddress, getPersistedAddress(returnedAddress));
+
+        insertedAddress = returnedAddress;
     }
 
     @Test
@@ -164,22 +171,21 @@ class AddressResourceIT {
         // Create the Address with an existing ID
         address.setId("existing_id");
 
-        int databaseSizeBeforeCreate = addressRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restAddressMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(address)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(address)))
             .andExpect(status().isBadRequest());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeCreate);
+        assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllAddresses() throws Exception {
         // Initialize the database
-        addressRepository.save(address);
+        insertedAddress = addressRepository.save(address);
 
         // Get all the addressList
         restAddressMockMvc
@@ -205,7 +211,7 @@ class AddressResourceIT {
     @Test
     void getAddress() throws Exception {
         // Initialize the database
-        addressRepository.save(address);
+        insertedAddress = addressRepository.save(address);
 
         // Get the address
         restAddressMockMvc
@@ -237,9 +243,9 @@ class AddressResourceIT {
     @Test
     void putExistingAddress() throws Exception {
         // Initialize the database
-        addressRepository.save(address);
+        insertedAddress = addressRepository.save(address);
 
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the address
         Address updatedAddress = addressRepository.findById(address.getId()).orElseThrow();
@@ -262,51 +268,32 @@ class AddressResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedAddress.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedAddress))
+                    .content(om.writeValueAsBytes(updatedAddress))
             )
             .andExpect(status().isOk());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
-        Address testAddress = addressList.get(addressList.size() - 1);
-        assertThat(testAddress.getDigitalAddress()).isEqualTo(UPDATED_DIGITAL_ADDRESS);
-        assertThat(testAddress.getStreetAddress()).isEqualTo(UPDATED_STREET_ADDRESS);
-        assertThat(testAddress.getAreaCode()).isEqualTo(UPDATED_AREA_CODE);
-        assertThat(testAddress.getTown()).isEqualTo(UPDATED_TOWN);
-        assertThat(testAddress.getCity()).isEqualTo(UPDATED_CITY);
-        assertThat(testAddress.getDistrict()).isEqualTo(UPDATED_DISTRICT);
-        assertThat(testAddress.getState()).isEqualTo(UPDATED_STATE);
-        assertThat(testAddress.getRegion()).isEqualTo(UPDATED_REGION);
-        assertThat(testAddress.getCountry()).isEqualTo(UPDATED_COUNTRY);
-        assertThat(testAddress.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testAddress.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testAddress.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testAddress.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertPersistedAddressToMatchAllProperties(updatedAddress);
     }
 
     @Test
     void putNonExistingAddress() throws Exception {
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         address.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restAddressMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, address.getId())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(address))
-            )
+            .perform(put(ENTITY_API_URL_ID, address.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(address)))
             .andExpect(status().isBadRequest());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchAddress() throws Exception {
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         address.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -314,76 +301,70 @@ class AddressResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(address))
+                    .content(om.writeValueAsBytes(address))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamAddress() throws Exception {
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         address.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restAddressMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(address)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(address)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateAddressWithPatch() throws Exception {
         // Initialize the database
-        addressRepository.save(address);
+        insertedAddress = addressRepository.save(address);
 
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the address using partial update
         Address partialUpdatedAddress = new Address();
         partialUpdatedAddress.setId(address.getId());
 
-        partialUpdatedAddress.streetAddress(UPDATED_STREET_ADDRESS).region(UPDATED_REGION).createdBy(UPDATED_CREATED_BY);
+        partialUpdatedAddress
+            .digitalAddress(UPDATED_DIGITAL_ADDRESS)
+            .streetAddress(UPDATED_STREET_ADDRESS)
+            .areaCode(UPDATED_AREA_CODE)
+            .town(UPDATED_TOWN)
+            .state(UPDATED_STATE)
+            .region(UPDATED_REGION)
+            .country(UPDATED_COUNTRY)
+            .modifiedDate(UPDATED_MODIFIED_DATE)
+            .createdBy(UPDATED_CREATED_BY);
 
         restAddressMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedAddress.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedAddress))
+                    .content(om.writeValueAsBytes(partialUpdatedAddress))
             )
             .andExpect(status().isOk());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
-        Address testAddress = addressList.get(addressList.size() - 1);
-        assertThat(testAddress.getDigitalAddress()).isEqualTo(DEFAULT_DIGITAL_ADDRESS);
-        assertThat(testAddress.getStreetAddress()).isEqualTo(UPDATED_STREET_ADDRESS);
-        assertThat(testAddress.getAreaCode()).isEqualTo(DEFAULT_AREA_CODE);
-        assertThat(testAddress.getTown()).isEqualTo(DEFAULT_TOWN);
-        assertThat(testAddress.getCity()).isEqualTo(DEFAULT_CITY);
-        assertThat(testAddress.getDistrict()).isEqualTo(DEFAULT_DISTRICT);
-        assertThat(testAddress.getState()).isEqualTo(DEFAULT_STATE);
-        assertThat(testAddress.getRegion()).isEqualTo(UPDATED_REGION);
-        assertThat(testAddress.getCountry()).isEqualTo(DEFAULT_COUNTRY);
-        assertThat(testAddress.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testAddress.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testAddress.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testAddress.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertAddressUpdatableFieldsEquals(createUpdateProxyForBean(partialUpdatedAddress, address), getPersistedAddress(address));
     }
 
     @Test
     void fullUpdateAddressWithPatch() throws Exception {
         // Initialize the database
-        addressRepository.save(address);
+        insertedAddress = addressRepository.save(address);
 
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the address using partial update
         Address partialUpdatedAddress = new Address();
@@ -408,51 +389,35 @@ class AddressResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedAddress.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedAddress))
+                    .content(om.writeValueAsBytes(partialUpdatedAddress))
             )
             .andExpect(status().isOk());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
-        Address testAddress = addressList.get(addressList.size() - 1);
-        assertThat(testAddress.getDigitalAddress()).isEqualTo(UPDATED_DIGITAL_ADDRESS);
-        assertThat(testAddress.getStreetAddress()).isEqualTo(UPDATED_STREET_ADDRESS);
-        assertThat(testAddress.getAreaCode()).isEqualTo(UPDATED_AREA_CODE);
-        assertThat(testAddress.getTown()).isEqualTo(UPDATED_TOWN);
-        assertThat(testAddress.getCity()).isEqualTo(UPDATED_CITY);
-        assertThat(testAddress.getDistrict()).isEqualTo(UPDATED_DISTRICT);
-        assertThat(testAddress.getState()).isEqualTo(UPDATED_STATE);
-        assertThat(testAddress.getRegion()).isEqualTo(UPDATED_REGION);
-        assertThat(testAddress.getCountry()).isEqualTo(UPDATED_COUNTRY);
-        assertThat(testAddress.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testAddress.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testAddress.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testAddress.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertAddressUpdatableFieldsEquals(partialUpdatedAddress, getPersistedAddress(partialUpdatedAddress));
     }
 
     @Test
     void patchNonExistingAddress() throws Exception {
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         address.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restAddressMockMvc
             .perform(
-                patch(ENTITY_API_URL_ID, address.getId())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(address))
+                patch(ENTITY_API_URL_ID, address.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(address))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchAddress() throws Exception {
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         address.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -460,36 +425,34 @@ class AddressResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(address))
+                    .content(om.writeValueAsBytes(address))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamAddress() throws Exception {
-        int databaseSizeBeforeUpdate = addressRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         address.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restAddressMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(address)))
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(address)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Address in the database
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteAddress() throws Exception {
         // Initialize the database
-        addressRepository.save(address);
+        insertedAddress = addressRepository.save(address);
 
-        int databaseSizeBeforeDelete = addressRepository.findAll().size();
+        long databaseSizeBeforeDelete = getRepositoryCount();
 
         // Delete the address
         restAddressMockMvc
@@ -497,7 +460,34 @@ class AddressResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        List<Address> addressList = addressRepository.findAll();
-        assertThat(addressList).hasSize(databaseSizeBeforeDelete - 1);
+        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
+    }
+
+    protected long getRepositoryCount() {
+        return addressRepository.count();
+    }
+
+    protected void assertIncrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertDecrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertSameRepositoryCount(long countBefore) {
+        assertThat(countBefore).isEqualTo(getRepositoryCount());
+    }
+
+    protected Address getPersistedAddress(Address address) {
+        return addressRepository.findById(address.getId()).orElseThrow();
+    }
+
+    protected void assertPersistedAddressToMatchAllProperties(Address expectedAddress) {
+        assertAddressAllPropertiesEquals(expectedAddress, getPersistedAddress(expectedAddress));
+    }
+
+    protected void assertPersistedAddressToMatchUpdatableProperties(Address expectedAddress) {
+        assertAddressAllUpdatablePropertiesEquals(expectedAddress, getPersistedAddress(expectedAddress));
     }
 }

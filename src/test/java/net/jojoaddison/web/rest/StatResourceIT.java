@@ -1,17 +1,20 @@
 package net.jojoaddison.web.rest;
 
+import static net.jojoaddison.domain.StatAsserts.*;
+import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,12 +59,17 @@ class StatResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
+    private ObjectMapper om;
+
+    @Autowired
     private StatRepository statRepository;
 
     @Autowired
     private MockMvc restStatMockMvc;
 
     private Stat stat;
+
+    private Stat insertedStat;
 
     /**
      * Create an entity for this test.
@@ -70,7 +78,7 @@ class StatResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Stat createEntity() {
-        Stat stat = new Stat()
+        return new Stat()
             .type(DEFAULT_TYPE)
             .name(DEFAULT_NAME)
             .description(DEFAULT_DESCRIPTION)
@@ -79,7 +87,6 @@ class StatResourceIT {
             .patientId(DEFAULT_PATIENT_ID)
             .createdDate(DEFAULT_CREATED_DATE)
             .createdBy(DEFAULT_CREATED_BY);
-        return stat;
     }
 
     /**
@@ -89,7 +96,7 @@ class StatResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Stat createUpdatedEntity() {
-        Stat stat = new Stat()
+        return new Stat()
             .type(UPDATED_TYPE)
             .name(UPDATED_NAME)
             .description(UPDATED_DESCRIPTION)
@@ -98,35 +105,40 @@ class StatResourceIT {
             .patientId(UPDATED_PATIENT_ID)
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY);
-        return stat;
     }
 
     @BeforeEach
-    public void initTest() {
-        statRepository.deleteAll();
+    void initTest() {
         stat = createEntity();
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (insertedStat != null) {
+            statRepository.delete(insertedStat);
+            insertedStat = null;
+        }
     }
 
     @Test
     void createStat() throws Exception {
-        int databaseSizeBeforeCreate = statRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
         // Create the Stat
-        restStatMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(stat)))
-            .andExpect(status().isCreated());
+        var returnedStat = om.readValue(
+            restStatMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(stat)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            Stat.class
+        );
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeCreate + 1);
-        Stat testStat = statList.get(statList.size() - 1);
-        assertThat(testStat.getType()).isEqualTo(DEFAULT_TYPE);
-        assertThat(testStat.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testStat.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testStat.getValue()).isEqualTo(DEFAULT_VALUE);
-        assertThat(testStat.getNote()).isEqualTo(DEFAULT_NOTE);
-        assertThat(testStat.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testStat.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testStat.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
+        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
+        assertStatUpdatableFieldsEquals(returnedStat, getPersistedStat(returnedStat));
+
+        insertedStat = returnedStat;
     }
 
     @Test
@@ -134,22 +146,21 @@ class StatResourceIT {
         // Create the Stat with an existing ID
         stat.setId("existing_id");
 
-        int databaseSizeBeforeCreate = statRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restStatMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(stat)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(stat)))
             .andExpect(status().isBadRequest());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeCreate);
+        assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllStats() throws Exception {
         // Initialize the database
-        statRepository.save(stat);
+        insertedStat = statRepository.save(stat);
 
         // Get all the statList
         restStatMockMvc
@@ -160,7 +171,7 @@ class StatResourceIT {
             .andExpect(jsonPath("$.[*].type").value(hasItem(DEFAULT_TYPE)))
             .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
             .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].value").value(hasItem(DEFAULT_VALUE.doubleValue())))
+            .andExpect(jsonPath("$.[*].value").value(hasItem(DEFAULT_VALUE)))
             .andExpect(jsonPath("$.[*].note").value(hasItem(DEFAULT_NOTE)))
             .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
             .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
@@ -170,7 +181,7 @@ class StatResourceIT {
     @Test
     void getStat() throws Exception {
         // Initialize the database
-        statRepository.save(stat);
+        insertedStat = statRepository.save(stat);
 
         // Get the stat
         restStatMockMvc
@@ -181,7 +192,7 @@ class StatResourceIT {
             .andExpect(jsonPath("$.type").value(DEFAULT_TYPE))
             .andExpect(jsonPath("$.name").value(DEFAULT_NAME))
             .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
-            .andExpect(jsonPath("$.value").value(DEFAULT_VALUE.doubleValue()))
+            .andExpect(jsonPath("$.value").value(DEFAULT_VALUE))
             .andExpect(jsonPath("$.note").value(DEFAULT_NOTE))
             .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID))
             .andExpect(jsonPath("$.createdDate").value(DEFAULT_CREATED_DATE.toString()))
@@ -197,9 +208,9 @@ class StatResourceIT {
     @Test
     void putExistingStat() throws Exception {
         // Initialize the database
-        statRepository.save(stat);
+        insertedStat = statRepository.save(stat);
 
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the stat
         Stat updatedStat = statRepository.findById(stat.getId()).orElseThrow();
@@ -217,46 +228,32 @@ class StatResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedStat.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedStat))
+                    .content(om.writeValueAsBytes(updatedStat))
             )
             .andExpect(status().isOk());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
-        Stat testStat = statList.get(statList.size() - 1);
-        assertThat(testStat.getType()).isEqualTo(UPDATED_TYPE);
-        assertThat(testStat.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testStat.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testStat.getValue()).isEqualTo(UPDATED_VALUE);
-        assertThat(testStat.getNote()).isEqualTo(UPDATED_NOTE);
-        assertThat(testStat.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testStat.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testStat.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertPersistedStatToMatchAllProperties(updatedStat);
     }
 
     @Test
     void putNonExistingStat() throws Exception {
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         stat.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restStatMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, stat.getId())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(stat))
-            )
+            .perform(put(ENTITY_API_URL_ID, stat.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(stat)))
             .andExpect(status().isBadRequest());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchStat() throws Exception {
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         stat.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -264,77 +261,66 @@ class StatResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(stat))
+                    .content(om.writeValueAsBytes(stat))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamStat() throws Exception {
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         stat.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restStatMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(stat)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(stat)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateStatWithPatch() throws Exception {
         // Initialize the database
-        statRepository.save(stat);
+        insertedStat = statRepository.save(stat);
 
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the stat using partial update
         Stat partialUpdatedStat = new Stat();
         partialUpdatedStat.setId(stat.getId());
 
         partialUpdatedStat
-            .type(UPDATED_TYPE)
             .name(UPDATED_NAME)
             .description(UPDATED_DESCRIPTION)
             .value(UPDATED_VALUE)
-            .note(UPDATED_NOTE)
+            .patientId(UPDATED_PATIENT_ID)
             .createdDate(UPDATED_CREATED_DATE);
 
         restStatMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedStat.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedStat))
+                    .content(om.writeValueAsBytes(partialUpdatedStat))
             )
             .andExpect(status().isOk());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
-        Stat testStat = statList.get(statList.size() - 1);
-        assertThat(testStat.getType()).isEqualTo(UPDATED_TYPE);
-        assertThat(testStat.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testStat.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testStat.getValue()).isEqualTo(UPDATED_VALUE);
-        assertThat(testStat.getNote()).isEqualTo(UPDATED_NOTE);
-        assertThat(testStat.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testStat.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testStat.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertStatUpdatableFieldsEquals(createUpdateProxyForBean(partialUpdatedStat, stat), getPersistedStat(stat));
     }
 
     @Test
     void fullUpdateStatWithPatch() throws Exception {
         // Initialize the database
-        statRepository.save(stat);
+        insertedStat = statRepository.save(stat);
 
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the stat using partial update
         Stat partialUpdatedStat = new Stat();
@@ -354,46 +340,33 @@ class StatResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedStat.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedStat))
+                    .content(om.writeValueAsBytes(partialUpdatedStat))
             )
             .andExpect(status().isOk());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
-        Stat testStat = statList.get(statList.size() - 1);
-        assertThat(testStat.getType()).isEqualTo(UPDATED_TYPE);
-        assertThat(testStat.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testStat.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testStat.getValue()).isEqualTo(UPDATED_VALUE);
-        assertThat(testStat.getNote()).isEqualTo(UPDATED_NOTE);
-        assertThat(testStat.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testStat.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testStat.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertStatUpdatableFieldsEquals(partialUpdatedStat, getPersistedStat(partialUpdatedStat));
     }
 
     @Test
     void patchNonExistingStat() throws Exception {
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         stat.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restStatMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, stat.getId())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(stat))
-            )
+            .perform(patch(ENTITY_API_URL_ID, stat.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(stat)))
             .andExpect(status().isBadRequest());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchStat() throws Exception {
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         stat.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -401,36 +374,34 @@ class StatResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(stat))
+                    .content(om.writeValueAsBytes(stat))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamStat() throws Exception {
-        int databaseSizeBeforeUpdate = statRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         stat.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restStatMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(stat)))
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(stat)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Stat in the database
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteStat() throws Exception {
         // Initialize the database
-        statRepository.save(stat);
+        insertedStat = statRepository.save(stat);
 
-        int databaseSizeBeforeDelete = statRepository.findAll().size();
+        long databaseSizeBeforeDelete = getRepositoryCount();
 
         // Delete the stat
         restStatMockMvc
@@ -438,7 +409,34 @@ class StatResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        List<Stat> statList = statRepository.findAll();
-        assertThat(statList).hasSize(databaseSizeBeforeDelete - 1);
+        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
+    }
+
+    protected long getRepositoryCount() {
+        return statRepository.count();
+    }
+
+    protected void assertIncrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertDecrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertSameRepositoryCount(long countBefore) {
+        assertThat(countBefore).isEqualTo(getRepositoryCount());
+    }
+
+    protected Stat getPersistedStat(Stat stat) {
+        return statRepository.findById(stat.getId()).orElseThrow();
+    }
+
+    protected void assertPersistedStatToMatchAllProperties(Stat expectedStat) {
+        assertStatAllPropertiesEquals(expectedStat, getPersistedStat(expectedStat));
+    }
+
+    protected void assertPersistedStatToMatchUpdatableProperties(Stat expectedStat) {
+        assertStatAllUpdatablePropertiesEquals(expectedStat, getPersistedStat(expectedStat));
     }
 }

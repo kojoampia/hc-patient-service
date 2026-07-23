@@ -13,6 +13,8 @@ import java.time.format.DateTimeParseException;
 import org.hamcrest.Description;
 import org.hamcrest.TypeSafeDiagnosingMatcher;
 import org.hamcrest.TypeSafeMatcher;
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.MethodInterceptor;
 import org.springframework.format.datetime.standard.DateTimeFormatterRegistrar;
 import org.springframework.format.support.DefaultFormattingConversionService;
 import org.springframework.format.support.FormattingConversionService;
@@ -178,6 +180,27 @@ public final class TestUtil {
         registrar.setUseIsoFormat(true);
         registrar.registerFormatters(dfcs);
         return dfcs;
+    }
+
+    /**
+     * Create a proxy that returns the value of {@code update} for each getter, falling back to the value of
+     * {@code original} when {@code update}'s value is {@code null}. Used to compute the expected state of an
+     * entity after a merge-patch update.
+     */
+    @SuppressWarnings("unchecked")
+    public static <T> T createUpdateProxyForBean(T update, T original) {
+        Enhancer e = new Enhancer();
+        e.setSuperclass(original.getClass());
+        e.setCallback(
+            (MethodInterceptor) (obj, method, args, proxy) -> {
+                Object val = update.getClass().getMethod(method.getName(), method.getParameterTypes()).invoke(update, args);
+                if (val == null) {
+                    return original.getClass().getMethod(method.getName(), method.getParameterTypes()).invoke(original, args);
+                }
+                return val;
+            }
+        );
+        return (T) e.create();
     }
 
     private TestUtil() {}

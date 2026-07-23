@@ -59,7 +59,8 @@ public class SecurityConfiguration {
     }
 
     private MvcRequestMatcher mvc(HandlerMappingIntrospector introspector, HttpMethod method, String pattern) {
-        return new MvcRequestMatcher(introspector, method, pattern);
+        MvcRequestMatcher matcher = new MvcRequestMatcher(introspector, pattern);
+        matcher.setMethod(method);
+        return matcher;
     }
 }
-

@@ -19,6 +19,24 @@
       "fieldType": "String"
     },
     {
+      "fieldName": "status",
+      "fieldType": "CaseStatus",
+      "fieldValues": "URGENT,OPEN,CLOSED"
+    },
+    {
+      "fieldName": "openDate",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "closeDate",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "category",
+      "fieldType": "CaseCategory",
+      "fieldValues": "ROUTINE,FOLLOW_UP,EMERGENCY"
+    },
+    {
       "fieldName": "createdDate",
       "fieldType": "Instant"
     },

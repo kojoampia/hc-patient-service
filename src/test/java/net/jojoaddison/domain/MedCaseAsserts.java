@@ -53,7 +53,11 @@ public class MedCaseAsserts {
             .satisfies(a -> assertThat(a.getCreatedDate()).as("check createdDate").isEqualTo(expected.getCreatedDate()))
             .satisfies(a -> assertThat(a.getCreatedBy()).as("check createdBy").isEqualTo(expected.getCreatedBy()))
             .satisfies(a -> assertThat(a.getModifiedDate()).as("check modifiedDate").isEqualTo(expected.getModifiedDate()))
-            .satisfies(a -> assertThat(a.getModifiedBy()).as("check modifiedBy").isEqualTo(expected.getModifiedBy()));
+            .satisfies(a -> assertThat(a.getModifiedBy()).as("check modifiedBy").isEqualTo(expected.getModifiedBy()))
+            .satisfies(a -> assertThat(a.getStatus()).as("check status").isEqualTo(expected.getStatus()))
+            .satisfies(a -> assertThat(a.getOpenDate()).as("check openDate").isEqualTo(expected.getOpenDate()))
+            .satisfies(a -> assertThat(a.getCloseDate()).as("check closeDate").isEqualTo(expected.getCloseDate()))
+            .satisfies(a -> assertThat(a.getCategory()).as("check category").isEqualTo(expected.getCategory()));
     }
 
     /**

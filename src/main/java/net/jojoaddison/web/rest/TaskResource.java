@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Task;
 import net.jojoaddison.repository.TaskRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -23,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/tasks")
 public class TaskResource {
 
-    private final Logger log = LoggerFactory.getLogger(TaskResource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
 
     private static final String ENTITY_NAME = "patientMsTask";
 
-    @Value("${jhipster.clientApp.name}")
+    @Value("${jhipster.clientApp.name:hcPatientService}")
     private String applicationName;
 
     private final TaskRepository taskRepository;
@@ -45,15 +46,15 @@ public class TaskResource {
      */
     @PostMapping("")
     public ResponseEntity<Task> createTask(@RequestBody Task task) throws URISyntaxException {
-        log.debug("REST request to save Task : {}", task);
+        LOG.debug("REST request to save Task : {}", task);
         if (task.getId() != null) {
             throw new BadRequestAlertException("A new task cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        Task result = taskRepository.save(task);
+        task = taskRepository.save(task);
         return ResponseEntity
-            .created(new URI("/api/tasks/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
-            .body(result);
+            .created(new URI("/api/tasks/" + task.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, task.getId()))
+            .body(task);
     }
 
     /**
@@ -69,7 +70,7 @@ public class TaskResource {
     @PutMapping("/{id}")
     public ResponseEntity<Task> updateTask(@PathVariable(value = "id", required = false) final String id, @RequestBody Task task)
         throws URISyntaxException {
-        log.debug("REST request to update Task : {}, {}", id, task);
+        LOG.debug("REST request to update Task : {}, {}", id, task);
         if (task.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -81,11 +82,11 @@ public class TaskResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        Task result = taskRepository.save(task);
+        task = taskRepository.save(task);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, task.getId()))
-            .body(result);
+            .body(task);
     }
 
     /**
@@ -102,7 +103,7 @@ public class TaskResource {
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
     public ResponseEntity<Task> partialUpdateTask(@PathVariable(value = "id", required = false) final String id, @RequestBody Task task)
         throws URISyntaxException {
-        log.debug("REST request to partial update Task partially : {}, {}", id, task);
+        LOG.debug("REST request to partial update Task partially : {}, {}", id, task);
         if (task.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -117,42 +118,18 @@ public class TaskResource {
         Optional<Task> result = taskRepository
             .findById(task.getId())
             .map(existingTask -> {
-                if (task.getName() != null) {
-                    existingTask.setName(task.getName());
-                }
-                if (task.getDescription() != null) {
-                    existingTask.setDescription(task.getDescription());
-                }
-                if (task.getSchedule() != null) {
-                    existingTask.setSchedule(task.getSchedule());
-                }
-                if (task.getDuration() != null) {
-                    existingTask.setDuration(task.getDuration());
-                }
-                if (task.getAttendantId() != null) {
-                    existingTask.setAttendantId(task.getAttendantId());
-                }
-                if (task.getTeamId() != null) {
-                    existingTask.setTeamId(task.getTeamId());
-                }
-                if (task.getPatientId() != null) {
-                    existingTask.setPatientId(task.getPatientId());
-                }
-                if (task.getAttendant() != null) {
-                    existingTask.setAttendant(task.getAttendant());
-                }
-                if (task.getCreatedDate() != null) {
-                    existingTask.setCreatedDate(task.getCreatedDate());
-                }
-                if (task.getModifiedDate() != null) {
-                    existingTask.setModifiedDate(task.getModifiedDate());
-                }
-                if (task.getCreatedBy() != null) {
-                    existingTask.setCreatedBy(task.getCreatedBy());
-                }
-                if (task.getModifiedBy() != null) {
-                    existingTask.setModifiedBy(task.getModifiedBy());
-                }
+                updateIfPresent(existingTask::setName, task.getName());
+                updateIfPresent(existingTask::setDescription, task.getDescription());
+                updateIfPresent(existingTask::setSchedule, task.getSchedule());
+                updateIfPresent(existingTask::setDuration, task.getDuration());
+                updateIfPresent(existingTask::setAttendantId, task.getAttendantId());
+                updateIfPresent(existingTask::setTeamId, task.getTeamId());
+                updateIfPresent(existingTask::setPatientId, task.getPatientId());
+                updateIfPresent(existingTask::setAttendant, task.getAttendant());
+                updateIfPresent(existingTask::setCreatedDate, task.getCreatedDate());
+                updateIfPresent(existingTask::setModifiedDate, task.getModifiedDate());
+                updateIfPresent(existingTask::setCreatedBy, task.getCreatedBy());
+                updateIfPresent(existingTask::setModifiedBy, task.getModifiedBy());
 
                 return existingTask;
             })
@@ -162,13 +139,13 @@ public class TaskResource {
     }
 
     /**
-     * {@code GET  /tasks} : get all the tasks.
+     * {@code GET  /tasks} : get all the Tasks.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of tasks in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Tasks in body.
      */
     @GetMapping("")
     public List<Task> getAllTasks() {
-        log.debug("REST request to get all Tasks");
+        LOG.debug("REST request to get all Tasks");
         return taskRepository.findAll();
     }
 
@@ -180,7 +157,7 @@ public class TaskResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Task> getTask(@PathVariable("id") String id) {
-        log.debug("REST request to get Task : {}", id);
+        LOG.debug("REST request to get Task : {}", id);
         Optional<Task> task = taskRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(task);
     }
@@ -193,8 +170,14 @@ public class TaskResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTask(@PathVariable("id") String id) {
-        log.debug("REST request to delete Task : {}", id);
+        LOG.debug("REST request to delete Task : {}", id);
         taskRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }

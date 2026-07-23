@@ -13,12 +13,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.MedCase;
+import net.jojoaddison.domain.enumeration.CaseCategory;
+import net.jojoaddison.domain.enumeration.CaseStatus;
 import net.jojoaddison.repository.MedCaseRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -52,6 +54,18 @@ class MedCaseResourceIT {
     private static final String DEFAULT_MODIFIED_BY = "AAAAAAAAAA";
     private static final String UPDATED_MODIFIED_BY = "BBBBBBBBBB";
 
+    private static final CaseStatus DEFAULT_STATUS = CaseStatus.URGENT;
+    private static final CaseStatus UPDATED_STATUS = CaseStatus.OPEN;
+
+    private static final Instant DEFAULT_OPEN_DATE = Instant.ofEpochMilli(0L);
+    private static final Instant UPDATED_OPEN_DATE = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+    private static final Instant DEFAULT_CLOSE_DATE = Instant.ofEpochMilli(0L);
+    private static final Instant UPDATED_CLOSE_DATE = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+    private static final CaseCategory DEFAULT_CATEGORY = CaseCategory.ROUTINE;
+    private static final CaseCategory UPDATED_CATEGORY = CaseCategory.FOLLOW_UP;
+
     private static final String ENTITY_API_URL = "/api/med-cases";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
@@ -82,7 +96,11 @@ class MedCaseResourceIT {
             .createdDate(DEFAULT_CREATED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedDate(DEFAULT_MODIFIED_DATE)
-            .modifiedBy(DEFAULT_MODIFIED_BY);
+            .modifiedBy(DEFAULT_MODIFIED_BY)
+            .status(DEFAULT_STATUS)
+            .openDate(DEFAULT_OPEN_DATE)
+            .closeDate(DEFAULT_CLOSE_DATE)
+            .category(DEFAULT_CATEGORY);
     }
 
     /**
@@ -99,7 +117,11 @@ class MedCaseResourceIT {
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedDate(UPDATED_MODIFIED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY);
+            .modifiedBy(UPDATED_MODIFIED_BY)
+            .status(UPDATED_STATUS)
+            .openDate(UPDATED_OPEN_DATE)
+            .closeDate(UPDATED_CLOSE_DATE)
+            .category(UPDATED_CATEGORY);
     }
 
     @BeforeEach
@@ -169,7 +191,11 @@ class MedCaseResourceIT {
             .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
             .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
             .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)));
+            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)))
+            .andExpect(jsonPath("$.[*].status").value(hasItem(DEFAULT_STATUS.toString())))
+            .andExpect(jsonPath("$.[*].openDate").value(hasItem(DEFAULT_OPEN_DATE.toString())))
+            .andExpect(jsonPath("$.[*].closeDate").value(hasItem(DEFAULT_CLOSE_DATE.toString())))
+            .andExpect(jsonPath("$.[*].category").value(hasItem(DEFAULT_CATEGORY.toString())));
     }
 
     @Test
@@ -189,7 +215,11 @@ class MedCaseResourceIT {
             .andExpect(jsonPath("$.createdDate").value(DEFAULT_CREATED_DATE.toString()))
             .andExpect(jsonPath("$.createdBy").value(DEFAULT_CREATED_BY))
             .andExpect(jsonPath("$.modifiedDate").value(DEFAULT_MODIFIED_DATE.toString()))
-            .andExpect(jsonPath("$.modifiedBy").value(DEFAULT_MODIFIED_BY));
+            .andExpect(jsonPath("$.modifiedBy").value(DEFAULT_MODIFIED_BY))
+            .andExpect(jsonPath("$.status").value(DEFAULT_STATUS.toString()))
+            .andExpect(jsonPath("$.openDate").value(DEFAULT_OPEN_DATE.toString()))
+            .andExpect(jsonPath("$.closeDate").value(DEFAULT_CLOSE_DATE.toString()))
+            .andExpect(jsonPath("$.category").value(DEFAULT_CATEGORY.toString()));
     }
 
     @Test
@@ -214,7 +244,11 @@ class MedCaseResourceIT {
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedDate(UPDATED_MODIFIED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY);
+            .modifiedBy(UPDATED_MODIFIED_BY)
+            .status(UPDATED_STATUS)
+            .openDate(UPDATED_OPEN_DATE)
+            .closeDate(UPDATED_CLOSE_DATE)
+            .category(UPDATED_CATEGORY);
 
         restMedCaseMockMvc
             .perform(
@@ -290,7 +324,9 @@ class MedCaseResourceIT {
             .symptoms(UPDATED_SYMPTOMS)
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY)
-            .modifiedDate(UPDATED_MODIFIED_DATE);
+            .modifiedDate(UPDATED_MODIFIED_DATE)
+            .status(UPDATED_STATUS)
+            .openDate(UPDATED_OPEN_DATE);
 
         restMedCaseMockMvc
             .perform(
@@ -324,7 +360,11 @@ class MedCaseResourceIT {
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedDate(UPDATED_MODIFIED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY);
+            .modifiedBy(UPDATED_MODIFIED_BY)
+            .status(UPDATED_STATUS)
+            .openDate(UPDATED_OPEN_DATE)
+            .closeDate(UPDATED_CLOSE_DATE)
+            .category(UPDATED_CATEGORY);
 
         restMedCaseMockMvc
             .perform(

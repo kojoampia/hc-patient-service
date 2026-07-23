@@ -65,6 +65,10 @@ public class MedCaseService {
                 updateIfPresent(existingMedCase::setCreatedBy, medCase.getCreatedBy());
                 updateIfPresent(existingMedCase::setModifiedDate, medCase.getModifiedDate());
                 updateIfPresent(existingMedCase::setModifiedBy, medCase.getModifiedBy());
+                updateIfPresent(existingMedCase::setStatus, medCase.getStatus());
+                updateIfPresent(existingMedCase::setOpenDate, medCase.getOpenDate());
+                updateIfPresent(existingMedCase::setCloseDate, medCase.getCloseDate());
+                updateIfPresent(existingMedCase::setCategory, medCase.getCategory());
 
                 return existingMedCase;
             })

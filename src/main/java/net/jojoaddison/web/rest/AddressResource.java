@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Address;
 import net.jojoaddison.repository.AddressRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -23,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/addresses")
 public class AddressResource {
 
-    private final Logger log = LoggerFactory.getLogger(AddressResource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AddressResource.class);
 
     private static final String ENTITY_NAME = "patientMsAddress";
 
-    @Value("${jhipster.clientApp.name}")
+    @Value("${jhipster.clientApp.name:hcPatientService}")
     private String applicationName;
 
     private final AddressRepository addressRepository;
@@ -45,15 +46,15 @@ public class AddressResource {
      */
     @PostMapping("")
     public ResponseEntity<Address> createAddress(@RequestBody Address address) throws URISyntaxException {
-        log.debug("REST request to save Address : {}", address);
+        LOG.debug("REST request to save Address : {}", address);
         if (address.getId() != null) {
             throw new BadRequestAlertException("A new address cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        Address result = addressRepository.save(address);
+        address = addressRepository.save(address);
         return ResponseEntity
-            .created(new URI("/api/addresses/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
-            .body(result);
+            .created(new URI("/api/addresses/" + address.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, address.getId()))
+            .body(address);
     }
 
     /**
@@ -71,7 +72,7 @@ public class AddressResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Address address
     ) throws URISyntaxException {
-        log.debug("REST request to update Address : {}, {}", id, address);
+        LOG.debug("REST request to update Address : {}, {}", id, address);
         if (address.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -83,11 +84,11 @@ public class AddressResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        Address result = addressRepository.save(address);
+        address = addressRepository.save(address);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, address.getId()))
-            .body(result);
+            .body(address);
     }
 
     /**
@@ -106,7 +107,7 @@ public class AddressResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Address address
     ) throws URISyntaxException {
-        log.debug("REST request to partial update Address partially : {}, {}", id, address);
+        LOG.debug("REST request to partial update Address partially : {}, {}", id, address);
         if (address.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -121,45 +122,19 @@ public class AddressResource {
         Optional<Address> result = addressRepository
             .findById(address.getId())
             .map(existingAddress -> {
-                if (address.getDigitalAddress() != null) {
-                    existingAddress.setDigitalAddress(address.getDigitalAddress());
-                }
-                if (address.getStreetAddress() != null) {
-                    existingAddress.setStreetAddress(address.getStreetAddress());
-                }
-                if (address.getAreaCode() != null) {
-                    existingAddress.setAreaCode(address.getAreaCode());
-                }
-                if (address.getTown() != null) {
-                    existingAddress.setTown(address.getTown());
-                }
-                if (address.getCity() != null) {
-                    existingAddress.setCity(address.getCity());
-                }
-                if (address.getDistrict() != null) {
-                    existingAddress.setDistrict(address.getDistrict());
-                }
-                if (address.getState() != null) {
-                    existingAddress.setState(address.getState());
-                }
-                if (address.getRegion() != null) {
-                    existingAddress.setRegion(address.getRegion());
-                }
-                if (address.getCountry() != null) {
-                    existingAddress.setCountry(address.getCountry());
-                }
-                if (address.getCreatedDate() != null) {
-                    existingAddress.setCreatedDate(address.getCreatedDate());
-                }
-                if (address.getModifiedDate() != null) {
-                    existingAddress.setModifiedDate(address.getModifiedDate());
-                }
-                if (address.getCreatedBy() != null) {
-                    existingAddress.setCreatedBy(address.getCreatedBy());
-                }
-                if (address.getModifiedBy() != null) {
-                    existingAddress.setModifiedBy(address.getModifiedBy());
-                }
+                updateIfPresent(existingAddress::setDigitalAddress, address.getDigitalAddress());
+                updateIfPresent(existingAddress::setStreetAddress, address.getStreetAddress());
+                updateIfPresent(existingAddress::setAreaCode, address.getAreaCode());
+                updateIfPresent(existingAddress::setTown, address.getTown());
+                updateIfPresent(existingAddress::setCity, address.getCity());
+                updateIfPresent(existingAddress::setDistrict, address.getDistrict());
+                updateIfPresent(existingAddress::setState, address.getState());
+                updateIfPresent(existingAddress::setRegion, address.getRegion());
+                updateIfPresent(existingAddress::setCountry, address.getCountry());
+                updateIfPresent(existingAddress::setCreatedDate, address.getCreatedDate());
+                updateIfPresent(existingAddress::setModifiedDate, address.getModifiedDate());
+                updateIfPresent(existingAddress::setCreatedBy, address.getCreatedBy());
+                updateIfPresent(existingAddress::setModifiedBy, address.getModifiedBy());
 
                 return existingAddress;
             })
@@ -172,13 +147,13 @@ public class AddressResource {
     }
 
     /**
-     * {@code GET  /addresses} : get all the addresses.
+     * {@code GET  /addresses} : get all the Addresses.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of addresses in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Addresses in body.
      */
     @GetMapping("")
     public List<Address> getAllAddresses() {
-        log.debug("REST request to get all Addresses");
+        LOG.debug("REST request to get all Addresses");
         return addressRepository.findAll();
     }
 
@@ -190,7 +165,7 @@ public class AddressResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Address> getAddress(@PathVariable("id") String id) {
-        log.debug("REST request to get Address : {}", id);
+        LOG.debug("REST request to get Address : {}", id);
         Optional<Address> address = addressRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(address);
     }
@@ -203,8 +178,14 @@ public class AddressResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteAddress(@PathVariable("id") String id) {
-        log.debug("REST request to delete Address : {}", id);
+        LOG.debug("REST request to delete Address : {}", id);
         addressRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }

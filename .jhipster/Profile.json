@@ -3,7 +3,7 @@
     "changelogDate": "20240206221158"
   },
   "changelogDate": "20240206221158",
-  "clientRootFolder": "patientMS",
+  "clientRootFolder": "patientService",
   "databaseType": "mongodb",
   "dto": "no",
   "entityTableName": "profile",
@@ -69,7 +69,7 @@
       "fieldType": "String"
     }
   ],
-  "microserviceName": "hcPatientService",
+  "microserviceName": "patientService",
   "name": "Profile",
   "pagination": "pagination",
   "readOnly": false,

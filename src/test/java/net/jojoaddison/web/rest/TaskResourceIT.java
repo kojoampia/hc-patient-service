@@ -1,17 +1,20 @@
 package net.jojoaddison.web.rest;
 
+import static net.jojoaddison.domain.TaskAsserts.*;
+import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Task;
 import net.jojoaddison.repository.TaskRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,12 +71,17 @@ class TaskResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
+    private ObjectMapper om;
+
+    @Autowired
     private TaskRepository taskRepository;
 
     @Autowired
     private MockMvc restTaskMockMvc;
 
     private Task task;
+
+    private Task insertedTask;
 
     /**
      * Create an entity for this test.
@@ -82,7 +90,7 @@ class TaskResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Task createEntity() {
-        Task task = new Task()
+        return new Task()
             .name(DEFAULT_NAME)
             .description(DEFAULT_DESCRIPTION)
             .schedule(DEFAULT_SCHEDULE)
@@ -95,7 +103,6 @@ class TaskResourceIT {
             .modifiedDate(DEFAULT_MODIFIED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedBy(DEFAULT_MODIFIED_BY);
-        return task;
     }
 
     /**
@@ -105,7 +112,7 @@ class TaskResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Task createUpdatedEntity() {
-        Task task = new Task()
+        return new Task()
             .name(UPDATED_NAME)
             .description(UPDATED_DESCRIPTION)
             .schedule(UPDATED_SCHEDULE)
@@ -118,39 +125,40 @@ class TaskResourceIT {
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedBy(UPDATED_MODIFIED_BY);
-        return task;
     }
 
     @BeforeEach
-    public void initTest() {
-        taskRepository.deleteAll();
+    void initTest() {
         task = createEntity();
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (insertedTask != null) {
+            taskRepository.delete(insertedTask);
+            insertedTask = null;
+        }
     }
 
     @Test
     void createTask() throws Exception {
-        int databaseSizeBeforeCreate = taskRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
         // Create the Task
-        restTaskMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(task)))
-            .andExpect(status().isCreated());
+        var returnedTask = om.readValue(
+            restTaskMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(task)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            Task.class
+        );
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeCreate + 1);
-        Task testTask = taskList.get(taskList.size() - 1);
-        assertThat(testTask.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testTask.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testTask.getSchedule()).isEqualTo(DEFAULT_SCHEDULE);
-        assertThat(testTask.getDuration()).isEqualTo(DEFAULT_DURATION);
-        assertThat(testTask.getAttendantId()).isEqualTo(DEFAULT_ATTENDANT_ID);
-        assertThat(testTask.getTeamId()).isEqualTo(DEFAULT_TEAM_ID);
-        assertThat(testTask.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testTask.getAttendant()).isEqualTo(DEFAULT_ATTENDANT);
-        assertThat(testTask.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testTask.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testTask.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testTask.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
+        assertTaskUpdatableFieldsEquals(returnedTask, getPersistedTask(returnedTask));
+
+        insertedTask = returnedTask;
     }
 
     @Test
@@ -158,22 +166,21 @@ class TaskResourceIT {
         // Create the Task with an existing ID
         task.setId("existing_id");
 
-        int databaseSizeBeforeCreate = taskRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restTaskMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(task)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(task)))
             .andExpect(status().isBadRequest());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeCreate);
+        assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllTasks() throws Exception {
         // Initialize the database
-        taskRepository.save(task);
+        insertedTask = taskRepository.save(task);
 
         // Get all the taskList
         restTaskMockMvc
@@ -184,7 +191,7 @@ class TaskResourceIT {
             .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
             .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
             .andExpect(jsonPath("$.[*].schedule").value(hasItem(DEFAULT_SCHEDULE.toString())))
-            .andExpect(jsonPath("$.[*].duration").value(hasItem(DEFAULT_DURATION.doubleValue())))
+            .andExpect(jsonPath("$.[*].duration").value(hasItem(DEFAULT_DURATION)))
             .andExpect(jsonPath("$.[*].attendantId").value(hasItem(DEFAULT_ATTENDANT_ID)))
             .andExpect(jsonPath("$.[*].teamId").value(hasItem(DEFAULT_TEAM_ID)))
             .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
@@ -198,7 +205,7 @@ class TaskResourceIT {
     @Test
     void getTask() throws Exception {
         // Initialize the database
-        taskRepository.save(task);
+        insertedTask = taskRepository.save(task);
 
         // Get the task
         restTaskMockMvc
@@ -209,7 +216,7 @@ class TaskResourceIT {
             .andExpect(jsonPath("$.name").value(DEFAULT_NAME))
             .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
             .andExpect(jsonPath("$.schedule").value(DEFAULT_SCHEDULE.toString()))
-            .andExpect(jsonPath("$.duration").value(DEFAULT_DURATION.doubleValue()))
+            .andExpect(jsonPath("$.duration").value(DEFAULT_DURATION))
             .andExpect(jsonPath("$.attendantId").value(DEFAULT_ATTENDANT_ID))
             .andExpect(jsonPath("$.teamId").value(DEFAULT_TEAM_ID))
             .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID))
@@ -229,9 +236,9 @@ class TaskResourceIT {
     @Test
     void putExistingTask() throws Exception {
         // Initialize the database
-        taskRepository.save(task);
+        insertedTask = taskRepository.save(task);
 
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the task
         Task updatedTask = taskRepository.findById(task.getId()).orElseThrow();
@@ -253,50 +260,32 @@ class TaskResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedTask.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedTask))
+                    .content(om.writeValueAsBytes(updatedTask))
             )
             .andExpect(status().isOk());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
-        Task testTask = taskList.get(taskList.size() - 1);
-        assertThat(testTask.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testTask.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testTask.getSchedule()).isEqualTo(UPDATED_SCHEDULE);
-        assertThat(testTask.getDuration()).isEqualTo(UPDATED_DURATION);
-        assertThat(testTask.getAttendantId()).isEqualTo(UPDATED_ATTENDANT_ID);
-        assertThat(testTask.getTeamId()).isEqualTo(UPDATED_TEAM_ID);
-        assertThat(testTask.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testTask.getAttendant()).isEqualTo(UPDATED_ATTENDANT);
-        assertThat(testTask.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testTask.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testTask.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testTask.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertPersistedTaskToMatchAllProperties(updatedTask);
     }
 
     @Test
     void putNonExistingTask() throws Exception {
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         task.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restTaskMockMvc
-            .perform(
-                put(ENTITY_API_URL_ID, task.getId())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(task))
-            )
+            .perform(put(ENTITY_API_URL_ID, task.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(task)))
             .andExpect(status().isBadRequest());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchTask() throws Exception {
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         task.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -304,80 +293,68 @@ class TaskResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(task))
+                    .content(om.writeValueAsBytes(task))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamTask() throws Exception {
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         task.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restTaskMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(task)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(task)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateTaskWithPatch() throws Exception {
         // Initialize the database
-        taskRepository.save(task);
+        insertedTask = taskRepository.save(task);
 
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the task using partial update
         Task partialUpdatedTask = new Task();
         partialUpdatedTask.setId(task.getId());
 
         partialUpdatedTask
-            .schedule(UPDATED_SCHEDULE)
+            .description(UPDATED_DESCRIPTION)
+            .attendantId(UPDATED_ATTENDANT_ID)
             .teamId(UPDATED_TEAM_ID)
             .patientId(UPDATED_PATIENT_ID)
             .attendant(UPDATED_ATTENDANT)
-            .modifiedDate(UPDATED_MODIFIED_DATE);
+            .modifiedDate(UPDATED_MODIFIED_DATE)
+            .modifiedBy(UPDATED_MODIFIED_BY);
 
         restTaskMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedTask.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedTask))
+                    .content(om.writeValueAsBytes(partialUpdatedTask))
             )
             .andExpect(status().isOk());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
-        Task testTask = taskList.get(taskList.size() - 1);
-        assertThat(testTask.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testTask.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testTask.getSchedule()).isEqualTo(UPDATED_SCHEDULE);
-        assertThat(testTask.getDuration()).isEqualTo(DEFAULT_DURATION);
-        assertThat(testTask.getAttendantId()).isEqualTo(DEFAULT_ATTENDANT_ID);
-        assertThat(testTask.getTeamId()).isEqualTo(UPDATED_TEAM_ID);
-        assertThat(testTask.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testTask.getAttendant()).isEqualTo(UPDATED_ATTENDANT);
-        assertThat(testTask.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testTask.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testTask.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testTask.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertTaskUpdatableFieldsEquals(createUpdateProxyForBean(partialUpdatedTask, task), getPersistedTask(task));
     }
 
     @Test
     void fullUpdateTaskWithPatch() throws Exception {
         // Initialize the database
-        taskRepository.save(task);
+        insertedTask = taskRepository.save(task);
 
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the task using partial update
         Task partialUpdatedTask = new Task();
@@ -401,50 +378,33 @@ class TaskResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedTask.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedTask))
+                    .content(om.writeValueAsBytes(partialUpdatedTask))
             )
             .andExpect(status().isOk());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
-        Task testTask = taskList.get(taskList.size() - 1);
-        assertThat(testTask.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testTask.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testTask.getSchedule()).isEqualTo(UPDATED_SCHEDULE);
-        assertThat(testTask.getDuration()).isEqualTo(UPDATED_DURATION);
-        assertThat(testTask.getAttendantId()).isEqualTo(UPDATED_ATTENDANT_ID);
-        assertThat(testTask.getTeamId()).isEqualTo(UPDATED_TEAM_ID);
-        assertThat(testTask.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testTask.getAttendant()).isEqualTo(UPDATED_ATTENDANT);
-        assertThat(testTask.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testTask.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testTask.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testTask.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertTaskUpdatableFieldsEquals(partialUpdatedTask, getPersistedTask(partialUpdatedTask));
     }
 
     @Test
     void patchNonExistingTask() throws Exception {
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         task.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restTaskMockMvc
-            .perform(
-                patch(ENTITY_API_URL_ID, task.getId())
-                    .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(task))
-            )
+            .perform(patch(ENTITY_API_URL_ID, task.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(task)))
             .andExpect(status().isBadRequest());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchTask() throws Exception {
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         task.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -452,36 +412,34 @@ class TaskResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(task))
+                    .content(om.writeValueAsBytes(task))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamTask() throws Exception {
-        int databaseSizeBeforeUpdate = taskRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         task.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restTaskMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(task)))
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(task)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Task in the database
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteTask() throws Exception {
         // Initialize the database
-        taskRepository.save(task);
+        insertedTask = taskRepository.save(task);
 
-        int databaseSizeBeforeDelete = taskRepository.findAll().size();
+        long databaseSizeBeforeDelete = getRepositoryCount();
 
         // Delete the task
         restTaskMockMvc
@@ -489,7 +447,34 @@ class TaskResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        List<Task> taskList = taskRepository.findAll();
-        assertThat(taskList).hasSize(databaseSizeBeforeDelete - 1);
+        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
+    }
+
+    protected long getRepositoryCount() {
+        return taskRepository.count();
+    }
+
+    protected void assertIncrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertDecrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertSameRepositoryCount(long countBefore) {
+        assertThat(countBefore).isEqualTo(getRepositoryCount());
+    }
+
+    protected Task getPersistedTask(Task task) {
+        return taskRepository.findById(task.getId()).orElseThrow();
+    }
+
+    protected void assertPersistedTaskToMatchAllProperties(Task expectedTask) {
+        assertTaskAllPropertiesEquals(expectedTask, getPersistedTask(expectedTask));
+    }
+
+    protected void assertPersistedTaskToMatchUpdatableProperties(Task expectedTask) {
+        assertTaskAllUpdatablePropertiesEquals(expectedTask, getPersistedTask(expectedTask));
     }
 }

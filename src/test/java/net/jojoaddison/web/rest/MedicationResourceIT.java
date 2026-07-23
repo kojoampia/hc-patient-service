@@ -1,17 +1,20 @@
 package net.jojoaddison.web.rest;
 
+import static net.jojoaddison.domain.MedicationAsserts.*;
+import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.repository.MedicationRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,12 +59,17 @@ class MedicationResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
+    private ObjectMapper om;
+
+    @Autowired
     private MedicationRepository medicationRepository;
 
     @Autowired
     private MockMvc restMedicationMockMvc;
 
     private Medication medication;
+
+    private Medication insertedMedication;
 
     /**
      * Create an entity for this test.
@@ -70,7 +78,7 @@ class MedicationResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Medication createEntity() {
-        Medication medication = new Medication()
+        return new Medication()
             .name(DEFAULT_NAME)
             .description(DEFAULT_DESCRIPTION)
             .patientId(DEFAULT_PATIENT_ID)
@@ -79,7 +87,6 @@ class MedicationResourceIT {
             .modifiedDate(DEFAULT_MODIFIED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedBy(DEFAULT_MODIFIED_BY);
-        return medication;
     }
 
     /**
@@ -89,7 +96,7 @@ class MedicationResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Medication createUpdatedEntity() {
-        Medication medication = new Medication()
+        return new Medication()
             .name(UPDATED_NAME)
             .description(UPDATED_DESCRIPTION)
             .patientId(UPDATED_PATIENT_ID)
@@ -98,35 +105,40 @@ class MedicationResourceIT {
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedBy(UPDATED_MODIFIED_BY);
-        return medication;
     }
 
     @BeforeEach
-    public void initTest() {
-        medicationRepository.deleteAll();
+    void initTest() {
         medication = createEntity();
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (insertedMedication != null) {
+            medicationRepository.delete(insertedMedication);
+            insertedMedication = null;
+        }
     }
 
     @Test
     void createMedication() throws Exception {
-        int databaseSizeBeforeCreate = medicationRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
         // Create the Medication
-        restMedicationMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(medication)))
-            .andExpect(status().isCreated());
+        var returnedMedication = om.readValue(
+            restMedicationMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medication)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            Medication.class
+        );
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeCreate + 1);
-        Medication testMedication = medicationList.get(medicationList.size() - 1);
-        assertThat(testMedication.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testMedication.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testMedication.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testMedication.getPrescription()).isEqualTo(DEFAULT_PRESCRIPTION);
-        assertThat(testMedication.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testMedication.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testMedication.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testMedication.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
+        assertMedicationUpdatableFieldsEquals(returnedMedication, getPersistedMedication(returnedMedication));
+
+        insertedMedication = returnedMedication;
     }
 
     @Test
@@ -134,22 +146,21 @@ class MedicationResourceIT {
         // Create the Medication with an existing ID
         medication.setId("existing_id");
 
-        int databaseSizeBeforeCreate = medicationRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restMedicationMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(medication)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medication)))
             .andExpect(status().isBadRequest());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeCreate);
+        assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllMedications() throws Exception {
         // Initialize the database
-        medicationRepository.save(medication);
+        insertedMedication = medicationRepository.save(medication);
 
         // Get all the medicationList
         restMedicationMockMvc
@@ -170,7 +181,7 @@ class MedicationResourceIT {
     @Test
     void getMedication() throws Exception {
         // Initialize the database
-        medicationRepository.save(medication);
+        insertedMedication = medicationRepository.save(medication);
 
         // Get the medication
         restMedicationMockMvc
@@ -197,9 +208,9 @@ class MedicationResourceIT {
     @Test
     void putExistingMedication() throws Exception {
         // Initialize the database
-        medicationRepository.save(medication);
+        insertedMedication = medicationRepository.save(medication);
 
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the medication
         Medication updatedMedication = medicationRepository.findById(medication.getId()).orElseThrow();
@@ -217,46 +228,34 @@ class MedicationResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedMedication.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedMedication))
+                    .content(om.writeValueAsBytes(updatedMedication))
             )
             .andExpect(status().isOk());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
-        Medication testMedication = medicationList.get(medicationList.size() - 1);
-        assertThat(testMedication.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMedication.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testMedication.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testMedication.getPrescription()).isEqualTo(UPDATED_PRESCRIPTION);
-        assertThat(testMedication.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testMedication.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testMedication.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testMedication.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertPersistedMedicationToMatchAllProperties(updatedMedication);
     }
 
     @Test
     void putNonExistingMedication() throws Exception {
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         medication.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restMedicationMockMvc
             .perform(
-                put(ENTITY_API_URL_ID, medication.getId())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(medication))
+                put(ENTITY_API_URL_ID, medication.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medication))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchMedication() throws Exception {
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         medication.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -264,71 +263,68 @@ class MedicationResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(medication))
+                    .content(om.writeValueAsBytes(medication))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamMedication() throws Exception {
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         medication.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restMedicationMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(medication)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medication)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateMedicationWithPatch() throws Exception {
         // Initialize the database
-        medicationRepository.save(medication);
+        insertedMedication = medicationRepository.save(medication);
 
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the medication using partial update
         Medication partialUpdatedMedication = new Medication();
         partialUpdatedMedication.setId(medication.getId());
 
-        partialUpdatedMedication.name(UPDATED_NAME).prescription(UPDATED_PRESCRIPTION).createdDate(UPDATED_CREATED_DATE);
+        partialUpdatedMedication
+            .description(UPDATED_DESCRIPTION)
+            .createdDate(UPDATED_CREATED_DATE)
+            .modifiedDate(UPDATED_MODIFIED_DATE)
+            .modifiedBy(UPDATED_MODIFIED_BY);
 
         restMedicationMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedMedication.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedMedication))
+                    .content(om.writeValueAsBytes(partialUpdatedMedication))
             )
             .andExpect(status().isOk());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
-        Medication testMedication = medicationList.get(medicationList.size() - 1);
-        assertThat(testMedication.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMedication.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testMedication.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testMedication.getPrescription()).isEqualTo(UPDATED_PRESCRIPTION);
-        assertThat(testMedication.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testMedication.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testMedication.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testMedication.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertMedicationUpdatableFieldsEquals(
+            createUpdateProxyForBean(partialUpdatedMedication, medication),
+            getPersistedMedication(medication)
+        );
     }
 
     @Test
     void fullUpdateMedicationWithPatch() throws Exception {
         // Initialize the database
-        medicationRepository.save(medication);
+        insertedMedication = medicationRepository.save(medication);
 
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the medication using partial update
         Medication partialUpdatedMedication = new Medication();
@@ -348,27 +344,19 @@ class MedicationResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedMedication.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedMedication))
+                    .content(om.writeValueAsBytes(partialUpdatedMedication))
             )
             .andExpect(status().isOk());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
-        Medication testMedication = medicationList.get(medicationList.size() - 1);
-        assertThat(testMedication.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testMedication.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testMedication.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testMedication.getPrescription()).isEqualTo(UPDATED_PRESCRIPTION);
-        assertThat(testMedication.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testMedication.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testMedication.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testMedication.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertMedicationUpdatableFieldsEquals(partialUpdatedMedication, getPersistedMedication(partialUpdatedMedication));
     }
 
     @Test
     void patchNonExistingMedication() throws Exception {
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         medication.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
@@ -376,18 +364,17 @@ class MedicationResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, medication.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(medication))
+                    .content(om.writeValueAsBytes(medication))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchMedication() throws Exception {
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         medication.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -395,38 +382,34 @@ class MedicationResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(medication))
+                    .content(om.writeValueAsBytes(medication))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamMedication() throws Exception {
-        int databaseSizeBeforeUpdate = medicationRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         medication.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restMedicationMockMvc
-            .perform(
-                patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(medication))
-            )
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(medication)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Medication in the database
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteMedication() throws Exception {
         // Initialize the database
-        medicationRepository.save(medication);
+        insertedMedication = medicationRepository.save(medication);
 
-        int databaseSizeBeforeDelete = medicationRepository.findAll().size();
+        long databaseSizeBeforeDelete = getRepositoryCount();
 
         // Delete the medication
         restMedicationMockMvc
@@ -434,7 +417,34 @@ class MedicationResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        List<Medication> medicationList = medicationRepository.findAll();
-        assertThat(medicationList).hasSize(databaseSizeBeforeDelete - 1);
+        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
+    }
+
+    protected long getRepositoryCount() {
+        return medicationRepository.count();
+    }
+
+    protected void assertIncrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertDecrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertSameRepositoryCount(long countBefore) {
+        assertThat(countBefore).isEqualTo(getRepositoryCount());
+    }
+
+    protected Medication getPersistedMedication(Medication medication) {
+        return medicationRepository.findById(medication.getId()).orElseThrow();
+    }
+
+    protected void assertPersistedMedicationToMatchAllProperties(Medication expectedMedication) {
+        assertMedicationAllPropertiesEquals(expectedMedication, getPersistedMedication(expectedMedication));
+    }
+
+    protected void assertPersistedMedicationToMatchUpdatableProperties(Medication expectedMedication) {
+        assertMedicationAllUpdatablePropertiesEquals(expectedMedication, getPersistedMedication(expectedMedication));
     }
 }

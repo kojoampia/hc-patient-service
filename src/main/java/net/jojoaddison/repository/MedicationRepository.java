@@ -7,6 +7,5 @@ import org.springframework.stereotype.Repository;
 /**
  * Spring Data MongoDB repository for the Medication entity.
  */
-@SuppressWarnings("unused")
 @Repository
 public interface MedicationRepository extends MongoRepository<Medication, String> {}

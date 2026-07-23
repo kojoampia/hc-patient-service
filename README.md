@@ -1,6 +1,6 @@
 # Health Connect Patient Service
 
-This is the **Health Connect Patient Data Micro Service** — a backend-only microservice (no frontend) that manages patient data for the Health Connect platform. It was generated using JHipster 8.1.0 and runs on **Spring Boot 4.0.3** with **JHipster BOM 9.0.0** and **Java 26**.
+This is the **Health Connect Patient Data Micro Service** — a backend-only microservice (no frontend) that manages patient data for the Health Connect platform. It was originally generated using JHipster 8.1.0 (entities have since been regenerated with the JHipster 9.1.0 generator — see `.yo-rc.json`) and runs on **Spring Boot 4.0.3** with **JHipster BOM 9.1.0** and **Java 26**.
 
 For JHipster documentation and help, visit [https://www.jhipster.tech/documentation-archive/v8.1.0](https://www.jhipster.tech/documentation-archive/v8.1.0).
 
@@ -12,7 +12,7 @@ This application is configured for Service Discovery and Configuration with Cons
 | Component         | Technology                              |
 | ----------------- | --------------------------------------- |
 | Language          | Java 26                                 |
-| Framework         | Spring Boot 4.0.3 / JHipster BOM 9.0.0  |
+| Framework         | Spring Boot 4.0.3 / JHipster BOM 9.1.0  |
 | Database          | MongoDB                                 |
 | Message Broker    | Apache Kafka (Confluent Platform 7.5.2) |
 | Service Discovery | Consul                                  |
@@ -34,9 +34,9 @@ The service manages the following patient-related domain entities:
 - **Membership** – plan or program memberships
 - **Report** – patient reports
 - **Metadata** – extensible metadata
-- **HCCredential** – health credentials
-- **HCPayOption** – payment options
-- **HCDocument** – associated documents
+- **MedCase** – medical cases
+
+`HCCredential`, `HCPayOption`, and `HCDocument` have been removed from this service.
 
 ## Project Structure
 

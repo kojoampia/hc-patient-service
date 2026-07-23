@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -23,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/medications")
 public class MedicationResource {
 
-    private final Logger log = LoggerFactory.getLogger(MedicationResource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MedicationResource.class);
 
     private static final String ENTITY_NAME = "patientMsMedication";
 
-    @Value("${jhipster.clientApp.name}")
+    @Value("${jhipster.clientApp.name:hcPatientService}")
     private String applicationName;
 
     private final MedicationRepository medicationRepository;
@@ -45,15 +46,15 @@ public class MedicationResource {
      */
     @PostMapping("")
     public ResponseEntity<Medication> createMedication(@RequestBody Medication medication) throws URISyntaxException {
-        log.debug("REST request to save Medication : {}", medication);
+        LOG.debug("REST request to save Medication : {}", medication);
         if (medication.getId() != null) {
             throw new BadRequestAlertException("A new medication cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        Medication result = medicationRepository.save(medication);
+        medication = medicationRepository.save(medication);
         return ResponseEntity
-            .created(new URI("/api/medications/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
-            .body(result);
+            .created(new URI("/api/medications/" + medication.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, medication.getId()))
+            .body(medication);
     }
 
     /**
@@ -71,7 +72,7 @@ public class MedicationResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Medication medication
     ) throws URISyntaxException {
-        log.debug("REST request to update Medication : {}, {}", id, medication);
+        LOG.debug("REST request to update Medication : {}, {}", id, medication);
         if (medication.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -83,11 +84,11 @@ public class MedicationResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        Medication result = medicationRepository.save(medication);
+        medication = medicationRepository.save(medication);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, medication.getId()))
-            .body(result);
+            .body(medication);
     }
 
     /**
@@ -106,7 +107,7 @@ public class MedicationResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Medication medication
     ) throws URISyntaxException {
-        log.debug("REST request to partial update Medication partially : {}, {}", id, medication);
+        LOG.debug("REST request to partial update Medication partially : {}, {}", id, medication);
         if (medication.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -121,30 +122,14 @@ public class MedicationResource {
         Optional<Medication> result = medicationRepository
             .findById(medication.getId())
             .map(existingMedication -> {
-                if (medication.getName() != null) {
-                    existingMedication.setName(medication.getName());
-                }
-                if (medication.getDescription() != null) {
-                    existingMedication.setDescription(medication.getDescription());
-                }
-                if (medication.getPatientId() != null) {
-                    existingMedication.setPatientId(medication.getPatientId());
-                }
-                if (medication.getPrescription() != null) {
-                    existingMedication.setPrescription(medication.getPrescription());
-                }
-                if (medication.getCreatedDate() != null) {
-                    existingMedication.setCreatedDate(medication.getCreatedDate());
-                }
-                if (medication.getModifiedDate() != null) {
-                    existingMedication.setModifiedDate(medication.getModifiedDate());
-                }
-                if (medication.getCreatedBy() != null) {
-                    existingMedication.setCreatedBy(medication.getCreatedBy());
-                }
-                if (medication.getModifiedBy() != null) {
-                    existingMedication.setModifiedBy(medication.getModifiedBy());
-                }
+                updateIfPresent(existingMedication::setName, medication.getName());
+                updateIfPresent(existingMedication::setDescription, medication.getDescription());
+                updateIfPresent(existingMedication::setPatientId, medication.getPatientId());
+                updateIfPresent(existingMedication::setPrescription, medication.getPrescription());
+                updateIfPresent(existingMedication::setCreatedDate, medication.getCreatedDate());
+                updateIfPresent(existingMedication::setModifiedDate, medication.getModifiedDate());
+                updateIfPresent(existingMedication::setCreatedBy, medication.getCreatedBy());
+                updateIfPresent(existingMedication::setModifiedBy, medication.getModifiedBy());
 
                 return existingMedication;
             })
@@ -157,13 +142,13 @@ public class MedicationResource {
     }
 
     /**
-     * {@code GET  /medications} : get all the medications.
+     * {@code GET  /medications} : get all the Medications.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of medications in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Medications in body.
      */
     @GetMapping("")
     public List<Medication> getAllMedications() {
-        log.debug("REST request to get all Medications");
+        LOG.debug("REST request to get all Medications");
         return medicationRepository.findAll();
     }
 
@@ -175,7 +160,7 @@ public class MedicationResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Medication> getMedication(@PathVariable("id") String id) {
-        log.debug("REST request to get Medication : {}", id);
+        LOG.debug("REST request to get Medication : {}", id);
         Optional<Medication> medication = medicationRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(medication);
     }
@@ -188,8 +173,14 @@ public class MedicationResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMedication(@PathVariable("id") String id) {
-        log.debug("REST request to delete Medication : {}", id);
+        LOG.debug("REST request to delete Medication : {}", id);
         medicationRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }

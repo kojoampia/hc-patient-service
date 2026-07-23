@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -23,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/reports")
 public class ReportResource {
 
-    private final Logger log = LoggerFactory.getLogger(ReportResource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ReportResource.class);
 
     private static final String ENTITY_NAME = "patientMsReport";
 
-    @Value("${jhipster.clientApp.name}")
+    @Value("${jhipster.clientApp.name:hcPatientService}")
     private String applicationName;
 
     private final ReportRepository reportRepository;
@@ -45,15 +46,15 @@ public class ReportResource {
      */
     @PostMapping("")
     public ResponseEntity<Report> createReport(@RequestBody Report report) throws URISyntaxException {
-        log.debug("REST request to save Report : {}", report);
+        LOG.debug("REST request to save Report : {}", report);
         if (report.getId() != null) {
             throw new BadRequestAlertException("A new report cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        Report result = reportRepository.save(report);
+        report = reportRepository.save(report);
         return ResponseEntity
-            .created(new URI("/api/reports/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
-            .body(result);
+            .created(new URI("/api/reports/" + report.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, report.getId()))
+            .body(report);
     }
 
     /**
@@ -69,7 +70,7 @@ public class ReportResource {
     @PutMapping("/{id}")
     public ResponseEntity<Report> updateReport(@PathVariable(value = "id", required = false) final String id, @RequestBody Report report)
         throws URISyntaxException {
-        log.debug("REST request to update Report : {}, {}", id, report);
+        LOG.debug("REST request to update Report : {}, {}", id, report);
         if (report.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -81,11 +82,11 @@ public class ReportResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        Report result = reportRepository.save(report);
+        report = reportRepository.save(report);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, report.getId()))
-            .body(result);
+            .body(report);
     }
 
     /**
@@ -104,7 +105,7 @@ public class ReportResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Report report
     ) throws URISyntaxException {
-        log.debug("REST request to partial update Report partially : {}, {}", id, report);
+        LOG.debug("REST request to partial update Report partially : {}, {}", id, report);
         if (report.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -119,33 +120,15 @@ public class ReportResource {
         Optional<Report> result = reportRepository
             .findById(report.getId())
             .map(existingReport -> {
-                if (report.getCategory() != null) {
-                    existingReport.setCategory(report.getCategory());
-                }
-                if (report.getDescription() != null) {
-                    existingReport.setDescription(report.getDescription());
-                }
-                if (report.getName() != null) {
-                    existingReport.setName(report.getName());
-                }
-                if (report.getUrl() != null) {
-                    existingReport.setUrl(report.getUrl());
-                }
-                if (report.getPatientId() != null) {
-                    existingReport.setPatientId(report.getPatientId());
-                }
-                if (report.getCreatedDate() != null) {
-                    existingReport.setCreatedDate(report.getCreatedDate());
-                }
-                if (report.getModifiedDate() != null) {
-                    existingReport.setModifiedDate(report.getModifiedDate());
-                }
-                if (report.getCreatedBy() != null) {
-                    existingReport.setCreatedBy(report.getCreatedBy());
-                }
-                if (report.getModifiedBy() != null) {
-                    existingReport.setModifiedBy(report.getModifiedBy());
-                }
+                updateIfPresent(existingReport::setCategory, report.getCategory());
+                updateIfPresent(existingReport::setDescription, report.getDescription());
+                updateIfPresent(existingReport::setName, report.getName());
+                updateIfPresent(existingReport::setUrl, report.getUrl());
+                updateIfPresent(existingReport::setPatientId, report.getPatientId());
+                updateIfPresent(existingReport::setCreatedDate, report.getCreatedDate());
+                updateIfPresent(existingReport::setModifiedDate, report.getModifiedDate());
+                updateIfPresent(existingReport::setCreatedBy, report.getCreatedBy());
+                updateIfPresent(existingReport::setModifiedBy, report.getModifiedBy());
 
                 return existingReport;
             })
@@ -155,13 +138,13 @@ public class ReportResource {
     }
 
     /**
-     * {@code GET  /reports} : get all the reports.
+     * {@code GET  /reports} : get all the Reports.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of reports in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Reports in body.
      */
     @GetMapping("")
     public List<Report> getAllReports() {
-        log.debug("REST request to get all Reports");
+        LOG.debug("REST request to get all Reports");
         return reportRepository.findAll();
     }
 
@@ -173,7 +156,7 @@ public class ReportResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Report> getReport(@PathVariable("id") String id) {
-        log.debug("REST request to get Report : {}", id);
+        LOG.debug("REST request to get Report : {}", id);
         Optional<Report> report = reportRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(report);
     }
@@ -186,8 +169,14 @@ public class ReportResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteReport(@PathVariable("id") String id) {
-        log.debug("REST request to delete Report : {}", id);
+        LOG.debug("REST request to delete Report : {}", id);
         reportRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }

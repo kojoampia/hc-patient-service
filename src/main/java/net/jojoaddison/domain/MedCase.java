@@ -3,6 +3,8 @@ package net.jojoaddison.domain;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import net.jojoaddison.domain.enumeration.CaseCategory;
+import net.jojoaddison.domain.enumeration.CaseStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
@@ -40,6 +42,18 @@ public class MedCase implements Serializable {
 
     @Field("modified_by")
     private String modifiedBy;
+
+    @Field("status")
+    private CaseStatus status;
+
+    @Field("open_date")
+    private Instant openDate;
+
+    @Field("close_date")
+    private Instant closeDate;
+
+    @Field("category")
+    private CaseCategory category;
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -147,6 +161,58 @@ public class MedCase implements Serializable {
         this.modifiedBy = modifiedBy;
     }
 
+    public CaseStatus getStatus() {
+        return this.status;
+    }
+
+    public MedCase status(CaseStatus status) {
+        this.setStatus(status);
+        return this;
+    }
+
+    public void setStatus(CaseStatus status) {
+        this.status = status;
+    }
+
+    public Instant getOpenDate() {
+        return this.openDate;
+    }
+
+    public MedCase openDate(Instant openDate) {
+        this.setOpenDate(openDate);
+        return this;
+    }
+
+    public void setOpenDate(Instant openDate) {
+        this.openDate = openDate;
+    }
+
+    public Instant getCloseDate() {
+        return this.closeDate;
+    }
+
+    public MedCase closeDate(Instant closeDate) {
+        this.setCloseDate(closeDate);
+        return this;
+    }
+
+    public void setCloseDate(Instant closeDate) {
+        this.closeDate = closeDate;
+    }
+
+    public CaseCategory getCategory() {
+        return this.category;
+    }
+
+    public MedCase category(CaseCategory category) {
+        this.setCategory(category);
+        return this;
+    }
+
+    public void setCategory(CaseCategory category) {
+        this.category = category;
+    }
+
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here
 
     @Override
@@ -178,6 +244,10 @@ public class MedCase implements Serializable {
             ", createdBy='" + getCreatedBy() + "'" +
             ", modifiedDate='" + getModifiedDate() + "'" +
             ", modifiedBy='" + getModifiedBy() + "'" +
+            ", status='" + getStatus() + "'" +
+            ", openDate='" + getOpenDate() + "'" +
+            ", closeDate='" + getCloseDate() + "'" +
+            ", category='" + getCategory() + "'" +
             "}";
     }
 }

@@ -1,17 +1,20 @@
 package net.jojoaddison.web.rest;
 
+import static net.jojoaddison.domain.ConditionAsserts.*;
+import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Condition;
 import net.jojoaddison.repository.ConditionRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,12 +56,17 @@ class ConditionResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
+    private ObjectMapper om;
+
+    @Autowired
     private ConditionRepository conditionRepository;
 
     @Autowired
     private MockMvc restConditionMockMvc;
 
     private Condition condition;
+
+    private Condition insertedCondition;
 
     /**
      * Create an entity for this test.
@@ -67,7 +75,7 @@ class ConditionResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Condition createEntity() {
-        Condition condition = new Condition()
+        return new Condition()
             .name(DEFAULT_NAME)
             .description(DEFAULT_DESCRIPTION)
             .patientId(DEFAULT_PATIENT_ID)
@@ -75,7 +83,6 @@ class ConditionResourceIT {
             .modifiedDate(DEFAULT_MODIFIED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedBy(DEFAULT_MODIFIED_BY);
-        return condition;
     }
 
     /**
@@ -85,7 +92,7 @@ class ConditionResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Condition createUpdatedEntity() {
-        Condition condition = new Condition()
+        return new Condition()
             .name(UPDATED_NAME)
             .description(UPDATED_DESCRIPTION)
             .patientId(UPDATED_PATIENT_ID)
@@ -93,34 +100,40 @@ class ConditionResourceIT {
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedBy(UPDATED_MODIFIED_BY);
-        return condition;
     }
 
     @BeforeEach
-    public void initTest() {
-        conditionRepository.deleteAll();
+    void initTest() {
         condition = createEntity();
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (insertedCondition != null) {
+            conditionRepository.delete(insertedCondition);
+            insertedCondition = null;
+        }
     }
 
     @Test
     void createCondition() throws Exception {
-        int databaseSizeBeforeCreate = conditionRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
         // Create the Condition
-        restConditionMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(condition)))
-            .andExpect(status().isCreated());
+        var returnedCondition = om.readValue(
+            restConditionMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(condition)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            Condition.class
+        );
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeCreate + 1);
-        Condition testCondition = conditionList.get(conditionList.size() - 1);
-        assertThat(testCondition.getName()).isEqualTo(DEFAULT_NAME);
-        assertThat(testCondition.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testCondition.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testCondition.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testCondition.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testCondition.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testCondition.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
+        assertConditionUpdatableFieldsEquals(returnedCondition, getPersistedCondition(returnedCondition));
+
+        insertedCondition = returnedCondition;
     }
 
     @Test
@@ -128,22 +141,21 @@ class ConditionResourceIT {
         // Create the Condition with an existing ID
         condition.setId("existing_id");
 
-        int databaseSizeBeforeCreate = conditionRepository.findAll().size();
+        long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restConditionMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(condition)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(condition)))
             .andExpect(status().isBadRequest());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeCreate);
+        assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllConditions() throws Exception {
         // Initialize the database
-        conditionRepository.save(condition);
+        insertedCondition = conditionRepository.save(condition);
 
         // Get all the conditionList
         restConditionMockMvc
@@ -163,7 +175,7 @@ class ConditionResourceIT {
     @Test
     void getCondition() throws Exception {
         // Initialize the database
-        conditionRepository.save(condition);
+        insertedCondition = conditionRepository.save(condition);
 
         // Get the condition
         restConditionMockMvc
@@ -189,9 +201,9 @@ class ConditionResourceIT {
     @Test
     void putExistingCondition() throws Exception {
         // Initialize the database
-        conditionRepository.save(condition);
+        insertedCondition = conditionRepository.save(condition);
 
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the condition
         Condition updatedCondition = conditionRepository.findById(condition.getId()).orElseThrow();
@@ -208,45 +220,34 @@ class ConditionResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedCondition.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(updatedCondition))
+                    .content(om.writeValueAsBytes(updatedCondition))
             )
             .andExpect(status().isOk());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
-        Condition testCondition = conditionList.get(conditionList.size() - 1);
-        assertThat(testCondition.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testCondition.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testCondition.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testCondition.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testCondition.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testCondition.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testCondition.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertPersistedConditionToMatchAllProperties(updatedCondition);
     }
 
     @Test
     void putNonExistingCondition() throws Exception {
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         condition.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restConditionMockMvc
             .perform(
-                put(ENTITY_API_URL_ID, condition.getId())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(condition))
+                put(ENTITY_API_URL_ID, condition.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(condition))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchCondition() throws Exception {
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         condition.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -254,70 +255,70 @@ class ConditionResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(TestUtil.convertObjectToJsonBytes(condition))
+                    .content(om.writeValueAsBytes(condition))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamCondition() throws Exception {
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         condition.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restConditionMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(condition)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(condition)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateConditionWithPatch() throws Exception {
         // Initialize the database
-        conditionRepository.save(condition);
+        insertedCondition = conditionRepository.save(condition);
 
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the condition using partial update
         Condition partialUpdatedCondition = new Condition();
         partialUpdatedCondition.setId(condition.getId());
 
-        partialUpdatedCondition.name(UPDATED_NAME);
+        partialUpdatedCondition
+            .name(UPDATED_NAME)
+            .description(UPDATED_DESCRIPTION)
+            .patientId(UPDATED_PATIENT_ID)
+            .createdDate(UPDATED_CREATED_DATE)
+            .modifiedDate(UPDATED_MODIFIED_DATE)
+            .createdBy(UPDATED_CREATED_BY);
 
         restConditionMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedCondition.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedCondition))
+                    .content(om.writeValueAsBytes(partialUpdatedCondition))
             )
             .andExpect(status().isOk());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
-        Condition testCondition = conditionList.get(conditionList.size() - 1);
-        assertThat(testCondition.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testCondition.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
-        assertThat(testCondition.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
-        assertThat(testCondition.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
-        assertThat(testCondition.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
-        assertThat(testCondition.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
-        assertThat(testCondition.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertConditionUpdatableFieldsEquals(
+            createUpdateProxyForBean(partialUpdatedCondition, condition),
+            getPersistedCondition(condition)
+        );
     }
 
     @Test
     void fullUpdateConditionWithPatch() throws Exception {
         // Initialize the database
-        conditionRepository.save(condition);
+        insertedCondition = conditionRepository.save(condition);
 
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
 
         // Update the condition using partial update
         Condition partialUpdatedCondition = new Condition();
@@ -336,26 +337,19 @@ class ConditionResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedCondition.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedCondition))
+                    .content(om.writeValueAsBytes(partialUpdatedCondition))
             )
             .andExpect(status().isOk());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
-        Condition testCondition = conditionList.get(conditionList.size() - 1);
-        assertThat(testCondition.getName()).isEqualTo(UPDATED_NAME);
-        assertThat(testCondition.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
-        assertThat(testCondition.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
-        assertThat(testCondition.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
-        assertThat(testCondition.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
-        assertThat(testCondition.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
-        assertThat(testCondition.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
+
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        assertConditionUpdatableFieldsEquals(partialUpdatedCondition, getPersistedCondition(partialUpdatedCondition));
     }
 
     @Test
     void patchNonExistingCondition() throws Exception {
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         condition.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
@@ -363,18 +357,17 @@ class ConditionResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, condition.getId())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(condition))
+                    .content(om.writeValueAsBytes(condition))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchCondition() throws Exception {
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         condition.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -382,38 +375,34 @@ class ConditionResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(TestUtil.convertObjectToJsonBytes(condition))
+                    .content(om.writeValueAsBytes(condition))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamCondition() throws Exception {
-        int databaseSizeBeforeUpdate = conditionRepository.findAll().size();
+        long databaseSizeBeforeUpdate = getRepositoryCount();
         condition.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restConditionMockMvc
-            .perform(
-                patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(condition))
-            )
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(condition)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Condition in the database
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeUpdate);
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteCondition() throws Exception {
         // Initialize the database
-        conditionRepository.save(condition);
+        insertedCondition = conditionRepository.save(condition);
 
-        int databaseSizeBeforeDelete = conditionRepository.findAll().size();
+        long databaseSizeBeforeDelete = getRepositoryCount();
 
         // Delete the condition
         restConditionMockMvc
@@ -421,7 +410,34 @@ class ConditionResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        List<Condition> conditionList = conditionRepository.findAll();
-        assertThat(conditionList).hasSize(databaseSizeBeforeDelete - 1);
+        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
+    }
+
+    protected long getRepositoryCount() {
+        return conditionRepository.count();
+    }
+
+    protected void assertIncrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertDecrementedRepositoryCount(long countBefore) {
+        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
+    }
+
+    protected void assertSameRepositoryCount(long countBefore) {
+        assertThat(countBefore).isEqualTo(getRepositoryCount());
+    }
+
+    protected Condition getPersistedCondition(Condition condition) {
+        return conditionRepository.findById(condition.getId()).orElseThrow();
+    }
+
+    protected void assertPersistedConditionToMatchAllProperties(Condition expectedCondition) {
+        assertConditionAllPropertiesEquals(expectedCondition, getPersistedCondition(expectedCondition));
+    }
+
+    protected void assertPersistedConditionToMatchUpdatableProperties(Condition expectedCondition) {
+        assertConditionAllUpdatablePropertiesEquals(expectedCondition, getPersistedCondition(expectedCondition));
     }
 }

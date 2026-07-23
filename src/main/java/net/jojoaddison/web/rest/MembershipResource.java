@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -23,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/memberships")
 public class MembershipResource {
 
-    private final Logger log = LoggerFactory.getLogger(MembershipResource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MembershipResource.class);
 
     private static final String ENTITY_NAME = "patientMsMembership";
 
-    @Value("${jhipster.clientApp.name}")
+    @Value("${jhipster.clientApp.name:hcPatientService}")
     private String applicationName;
 
     private final MembershipRepository membershipRepository;
@@ -45,15 +46,15 @@ public class MembershipResource {
      */
     @PostMapping("")
     public ResponseEntity<Membership> createMembership(@RequestBody Membership membership) throws URISyntaxException {
-        log.debug("REST request to save Membership : {}", membership);
+        LOG.debug("REST request to save Membership : {}", membership);
         if (membership.getId() != null) {
             throw new BadRequestAlertException("A new membership cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        Membership result = membershipRepository.save(membership);
+        membership = membershipRepository.save(membership);
         return ResponseEntity
-            .created(new URI("/api/memberships/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
-            .body(result);
+            .created(new URI("/api/memberships/" + membership.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, membership.getId()))
+            .body(membership);
     }
 
     /**
@@ -71,7 +72,7 @@ public class MembershipResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Membership membership
     ) throws URISyntaxException {
-        log.debug("REST request to update Membership : {}, {}", id, membership);
+        LOG.debug("REST request to update Membership : {}, {}", id, membership);
         if (membership.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -83,11 +84,11 @@ public class MembershipResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        Membership result = membershipRepository.save(membership);
+        membership = membershipRepository.save(membership);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, membership.getId()))
-            .body(result);
+            .body(membership);
     }
 
     /**
@@ -106,7 +107,7 @@ public class MembershipResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Membership membership
     ) throws URISyntaxException {
-        log.debug("REST request to partial update Membership partially : {}, {}", id, membership);
+        LOG.debug("REST request to partial update Membership partially : {}, {}", id, membership);
         if (membership.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -121,27 +122,13 @@ public class MembershipResource {
         Optional<Membership> result = membershipRepository
             .findById(membership.getId())
             .map(existingMembership -> {
-                if (membership.getName() != null) {
-                    existingMembership.setName(membership.getName());
-                }
-                if (membership.getDescription() != null) {
-                    existingMembership.setDescription(membership.getDescription());
-                }
-                if (membership.getStatus() != null) {
-                    existingMembership.setStatus(membership.getStatus());
-                }
-                if (membership.getCreatedDate() != null) {
-                    existingMembership.setCreatedDate(membership.getCreatedDate());
-                }
-                if (membership.getModifiedDate() != null) {
-                    existingMembership.setModifiedDate(membership.getModifiedDate());
-                }
-                if (membership.getCreatedBy() != null) {
-                    existingMembership.setCreatedBy(membership.getCreatedBy());
-                }
-                if (membership.getModifiedBy() != null) {
-                    existingMembership.setModifiedBy(membership.getModifiedBy());
-                }
+                updateIfPresent(existingMembership::setName, membership.getName());
+                updateIfPresent(existingMembership::setDescription, membership.getDescription());
+                updateIfPresent(existingMembership::setStatus, membership.getStatus());
+                updateIfPresent(existingMembership::setCreatedDate, membership.getCreatedDate());
+                updateIfPresent(existingMembership::setModifiedDate, membership.getModifiedDate());
+                updateIfPresent(existingMembership::setCreatedBy, membership.getCreatedBy());
+                updateIfPresent(existingMembership::setModifiedBy, membership.getModifiedBy());
 
                 return existingMembership;
             })
@@ -154,13 +141,13 @@ public class MembershipResource {
     }
 
     /**
-     * {@code GET  /memberships} : get all the memberships.
+     * {@code GET  /memberships} : get all the Memberships.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of memberships in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Memberships in body.
      */
     @GetMapping("")
     public List<Membership> getAllMemberships() {
-        log.debug("REST request to get all Memberships");
+        LOG.debug("REST request to get all Memberships");
         return membershipRepository.findAll();
     }
 
@@ -172,7 +159,7 @@ public class MembershipResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Membership> getMembership(@PathVariable("id") String id) {
-        log.debug("REST request to get Membership : {}", id);
+        LOG.debug("REST request to get Membership : {}", id);
         Optional<Membership> membership = membershipRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(membership);
     }
@@ -185,8 +172,14 @@ public class MembershipResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMembership(@PathVariable("id") String id) {
-        log.debug("REST request to delete Membership : {}", id);
+        LOG.debug("REST request to delete Membership : {}", id);
         membershipRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }

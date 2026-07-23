@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -23,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/stats")
 public class StatResource {
 
-    private final Logger log = LoggerFactory.getLogger(StatResource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(StatResource.class);
 
     private static final String ENTITY_NAME = "patientMsStat";
 
-    @Value("${jhipster.clientApp.name}")
+    @Value("${jhipster.clientApp.name:hcPatientService}")
     private String applicationName;
 
     private final StatRepository statRepository;
@@ -45,15 +46,15 @@ public class StatResource {
      */
     @PostMapping("")
     public ResponseEntity<Stat> createStat(@RequestBody Stat stat) throws URISyntaxException {
-        log.debug("REST request to save Stat : {}", stat);
+        LOG.debug("REST request to save Stat : {}", stat);
         if (stat.getId() != null) {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        Stat result = statRepository.save(stat);
+        stat = statRepository.save(stat);
         return ResponseEntity
-            .created(new URI("/api/stats/" + result.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
-            .body(result);
+            .created(new URI("/api/stats/" + stat.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, stat.getId()))
+            .body(stat);
     }
 
     /**
@@ -69,7 +70,7 @@ public class StatResource {
     @PutMapping("/{id}")
     public ResponseEntity<Stat> updateStat(@PathVariable(value = "id", required = false) final String id, @RequestBody Stat stat)
         throws URISyntaxException {
-        log.debug("REST request to update Stat : {}, {}", id, stat);
+        LOG.debug("REST request to update Stat : {}, {}", id, stat);
         if (stat.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -81,11 +82,11 @@ public class StatResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        Stat result = statRepository.save(stat);
+        stat = statRepository.save(stat);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, stat.getId()))
-            .body(result);
+            .body(stat);
     }
 
     /**
@@ -102,7 +103,7 @@ public class StatResource {
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
     public ResponseEntity<Stat> partialUpdateStat(@PathVariable(value = "id", required = false) final String id, @RequestBody Stat stat)
         throws URISyntaxException {
-        log.debug("REST request to partial update Stat partially : {}, {}", id, stat);
+        LOG.debug("REST request to partial update Stat partially : {}, {}", id, stat);
         if (stat.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -117,30 +118,14 @@ public class StatResource {
         Optional<Stat> result = statRepository
             .findById(stat.getId())
             .map(existingStat -> {
-                if (stat.getType() != null) {
-                    existingStat.setType(stat.getType());
-                }
-                if (stat.getName() != null) {
-                    existingStat.setName(stat.getName());
-                }
-                if (stat.getDescription() != null) {
-                    existingStat.setDescription(stat.getDescription());
-                }
-                if (stat.getValue() != null) {
-                    existingStat.setValue(stat.getValue());
-                }
-                if (stat.getNote() != null) {
-                    existingStat.setNote(stat.getNote());
-                }
-                if (stat.getPatientId() != null) {
-                    existingStat.setPatientId(stat.getPatientId());
-                }
-                if (stat.getCreatedDate() != null) {
-                    existingStat.setCreatedDate(stat.getCreatedDate());
-                }
-                if (stat.getCreatedBy() != null) {
-                    existingStat.setCreatedBy(stat.getCreatedBy());
-                }
+                updateIfPresent(existingStat::setType, stat.getType());
+                updateIfPresent(existingStat::setName, stat.getName());
+                updateIfPresent(existingStat::setDescription, stat.getDescription());
+                updateIfPresent(existingStat::setValue, stat.getValue());
+                updateIfPresent(existingStat::setNote, stat.getNote());
+                updateIfPresent(existingStat::setPatientId, stat.getPatientId());
+                updateIfPresent(existingStat::setCreatedDate, stat.getCreatedDate());
+                updateIfPresent(existingStat::setCreatedBy, stat.getCreatedBy());
 
                 return existingStat;
             })
@@ -150,13 +135,13 @@ public class StatResource {
     }
 
     /**
-     * {@code GET  /stats} : get all the stats.
+     * {@code GET  /stats} : get all the Stats.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of stats in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Stats in body.
      */
     @GetMapping("")
     public List<Stat> getAllStats() {
-        log.debug("REST request to get all Stats");
+        LOG.debug("REST request to get all Stats");
         return statRepository.findAll();
     }
 
@@ -168,7 +153,7 @@ public class StatResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Stat> getStat(@PathVariable("id") String id) {
-        log.debug("REST request to get Stat : {}", id);
+        LOG.debug("REST request to get Stat : {}", id);
         Optional<Stat> stat = statRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(stat);
     }
@@ -181,8 +166,14 @@ public class StatResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteStat(@PathVariable("id") String id) {
-        log.debug("REST request to delete Stat : {}", id);
+        LOG.debug("REST request to delete Stat : {}", id);
         statRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }

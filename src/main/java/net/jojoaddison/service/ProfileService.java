@@ -1,6 +1,7 @@
 package net.jojoaddison.service;
 
 import java.util.Optional;
+import java.util.function.Consumer;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.repository.ProfileRepository;
 import org.slf4j.Logger;
@@ -15,7 +16,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ProfileService {
 
-    private final Logger log = LoggerFactory.getLogger(ProfileService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ProfileService.class);
 
     private final ProfileRepository profileRepository;
 
@@ -30,7 +31,7 @@ public class ProfileService {
      * @return the persisted entity.
      */
     public Profile save(Profile profile) {
-        log.debug("Request to save Profile : {}", profile);
+        LOG.debug("Request to save Profile : {}", profile);
         return profileRepository.save(profile);
     }
 
@@ -41,7 +42,7 @@ public class ProfileService {
      * @return the persisted entity.
      */
     public Profile update(Profile profile) {
-        log.debug("Request to update Profile : {}", profile);
+        LOG.debug("Request to update Profile : {}", profile);
         return profileRepository.save(profile);
     }
 
@@ -52,53 +53,25 @@ public class ProfileService {
      * @return the persisted entity.
      */
     public Optional<Profile> partialUpdate(Profile profile) {
-        log.debug("Request to partially update Profile : {}", profile);
+        LOG.debug("Request to partially update Profile : {}", profile);
 
         return profileRepository
             .findById(profile.getId())
             .map(existingProfile -> {
-                if (profile.getFirstName() != null) {
-                    existingProfile.setFirstName(profile.getFirstName());
-                }
-                if (profile.getMiddleNames() != null) {
-                    existingProfile.setMiddleNames(profile.getMiddleNames());
-                }
-                if (profile.getLastName() != null) {
-                    existingProfile.setLastName(profile.getLastName());
-                }
-                if (profile.getMembership() != null) {
-                    existingProfile.setMembership(profile.getMembership());
-                }
-                if (profile.getBirthDate() != null) {
-                    existingProfile.setBirthDate(profile.getBirthDate());
-                }
-                if (profile.getSex() != null) {
-                    existingProfile.setSex(profile.getSex());
-                }
-                if (profile.getMobilePhone() != null) {
-                    existingProfile.setMobilePhone(profile.getMobilePhone());
-                }
-                if (profile.getPhoneNumber() != null) {
-                    existingProfile.setPhoneNumber(profile.getPhoneNumber());
-                }
-                if (profile.getEmail() != null) {
-                    existingProfile.setEmail(profile.getEmail());
-                }
-                if (profile.getCardType() != null) {
-                    existingProfile.setCardType(profile.getCardType());
-                }
-                if (profile.getCardNumber() != null) {
-                    existingProfile.setCardNumber(profile.getCardNumber());
-                }
-                if (profile.getContacts() != null) {
-                    existingProfile.setContacts(profile.getContacts());
-                }
-                if (profile.getAddress() != null) {
-                    existingProfile.setAddress(profile.getAddress());
-                }
-                if (profile.getTeam() != null) {
-                    existingProfile.setTeam(profile.getTeam());
-                }
+                updateIfPresent(existingProfile::setFirstName, profile.getFirstName());
+                updateIfPresent(existingProfile::setMiddleNames, profile.getMiddleNames());
+                updateIfPresent(existingProfile::setLastName, profile.getLastName());
+                updateIfPresent(existingProfile::setMembership, profile.getMembership());
+                updateIfPresent(existingProfile::setBirthDate, profile.getBirthDate());
+                updateIfPresent(existingProfile::setSex, profile.getSex());
+                updateIfPresent(existingProfile::setMobilePhone, profile.getMobilePhone());
+                updateIfPresent(existingProfile::setPhoneNumber, profile.getPhoneNumber());
+                updateIfPresent(existingProfile::setEmail, profile.getEmail());
+                updateIfPresent(existingProfile::setCardType, profile.getCardType());
+                updateIfPresent(existingProfile::setCardNumber, profile.getCardNumber());
+                updateIfPresent(existingProfile::setContacts, profile.getContacts());
+                updateIfPresent(existingProfile::setAddress, profile.getAddress());
+                updateIfPresent(existingProfile::setTeam, profile.getTeam());
 
                 return existingProfile;
             })
@@ -112,7 +85,7 @@ public class ProfileService {
      * @return the list of entities.
      */
     public Page<Profile> findAll(Pageable pageable) {
-        log.debug("Request to get all Profiles");
+        LOG.debug("Request to get all Profiles");
         return profileRepository.findAll(pageable);
     }
 
@@ -123,7 +96,7 @@ public class ProfileService {
      * @return the entity.
      */
     public Optional<Profile> findOne(String id) {
-        log.debug("Request to get Profile : {}", id);
+        LOG.debug("Request to get Profile : {}", id);
         return profileRepository.findById(id);
     }
 
@@ -133,7 +106,13 @@ public class ProfileService {
      * @param id the id of the entity.
      */
     public void delete(String id) {
-        log.debug("Request to delete Profile : {}", id);
+        LOG.debug("Request to delete Profile : {}", id);
         profileRepository.deleteById(id);
+    }
+
+    private <T> void updateIfPresent(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
     }
 }
