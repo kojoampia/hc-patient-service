@@ -11,7 +11,9 @@
 
 ## Architecture
 
-- This is a JHipster Spring Boot microservice (`net.jojoaddison`) using MongoDB + Kafka.
+- This is a JHipster Spring Boot 3.4.5 microservice (`net.jojoaddison`) using MongoDB + Kafka, built on **Spring MVC — never reactive `Mono`/`Flux`** (the sibling gateway repo is the reactive one).
+- No user management here (`skipUserManagement: true`): JWTs are issued by `hc-patient-gateway` and only validated in this service.
+- Lombok is not a dependency — keep JHipster's generated accessors.
 - Keep layer boundaries aligned with ArchUnit rules in `src/test/java/net/jojoaddison/TechnicalStructureTest.java`:
   - `config`
   - `web`
@@ -39,7 +41,7 @@
 
 ## Conventions
 
-- Java version must stay within JDK 17-21; Maven must be >= 3.2.5 (enforced in `pom.xml`).
+- The build targets Java 21 (`java.version`); the Maven Enforcer accepts JDK 17-26 (`[17,27)`). Maven must be >= 3.2.5.
 - Use profile-driven runs/builds (`dev` default, `prod` for release artifacts).
 - Integration test naming follows Maven defaults:
   - Unit tests: `*Test.java`
@@ -62,3 +64,5 @@
 - See `pom.xml` for profiles, plugin behavior, Java/Maven constraints, and test plugin setup.
 - See `package.json` for standard local commands used by this repository.
 - Use file-scoped instructions in `.github/instructions/` for REST and test-specific rules.
+- See `CLAUDE.md` for the verified stack/architecture summary and entity status, `patient-api.md` for the plan of record (open decisions and phased backlog), and `AGENTS.md` for quality/security/performance expectations.
+- Ignore `bin/` — it is a gitignored stale copy of the project.

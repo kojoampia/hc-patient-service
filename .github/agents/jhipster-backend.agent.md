@@ -42,8 +42,9 @@ Always follow:
 
 ## Verification Commands
 
-- `./mvnw -Dtest=*ResourceIT test`
-- `./mvnw verify`
+- `./mvnw verify -Dit.test=XResourceIT` (single integration test; surefire excludes `**/*IT*`, so `-Dtest=` will not select it)
+- `./mvnw test -Dtest=XTest` (single unit test)
+- `./mvnw verify` (full suite)
 
 ## Output Contract
 

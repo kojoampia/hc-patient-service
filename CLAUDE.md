@@ -4,9 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Health Connect Patient Service (`hcPatientService`) — a backend-only JHipster microservice (JHipster 8.1.0 generator, Spring Boot 4.0.3, JHipster BOM 9.0.0, Java 26) that manages patient data for the Health Connect platform. No frontend client is generated (`skipClient: true`). Package root: `net.jojoaddison`.
+Health Connect Patient Service (`hcPatientService`) — a backend-only JHipster microservice that manages patient data for the Health Connect platform. No frontend client is generated (`skipClient: true`). Package root: `net.jojoaddison`. Server port `8081`.
 
-It is one service in a larger microservice architecture: it registers with Consul for service discovery/config and **will refuse to start if Consul is unreachable at `http://localhost:8500`**. MongoDB is the datastore. Kafka is used for async messaging. See `AGENTS.md` for code-quality/architecture/security/performance guidelines that apply repo-wide.
+Stack as actually configured in `pom.xml` / `.yo-rc.json`:
+
+|                  |                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| Java             | `java.version` 21 (compiler source/target); Maven Enforcer accepts JDK `[17,27)`                      |
+| Framework        | Spring Boot 3.4.5, JHipster BOM (`jhipster-dependencies`) 8.11.0 — **Spring MVC, not WebFlux**        |
+| Generator        | app scaffolded with JHipster 8.1.0; entities regenerated with 9.1.0 (`.yo-rc.json` `jhipsterVersion`) |
+| Datastore        | MongoDB (`mongo:7.0.4` locally)                                                                       |
+| Messaging        | Kafka via Spring Cloud Stream (`confluentinc/cp-kafka:7.6.0`)                                         |
+| Discovery/config | Consul (`bitnami/consul:1.17.0`)                                                                      |
+| Auth             | JWT validation only — `skipUserManagement: true`, no `User` domain here                               |
+| Container image  | Jib, base `eclipse-temurin:26-jre`                                                                    |
+
+It is one service in a larger microservice architecture: it registers with Consul and **will refuse to start if Consul is unreachable at `http://localhost:8500`**. Tokens are minted by the patient gateway (`hc-patient-gateway`); this service only validates them, so both must agree on the JWT secret.
+
+Companion docs in this repo:
+
+- `patient-api.md` — **the plan of record**: open decisions, phased backlog (entity completion, subscription domain, telemetry, platform hardening), and what is already done. Check it before starting new work.
+- `AGENTS.md` — code-quality/architecture/security/performance guidelines that apply repo-wide.
+- `.github/instructions/*.instructions.md` — authoritative REST and test rules.
+
+Sibling plans: `hc-patient-gateway/patient-gateway.md`, `hc-patient-dashboard/patient-web.md`.
+
+Note: Lombok is **not** on the classpath despite what older notes may say — entities use JHipster's generated getters/setters/fluent setters.
 
 ## Commands
 
@@ -33,6 +56,7 @@ npm run backend:debug        # dev profile with remote debug on port 8000
 ```
 ./mvnw -Pprod clean verify           # production jar
 ./mvnw -Pprod,war clean verify       # production war
+npm run java:docker                  # Jib image (add :arm64 variant on Apple Silicon)
 ```
 
 ### Test
@@ -40,12 +64,16 @@ npm run backend:debug        # dev profile with remote debug on port 8000
 ```
 ./mvnw verify                        # full test suite (unit + *IT integration tests)
 npm run backend:unit:test            # same, with noisy loggers silenced
-./mvnw -Dtest=ProfileResourceIT test # single test class
-./mvnw -Dtest=ProfileResourceIT#createProfile test   # single test method
+./mvnw test -Dtest=SecurityUtilsUnitTest             # single unit test class (surefire)
+./mvnw verify -Dit.test=ProfileResourceIT            # single integration test (failsafe)
+./mvnw verify -Dit.test=ProfileResourceIT#createProfile
+./mvnw verify -DskipITs              # unit tests only
 npm run backend:nohttp:test          # checkstyle / nohttp check
 ```
 
-Integration tests (`*ResourceIT`) spin up embedded Mongo and Kafka via Testcontainers (see `@IntegrationTest` in `src/test/java/net/jojoaddison/IntegrationTest.java`) — they do not require the docker compose services to be running separately.
+Selecting an integration test needs `-Dit.test`, not `-Dtest`: surefire is configured to **exclude** `**/*IT*` and `**/*IntTest*`, and failsafe (bound to `integration-test`/`verify`) owns them. `./mvnw -Dtest=SomeResourceIT test` therefore runs nothing.
+
+Integration tests (`*ResourceIT`) spin up embedded Mongo and Kafka via Testcontainers (see `@IntegrationTest` in `src/test/java/net/jojoaddison/IntegrationTest.java`) — they do not require the docker compose services to be running separately. Current suite: 14 `*IT` + 16 `*Test` classes.
 
 ### Formatting
 
@@ -73,12 +101,13 @@ config → web → service (optional) → security → repository (optional) →
 Directory map (`src/main/java/net/jojoaddison/`):
 
 - `web/rest` — `@RestController`s, one per entity (`ProfileResource`, `MedCaseResource`, etc.) plus `web/rest/errors` for the RFC-7807-style exception translation (`ExceptionTranslator`, `BadRequestAlertException`).
-- `service` — business/persistence orchestration (currently only entities with extra logic get a service class, e.g. `ProfileService`, `MedCaseService`; simpler entities call their repository directly from the resource).
+- `service` — business/persistence orchestration. Only `ProfileService` and `MedCaseService` exist; simpler entities call their repository directly from the resource. There is no DTO/mapper layer — domain documents are returned directly.
 - `repository` — `Spring Data MongoRepository` interfaces only, one per entity, no query logic beyond what Spring Data derives.
-- `domain` — Mongo document classes (`@Document`) plus `domain/enumeration` for enums (`CaseCategory`, `CaseStatus`).
+- `domain` — Mongo document classes (`@Document`) plus `AbstractAuditingEntity` and `domain/enumeration` for enums (`CaseCategory`, `CaseStatus`).
 - `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`).
 - `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.).
 - `broker` — `KafkaConsumer`/`KafkaProducer`.
+- `management` — metrics/health support.
 - `aop/logging` — logging aspect.
 
 ### REST/service/repository conventions
@@ -91,7 +120,7 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 - PATCH `/{id}` accepts `application/json` and `application/merge-patch+json`, same id guards as PUT, delegates to the service's partial-update (merge non-null fields only — never overwrite existing values with null), uses `ResponseUtil.wrapOrNotFound(...)`.
 - DELETE returns 204 + deletion alert header.
 - Mongo repositories stay minimal (`interface XRepository extends MongoRepository<X, String>`); add query methods only when a concrete service needs them.
-- No reactive types (`Mono`/`Flux`) — this service is Spring MVC, not WebFlux.
+- No reactive types (`Mono`/`Flux`) — this service is Spring MVC, not WebFlux. (The gateway repo is the reactive one.)
 
 ### Tests
 
@@ -103,11 +132,21 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 
 ### Entities
 
-Domain entities managed by this service (from `.yo-rc.json`): `Address`, `Condition`, `Medication`, `Stat`, `Team`, `Task`, `Membership`, `Report`, `Metadata`, `Profile`, `MedCase`. (`HCCredential`, `HCPayOption`, `HCDocument` were recently removed — check `git status`/`git log` before assuming they still exist.) Entity JHipster configs live in `.jhipster/*.json`; regenerating/modifying an entity should keep those files, the domain class, repository, resource, and `*ResourceIT` in sync.
+Generated and present as `@Document` classes with repository + resource + `*ResourceIT`:
+
+`Address`, `Condition`, `MedCase`, `Medication`, `Membership`, `Metadata`, `Profile`, `Report`, `Stat`, `Task`, `Team`.
+
+Configured in `.jhipster/` but **not yet generated** (no domain/repository/resource/test): `PaymentOption`, `PersonalDocument` — renamed from the removed `HCPayOption` and `IDocument`. `HCCredential`, `HCPayOption`, `HCDocument`/`IDocument` no longer exist as code. Generating those two is Phase A in `patient-api.md`.
+
+The `entities` array in `.yo-rc.json` is stale (still lists the removed `HCCredential`/`HCPayOption`/`HCDocument` and omits the renames). Trust `.jhipster/*.json` + the `domain` package over it. Regenerating or modifying an entity should keep the `.jhipster` config, domain class, repository, resource, and `*ResourceIT` in sync.
+
+Note the frontend (`hc-patient-dashboard`) still ships `hc-credential`/`hc-pay-option` CRUD screens for the old names — coordinate renames across both repos.
 
 ## Constraints
 
-- Java version must stay within JDK 17–26 (enforced by the Maven Enforcer plugin in `pom.xml`); Maven must be ≥ 3.2.5.
+- Java must stay within the Enforcer range `[17,27)` (JDK 17–26); the compiler targets 21; Maven must be ≥ 3.2.5.
 - Do not convert this service to reactive (`Mono`/`Flux`); it's Spring MVC + MongoDB throughout.
 - Don't bypass the JHipster alert-header/exception-translation conventions in `web/rest/errors`.
 - Follow ArchUnit layer boundaries in `TechnicalStructureTest` — a change that makes `service` depend on `web`, for example, will fail the build.
+- `bin/` is a gitignored stale copy of the project (its own `pom.xml`, `README.md`, `src/`). Never edit or cite files under `bin/`.
+- No CI workflows exist in `.github/workflows`; the `ci:*` npm scripts are there for a CI system to call but nothing is wired up.

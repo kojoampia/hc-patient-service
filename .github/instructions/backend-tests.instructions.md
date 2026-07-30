@@ -83,4 +83,13 @@ Prefer domain assertion helpers from `src/test/java/.../domain/*Asserts.java` an
 - Integration tests: `*IT.java` or `*IntTest.java`
 - Unit tests: `*Test.java`
 
-Match existing naming patterns to keep Maven test execution predictable.
+Match existing naming patterns to keep Maven test execution predictable: surefire excludes `**/*IT*` and `**/*IntTest*`, failsafe includes exactly those.
+
+## Running Them
+
+- Full suite: `./mvnw verify`
+- One unit test: `./mvnw test -Dtest=XTest`
+- One integration test: `./mvnw verify -Dit.test=XResourceIT` (`-Dtest=` cannot select an `*IT` class)
+- Unit tests only: `./mvnw verify -DskipITs`
+
+Integration tests start MongoDB and Kafka through Testcontainers, so Docker must be running; `npm run services:up` is not required.

@@ -1,65 +1,66 @@
 # Project Overview
 
+Repo-wide guidelines for `hc-patient-service` (`hcPatientService`) — the backend-only Health Connect patient microservice.
+
+Read in this order: `CLAUDE.md` for the verified stack/architecture summary, `patient-api.md` for the plan of record (open decisions and the phased backlog), then this file for the standing quality expectations. `.github/instructions/*.instructions.md` holds the authoritative REST/test rules.
+
+Statements below are split between **current** (true of the code today) and **target** (what to move toward). Do not treat a target as a description of existing code — anything in the target column that is actually scheduled appears as a tracked item in `patient-api.md`.
+
 ## Code Quality and Style
 
 - Follow SOLID principles and clean code practices.
-- Use consistent naming conventions and code formatting.
-- Implement comprehensive unit and integration tests using JUnit 5 and Mockito.
-- Ensure proper documentation of code and APIs using JavaDoc and Swagger/OpenAPI.
-- No null pointer deferences; use Optional where applicable.
-- Handle exceptions gracefully and provide meaningful error messages.
-- Use Lombok for boilerplate code reduction (getters, setters, constructors).
-- Adhere to RESTful API design principles for all endpoints.
-- Implement logging using SLF4J and Logback for all critical operations and exceptions.
-- Follow resource leak prevention best practices, especially in file handling and database connections.
+- Use consistent naming conventions and code formatting; Java is formatted by Spotless during the Maven build, everything else by Prettier (`npm run prettier:check|format`).
+- Implement unit and integration tests with JUnit 5, Mockito, and Testcontainers.
+- Document non-obvious code and APIs with JavaDoc; the OpenAPI description is served by springdoc (`springdoc-openapi-starter-webmvc-api`) and is **only enabled when the `api-docs` profile is active** — `application.yml` disables `springdoc.api-docs` otherwise.
+- No null pointer dereferences; use `Optional` where applicable (services already return `Optional` from `findOne`/`partialUpdate`).
+- Handle exceptions through the JHipster `web/rest/errors` translation layer so responses stay RFC 7807-shaped.
+- **Lombok is not used and is not on the classpath.** Entities keep JHipster's generated getters/setters plus fluent setters — do not introduce Lombok annotations without adding the dependency and agreeing to it repo-wide.
+- Log with SLF4J/Logback; keep the existing debug-log-on-service-entry convention.
+- Follow resource-leak prevention practices, especially around file handling and Mongo/Kafka clients.
 
 ## Architecture and Design
 
-- Use a layered architecture (Controller, Service, Repository) for separation of concerns.
-- Implement domain-driven design principles for modeling patient data and related entities (Profile, Address, Condition, Medication, MedCase, Stat, Team, Task, Membership, Report, Metadata).
-- Dependency injection should be used for all services and repositories to promote testability and maintainability.
-- Use Kafka for asynchronous communication between services, especially for telemetry data and alerts.
-- No static initialization blocks; use dependency injection for all configurations and services.
-- Implement a robust error handling mechanism using `@ControllerAdvice` to return RFC 7807 compliant error responses for all exceptions.
-- Immutable objects for data transfer objects (DTOs) and domain models where appropriate to ensure thread safety and maintainability.
+- Layered architecture (`web/rest` → `service` → `repository` → `domain`) with boundaries enforced by ArchUnit in `TechnicalStructureTest`.
+- Domain-driven modelling of patient data. Entities currently implemented: `Profile`, `Address`, `Condition`, `Medication`, `MedCase`, `Stat`, `Team`, `Task`, `Membership`, `Report`, `Metadata`. `PaymentOption` and `PersonalDocument` exist only as `.jhipster/*.json` configs so far.
+- Constructor injection for all services and repositories; no static initialization blocks.
+- **Current:** only `ProfileService` and `MedCaseService` exist, and there is no DTO/mapper layer — resources return domain documents directly.
+- **Target:** when a resource grows logic beyond straight persistence, add a service; introduce DTOs (immutable where practical) only when the wire shape must diverge from the document.
+- Kafka (Spring Cloud Stream) for asynchronous cross-service communication, e.g. telemetry and alerts; producer/consumer live in `broker`.
+- Error handling stays centralized in `web/rest/errors` (`ExceptionTranslator`, `BadRequestAlertException`) rather than per-controller `@ExceptionHandler`s.
 
 ## Security Considerations
 
-- Implement authentication and authorization using Spring Security, with role-based access control per the authorities defined in `AuthoritiesConstants` (`ROLE_ADMIN`, `ROLE_USER`, `ROLE_ANONYMOUS`).
-- Ensure all sensitive data (e.g., personal information, documents) is encrypted at rest and in transit.
-- This service does not store user credentials itself (`skipUserManagement: true` in `.yo-rc.json`, no `User` domain/repository) — it only validates JWTs issued by another service, so credential hashing (bcrypt) is out of scope here; keep secrets/keys (e.g. `jwtSecretKey` in `.yo-rc.json`) out of source control and logs.
-- Implement input validation and sanitization to prevent common vulnerabilities such as injection and cross-site scripting (XSS).
-- Ensure proper CORS configuration for API consumers (there is no Angular/frontend client in this repo — CORS is disabled by default in `application.yml`, see the `cors` section).
-- Regularly update dependencies to mitigate known security vulnerabilities.
-- Implement rate limiting and monitoring to prevent abuse of the APIs and ensure system stability under load.
-- Use HTTPS/TLS for all communications with this service (see `application-tls.yml`) to ensure data confidentiality and integrity.
-- Ensure logs do not contain sensitive data or PII information and are properly secured to prevent unauthorized access.
-- Implement comprehensive testing for security vulnerabilities, including penetration testing and vulnerability scanning as part of the development lifecycle.
-- Ensure compliance with relevant data protection regulations (e.g., GDPR, HIPAA) in the handling of personal and health-related data.
-- Use secure coding practices and conduct regular code reviews to identify and mitigate potential security issues early in the development process.
+- Spring Security with role-based access control per `AuthoritiesConstants` (`ROLE_ADMIN`, `ROLE_USER`, `ROLE_ANONYMOUS`).
+- This service does not store credentials (`skipUserManagement: true`, no `User` domain) — it only **validates** JWTs minted by `hc-patient-gateway`, so password hashing is out of scope here.
+- **Known gap:** the committed dev/prod `jhipster.security.authentication.jwt.base64-secret` in `src/main/resources/config/application-*.yml` differs from the gateway's committed secret, so a gateway-issued token will fail signature validation unless both are overridden from the same source (env var / Consul KV). Never rely on the committed values, and keep real secrets out of git and logs.
+- Sensitive data (personal information, documents) must be encrypted in transit (`application-tls.yml`) and at rest at the datastore level.
+- Validate and sanitize all input (`@Valid` on request bodies, Bean Validation constraints on documents).
+- CORS is commented out (disabled) in `application-dev.yml` — there is no browser client talking to this service directly; traffic arrives through the gateway. Enable it only with a deliberate origin list.
+- Keep dependencies patched; treat Mongo query construction and any file upload path as untrusted input.
+- Ensure logs contain no PII; the CRLF log converter is already configured to defend against log injection.
+- Handling health data means GDPR/HIPAA-style obligations apply to any new field, log line, or export.
+- **Target:** rate limiting and abuse monitoring are not implemented in this service today.
 
 ## Performance Optimization
 
-- Use pagination and filtering for API endpoints that return large datasets to improve response times and reduce memory usage.
-- Implement caching strategies (e.g., using Spring Cache) for frequently accessed data to reduce database load and improve response times.
-- Optimize database queries using indexing and proper query design to ensure efficient data retrieval and manipulation.
-- Use asynchronous processing for long-running tasks to improve responsiveness and user experience.
-- Monitor application performance using tools like Spring Boot Actuator and implement necessary optimizations based on observed metrics and bottlenecks.
-- Implement connection pooling for database connections to improve performance and resource management.
-- Use efficient data structures and algorithms in service-layer logic (e.g. `ProfileService`, `MedCaseService`) to ensure optimal performance under load.
-- Regularly profile the application to identify and address performance bottlenecks, especially in critical paths such as the Kafka consumer (`broker/KafkaConsumer`).
-- Ensure that the application can scale horizontally by designing stateless services and using appropriate load balancing strategies to handle increased traffic and workload effectively.
+- Paginate and filter endpoints that can return large collections. **Current:** generated `getAll*` endpoints return unpaged `List<Entity>`; add pagination when a collection can grow unbounded.
+- **Target:** no cache provider is configured (`cacheProvider: "no"`). Adding Spring Cache means adding and justifying the dependency.
+- Index Mongo collections for the query patterns actually used; keep repositories free of ad-hoc query logic.
+- Use asynchronous processing (`AsyncConfiguration`) for long-running work.
+- Monitor with Spring Boot Actuator (`/management/**`, Prometheus endpoint enabled) and profile before optimizing.
+- Keep services stateless so instances can scale horizontally behind the gateway.
+- Watch the Kafka consumer (`broker/KafkaConsumer`) — it sits on a hot path for telemetry.
 
 ## Technology Stack
 
-- Java 25 LTS (Maven Enforcer permits JDK 17–26)
-- Spring Boot 4 (JHipster BOM 9.0.0), Spring MVC (not reactive/WebFlux)
-- Spring Web, Spring Data MongoDB, Spring Security (JWT), Spring Kafka / Spring Cloud Stream (Kafka binder)
-- Spring Cloud Consul for service discovery and centralized config; Resilience4j for circuit breaking
-- This service is backend-only (`skipClient: true` in `.yo-rc.json`) — no Angular/frontend code lives in this repo
-- Docker (Jib-built images) and Docker Compose for containerization and local dependency services
-- JUnit 5, Mockito, ArchUnit (layer boundaries), and Testcontainers (embedded MongoDB + Kafka) for testing
-- SLF4J and Logback for logging
-- Swagger/OpenAPI for API documentation
-- Maven for build and dependency management; NPM only for dev tooling (Prettier, Husky, docker/npm-script shortcuts) — there is no frontend to package
-- Git for version control; no GitHub Actions workflows are currently configured in `.github/workflows` (npm's `ci:*` scripts exist for a CI system to call, but none is wired up yet)
+- Java: compiled for 21 (`java.version` in `pom.xml`); Maven Enforcer allows JDK `[17,27)`, i.e. 17–26. Maven ≥ 3.2.5.
+- Spring Boot 3.4.5 with JHipster BOM (`jhipster-dependencies`) 8.11.0 — **Spring MVC, not reactive/WebFlux**.
+- Spring Web, Spring Data MongoDB, Spring Security (JWT resource server), Spring Cloud Stream Kafka binder.
+- Spring Cloud Consul for discovery and centralized config; Resilience4j for circuit breaking; MapStruct available (1.6.3) though no mappers exist yet.
+- Backend-only (`skipClient: true`) — no Angular code in this repo; the dashboard lives in `hc-patient-dashboard`.
+- Docker Compose for local dependencies (`mongo:7.0.4`, `bitnami/consul:1.17.0`, `confluentinc/cp-kafka:7.6.0`); images built with Jib on `eclipse-temurin:26-jre`.
+- JUnit 5, Mockito, ArchUnit 1.4.2, Testcontainers (embedded MongoDB + Kafka).
+- SLF4J + Logback.
+- Maven for build/dependencies; npm only for dev tooling (Prettier, Husky, docker/script shortcuts).
+- Git for version control. **No GitHub Actions workflows exist** in `.github/workflows`; the `ci:*` npm scripts are entry points waiting for a CI system.
+- `bin/` is a gitignored stale copy of the project — ignore it entirely.

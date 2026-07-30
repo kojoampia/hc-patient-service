@@ -1,28 +1,33 @@
 # Health Connect Patient Service
 
-This is the **Health Connect Patient Data Micro Service** — a backend-only microservice (no frontend) that manages patient data for the Health Connect platform. It was originally generated using JHipster 8.1.0 (entities have since been regenerated with the JHipster 9.1.0 generator — see `.yo-rc.json`) and runs on **Spring Boot 4.0.3** with **JHipster BOM 9.1.0** and **Java 26**.
+This is the **Health Connect Patient Data Micro Service** — a backend-only microservice (no frontend) that manages patient data for the Health Connect platform. It was originally generated using JHipster 8.1.0; entities have since been regenerated with the JHipster 9.1.0 generator (see `jhipsterVersion` in `.yo-rc.json`).
 
 For JHipster documentation and help, visit [https://www.jhipster.tech/documentation-archive/v8.1.0](https://www.jhipster.tech/documentation-archive/v8.1.0).
 
 This is a "microservice" application intended to be part of a microservice architecture, please refer to the [Doing microservices with JHipster][] page of the documentation for more information.
 This application is configured for Service Discovery and Configuration with Consul. On launch, it will refuse to start if it is not able to connect to Consul at [http://localhost:8500](http://localhost:8500). For more information, read our documentation on [Service Discovery and Configuration with Consul][].
 
+Authentication tokens are issued by the companion gateway (`hc-patient-gateway`); this service only validates them and has no user management of its own (`skipUserManagement: true`). The two repos ship **different** `base64-secret` values in `application-dev.yml`/`application-prod.yml`, so both must be pointed at the same secret (env var or Consul KV) before a gateway-issued token will be accepted here.
+
 ## Technology Stack
 
-| Component         | Technology                              |
-| ----------------- | --------------------------------------- |
-| Language          | Java 26                                 |
-| Framework         | Spring Boot 4.0.3 / JHipster BOM 9.1.0  |
-| Database          | MongoDB                                 |
-| Message Broker    | Apache Kafka (Confluent Platform 7.5.2) |
-| Service Discovery | Consul                                  |
-| Authentication    | JWT                                     |
-| Build Tool        | Maven (via `./mvnw`)                    |
-| Server Port       | 8081 (default)                          |
+Values below come from `pom.xml` and `.yo-rc.json` — update them here whenever those change.
+
+| Component         | Technology                                                   |
+| ----------------- | ------------------------------------------------------------ |
+| Language          | Java 21 target (`java.version`); Maven Enforcer allows 17–26 |
+| Framework         | Spring Boot 3.4.5 / JHipster BOM 8.11.0 (Spring MVC)         |
+| Database          | MongoDB (`mongo:7.0.4` locally)                              |
+| Message Broker    | Apache Kafka (Confluent Platform 7.6.0)                      |
+| Service Discovery | Consul (`bitnami/consul:1.17.0`)                             |
+| Authentication    | JWT validation only (tokens minted by the gateway)           |
+| Build Tool        | Maven (via `./mvnw`), Maven ≥ 3.2.5                          |
+| Container image   | Jib, base `eclipse-temurin:26-jre`                           |
+| Server Port       | 8081 (default)                                               |
 
 ## Domain Entities
 
-The service manages the following patient-related domain entities:
+Implemented as `@Document` classes with a repository, REST resource, and `*ResourceIT`:
 
 - **Profile** – patient profile information
 - **Address** – patient address details
@@ -36,7 +41,9 @@ The service manages the following patient-related domain entities:
 - **Metadata** – extensible metadata
 - **MedCase** – medical cases
 
-`HCCredential`, `HCPayOption`, and `HCDocument` have been removed from this service.
+Configured in `.jhipster/` but not yet generated as Java code: **PaymentOption** and **PersonalDocument** (renamed from `HCPayOption` and `IDocument`).
+
+`HCCredential`, `HCPayOption`, and `HCDocument`/`IDocument` have been removed from this service. The `entities` array in `.yo-rc.json` still lists the old names and is stale — treat `.jhipster/*.json` plus the `domain` package as the source of truth.
 
 ## Project Structure
 
@@ -137,6 +144,17 @@ Or using the npm script (suppresses verbose logging):
 ```
 npm run backend:unit:test
 ```
+
+To run a single class or method — note that integration tests (`*IT`) are selected with failsafe's `-Dit.test`, because surefire is configured to exclude `**/*IT*`:
+
+```
+./mvnw test -Dtest=SecurityUtilsUnitTest             # unit test
+./mvnw verify -Dit.test=ProfileResourceIT            # one integration test
+./mvnw verify -Dit.test=ProfileResourceIT#createProfile
+./mvnw verify -DskipITs                              # unit tests only
+```
+
+Integration tests (`*IT`) start MongoDB and Kafka through Testcontainers via `@IntegrationTest`, so they do **not** need `npm run services:up` first — only a working Docker daemon.
 
 ### HTTP URL checks
 
@@ -240,7 +258,15 @@ docker compose -f src/main/docker/zipkin.yml up -d
 
 ## Continuous Integration (optional)
 
-To configure CI for your project, run the ci-cd sub-generator (`jhipster ci-cd`), this will let you generate configuration files for a number of Continuous Integration systems. Consult the [Setting up Continuous Integration][] page for more information.
+**No CI is wired up for this repository** — `.github/workflows/` is empty. The `ci:*` scripts in `package.json` (`ci:backend:test`, `ci:e2e:*`) exist as entry points for whichever system is adopted.
+
+To generate configuration, run the ci-cd sub-generator (`jhipster ci-cd`), which produces files for a number of Continuous Integration systems. Consult the [Setting up Continuous Integration][] page for more information.
+
+## Repository notes
+
+- `bin/` is a gitignored stale copy of the project (it has its own `pom.xml`, `README.md`, and `src/`). Ignore it; edits there have no effect on the build.
+- `patient-ms.log` is output from the workspace-level `start-patient.sh` helper, not a tracked artifact.
+- Agent/assistant guidance lives in `CLAUDE.md`, `AGENTS.md`, and `.github/instructions/*.instructions.md`.
 
 [JHipster Homepage and latest documentation]: https://www.jhipster.tech
 [JHipster 8.1.0 archive]: https://www.jhipster.tech/documentation-archive/v8.1.0
