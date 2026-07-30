@@ -1,0 +1,38 @@
+{
+  "annotations": {
+    "changelogDate": "20260724060300"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "dto": "no",
+  "entityTableName": "recommendation",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "label",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "category",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "Recommendation",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [
+    {
+      "otherEntityName": "clinicalCase",
+      "otherEntityRelationshipName": "recommendation",
+      "relationshipName": "clinicalCase",
+      "relationshipSide": "right",
+      "relationshipType": "many-to-many"
+    }
+  ],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}

@@ -47,17 +47,16 @@ public class ClinicalCaseAsserts {
     public static void assertClinicalCaseUpdatableFieldsEquals(ClinicalCase expected, ClinicalCase actual) {
         assertThat(actual)
             .as("Verify ClinicalCase relevant properties")
-            .satisfies(a -> assertThat(a.getSymptoms()).as("check symptoms").isEqualTo(expected.getSymptoms()))
-            .satisfies(a -> assertThat(a.getDiagnoses()).as("check diagnoses").isEqualTo(expected.getDiagnoses()))
-            .satisfies(a -> assertThat(a.getRecommendations()).as("check recommendations").isEqualTo(expected.getRecommendations()))
-            .satisfies(a -> assertThat(a.getCreatedDate()).as("check createdDate").isEqualTo(expected.getCreatedDate()))
-            .satisfies(a -> assertThat(a.getCreatedBy()).as("check createdBy").isEqualTo(expected.getCreatedBy()))
-            .satisfies(a -> assertThat(a.getModifiedDate()).as("check modifiedDate").isEqualTo(expected.getModifiedDate()))
-            .satisfies(a -> assertThat(a.getModifiedBy()).as("check modifiedBy").isEqualTo(expected.getModifiedBy()))
+            .satisfies(a -> assertThat(a.getPatientId()).as("check patientId").isEqualTo(expected.getPatientId()))
+            .satisfies(a -> assertThat(a.getOpenedAt()).as("check openedAt").isEqualTo(expected.getOpenedAt()))
+            .satisfies(a -> assertThat(a.getBrief()).as("check brief").isEqualTo(expected.getBrief()))
             .satisfies(a -> assertThat(a.getStatus()).as("check status").isEqualTo(expected.getStatus()))
-            .satisfies(a -> assertThat(a.getOpenDate()).as("check openDate").isEqualTo(expected.getOpenDate()))
-            .satisfies(a -> assertThat(a.getCloseDate()).as("check closeDate").isEqualTo(expected.getCloseDate()))
-            .satisfies(a -> assertThat(a.getCategory()).as("check category").isEqualTo(expected.getCategory()));
+            .satisfies(a -> assertThat(a.getSymptoms()).as("check symptoms").isEqualTo(expected.getSymptoms()))
+            .satisfies(a -> assertThat(a.getDiagnosis()).as("check diagnosis").isEqualTo(expected.getDiagnosis()))
+            .satisfies(a ->
+                assertThat(a.getAssignedProfessionalId()).as("check assignedProfessionalId").isEqualTo(expected.getAssignedProfessionalId())
+            )
+            .satisfies(a -> assertThat(a.getAssignedRosterId()).as("check assignedRosterId").isEqualTo(expected.getAssignedRosterId()));
     }
 
     /**
@@ -67,6 +66,8 @@ public class ClinicalCaseAsserts {
      * @param actual the actual entity
      */
     public static void assertClinicalCaseUpdatableRelationshipsEquals(ClinicalCase expected, ClinicalCase actual) {
-        // empty method
+        assertThat(actual)
+            .as("Verify ClinicalCase relationships")
+            .satisfies(a -> assertThat(a.getRecommendations()).as("check recommendations").isEqualTo(expected.getRecommendations()));
     }
 }

@@ -134,7 +134,14 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 
 Generated and present as `@Document` classes with repository + resource + `*ResourceIT`:
 
-`Address`, `ClinicalCase`, `Condition`, `Medication`, `Membership`, `Metadata`, `Profile`, `Report`, `Stat`, `Task`, `Team`.
+`Address`, `ClinicalCase`, `Condition`, `Medication`, `Membership`, `Metadata`, `Profile`, `Recommendation`,
+`Report`, `Stat`, `Task`, `Team`.
+
+`ClinicalCase` **replaced** `MedCase` (it is not a rename — different fields, collection `clinicalcase`, and a
+many-to-many to `Recommendation`); its contract comes from `hc-professional/web/.jhipster/ClinicalCase.json`.
+`Recommendation` is new, and exists because that relationship needs it. The `CaseCategory` enum was removed with
+`MedCase`; `CaseStatus` (URGENT/OPEN/CLOSED) remains. `ClinicalCase` and `Recommendation` are the only entities in
+this service with a relationship — everything else is standalone.
 
 Configured in `.jhipster/` but **not yet generated** (no domain/repository/resource/test): `PaymentOption`, `PersonalDocument` — renamed from the removed `HCPayOption` and `IDocument`. `HCCredential`, `HCPayOption`, `HCDocument`/`IDocument` no longer exist as code. Generating those two is Phase A in `patient-api.md`.
 

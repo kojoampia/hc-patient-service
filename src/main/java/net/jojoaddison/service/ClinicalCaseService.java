@@ -58,17 +58,17 @@ public class ClinicalCaseService {
         return clinicalCaseRepository
             .findById(clinicalCase.getId())
             .map(existingClinicalCase -> {
-                updateIfPresent(existingClinicalCase::setSymptoms, clinicalCase.getSymptoms());
-                updateIfPresent(existingClinicalCase::setDiagnoses, clinicalCase.getDiagnoses());
-                updateIfPresent(existingClinicalCase::setRecommendations, clinicalCase.getRecommendations());
-                updateIfPresent(existingClinicalCase::setCreatedDate, clinicalCase.getCreatedDate());
-                updateIfPresent(existingClinicalCase::setCreatedBy, clinicalCase.getCreatedBy());
-                updateIfPresent(existingClinicalCase::setModifiedDate, clinicalCase.getModifiedDate());
-                updateIfPresent(existingClinicalCase::setModifiedBy, clinicalCase.getModifiedBy());
+                updateIfPresent(existingClinicalCase::setPatientId, clinicalCase.getPatientId());
+                updateIfPresent(existingClinicalCase::setOpenedAt, clinicalCase.getOpenedAt());
+                updateIfPresent(existingClinicalCase::setBrief, clinicalCase.getBrief());
                 updateIfPresent(existingClinicalCase::setStatus, clinicalCase.getStatus());
-                updateIfPresent(existingClinicalCase::setOpenDate, clinicalCase.getOpenDate());
-                updateIfPresent(existingClinicalCase::setCloseDate, clinicalCase.getCloseDate());
-                updateIfPresent(existingClinicalCase::setCategory, clinicalCase.getCategory());
+                updateIfPresent(existingClinicalCase::setSymptoms, clinicalCase.getSymptoms());
+                updateIfPresent(existingClinicalCase::setDiagnosis, clinicalCase.getDiagnosis());
+                updateIfPresent(existingClinicalCase::setAssignedProfessionalId, clinicalCase.getAssignedProfessionalId());
+                updateIfPresent(existingClinicalCase::setAssignedRosterId, clinicalCase.getAssignedRosterId());
+                // `recommendations` is deliberately not merged here: it is a relationship, and an empty set on the
+                // incoming patch is indistinguishable from "not supplied". Use PUT, or a dedicated endpoint, to
+                // change which recommendations a case carries.
 
                 return existingClinicalCase;
             })

@@ -7,30 +7,33 @@ public class ClinicalCaseTestSamples {
     public static ClinicalCase getClinicalCaseSample1() {
         return new ClinicalCase()
             .id("id1")
+            .patientId("patientId1")
+            .brief("brief1")
             .symptoms("symptoms1")
-            .diagnoses("diagnoses1")
-            .recommendations("recommendations1")
-            .createdBy("createdBy1")
-            .modifiedBy("modifiedBy1");
+            .diagnosis("diagnosis1")
+            .assignedProfessionalId("assignedProfessionalId1")
+            .assignedRosterId("assignedRosterId1");
     }
 
     public static ClinicalCase getClinicalCaseSample2() {
         return new ClinicalCase()
             .id("id2")
+            .patientId("patientId2")
+            .brief("brief2")
             .symptoms("symptoms2")
-            .diagnoses("diagnoses2")
-            .recommendations("recommendations2")
-            .createdBy("createdBy2")
-            .modifiedBy("modifiedBy2");
+            .diagnosis("diagnosis2")
+            .assignedProfessionalId("assignedProfessionalId2")
+            .assignedRosterId("assignedRosterId2");
     }
 
     public static ClinicalCase getClinicalCaseRandomSampleGenerator() {
         return new ClinicalCase()
             .id(UUID.randomUUID().toString())
+            .patientId(UUID.randomUUID().toString())
+            .brief(UUID.randomUUID().toString())
             .symptoms(UUID.randomUUID().toString())
-            .diagnoses(UUID.randomUUID().toString())
-            .recommendations(UUID.randomUUID().toString())
-            .createdBy(UUID.randomUUID().toString())
-            .modifiedBy(UUID.randomUUID().toString());
+            .diagnosis(UUID.randomUUID().toString())
+            .assignedProfessionalId(UUID.randomUUID().toString())
+            .assignedRosterId(UUID.randomUUID().toString());
     }
 }

@@ -1,18 +1,28 @@
 package net.jojoaddison.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
-import net.jojoaddison.domain.enumeration.CaseCategory;
+import java.util.HashSet;
+import java.util.Set;
 import net.jojoaddison.domain.enumeration.CaseStatus;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.DBRef;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
  * A ClinicalCase.
+ *
+ * <p>Replaces the former {@code MedCase}, whose shape it does not share. The contract is the one the professional
+ * dashboard generates against ({@code hc-professional/web/.jhipster/ClinicalCase.json}): a case now carries who it
+ * is about and who it is assigned to ({@code patientId}, {@code assignedProfessionalId}, {@code assignedRosterId})
+ * plus a short {@code brief} for queue rows, and {@code recommendations} became a relationship to
+ * {@link Recommendation} instead of a free-text field. {@code MedCase}'s {@code closeDate}, {@code category} and
+ * audit fields are gone.</p>
  */
-@Document(collection = "clinical_case")
+@Document(collection = "clinicalcase")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class ClinicalCase implements Serializable {
 
@@ -22,38 +32,34 @@ public class ClinicalCase implements Serializable {
     @Id
     private String id;
 
-    @Field("symptoms")
-    private String symptoms;
+    @Field("patient_id")
+    private String patientId;
 
-    @Field("diagnoses")
-    private String diagnoses;
+    @Field("opened_at")
+    private Instant openedAt;
 
-    @Field("recommendations")
-    private String recommendations;
-
-    @Field("created_date")
-    private Instant createdDate;
-
-    @Field("created_by")
-    private String createdBy;
-
-    @Field("modified_date")
-    private Instant modifiedDate;
-
-    @Field("modified_by")
-    private String modifiedBy;
+    @Field("brief")
+    private String brief;
 
     @Field("status")
     private CaseStatus status;
 
-    @Field("open_date")
-    private Instant openDate;
+    @Field("symptoms")
+    private String symptoms;
 
-    @Field("close_date")
-    private Instant closeDate;
+    @Field("diagnosis")
+    private String diagnosis;
 
-    @Field("category")
-    private CaseCategory category;
+    @Field("assigned_professional_id")
+    private String assignedProfessionalId;
+
+    @Field("assigned_roster_id")
+    private String assignedRosterId;
+
+    @DBRef
+    @Field("recommendation")
+    @JsonIgnoreProperties(value = { "clinicalCases" }, allowSetters = true)
+    private Set<Recommendation> recommendations = new HashSet<>();
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -70,95 +76,43 @@ public class ClinicalCase implements Serializable {
         this.id = id;
     }
 
-    public String getSymptoms() {
-        return this.symptoms;
+    public String getPatientId() {
+        return this.patientId;
     }
 
-    public ClinicalCase symptoms(String symptoms) {
-        this.setSymptoms(symptoms);
+    public ClinicalCase patientId(String patientId) {
+        this.setPatientId(patientId);
         return this;
     }
 
-    public void setSymptoms(String symptoms) {
-        this.symptoms = symptoms;
+    public void setPatientId(String patientId) {
+        this.patientId = patientId;
     }
 
-    public String getDiagnoses() {
-        return this.diagnoses;
+    public Instant getOpenedAt() {
+        return this.openedAt;
     }
 
-    public ClinicalCase diagnoses(String diagnoses) {
-        this.setDiagnoses(diagnoses);
+    public ClinicalCase openedAt(Instant openedAt) {
+        this.setOpenedAt(openedAt);
         return this;
     }
 
-    public void setDiagnoses(String diagnoses) {
-        this.diagnoses = diagnoses;
+    public void setOpenedAt(Instant openedAt) {
+        this.openedAt = openedAt;
     }
 
-    public String getRecommendations() {
-        return this.recommendations;
+    public String getBrief() {
+        return this.brief;
     }
 
-    public ClinicalCase recommendations(String recommendations) {
-        this.setRecommendations(recommendations);
+    public ClinicalCase brief(String brief) {
+        this.setBrief(brief);
         return this;
     }
 
-    public void setRecommendations(String recommendations) {
-        this.recommendations = recommendations;
-    }
-
-    public Instant getCreatedDate() {
-        return this.createdDate;
-    }
-
-    public ClinicalCase createdDate(Instant createdDate) {
-        this.setCreatedDate(createdDate);
-        return this;
-    }
-
-    public void setCreatedDate(Instant createdDate) {
-        this.createdDate = createdDate;
-    }
-
-    public String getCreatedBy() {
-        return this.createdBy;
-    }
-
-    public ClinicalCase createdBy(String createdBy) {
-        this.setCreatedBy(createdBy);
-        return this;
-    }
-
-    public void setCreatedBy(String createdBy) {
-        this.createdBy = createdBy;
-    }
-
-    public Instant getModifiedDate() {
-        return this.modifiedDate;
-    }
-
-    public ClinicalCase modifiedDate(Instant modifiedDate) {
-        this.setModifiedDate(modifiedDate);
-        return this;
-    }
-
-    public void setModifiedDate(Instant modifiedDate) {
-        this.modifiedDate = modifiedDate;
-    }
-
-    public String getModifiedBy() {
-        return this.modifiedBy;
-    }
-
-    public ClinicalCase modifiedBy(String modifiedBy) {
-        this.setModifiedBy(modifiedBy);
-        return this;
-    }
-
-    public void setModifiedBy(String modifiedBy) {
-        this.modifiedBy = modifiedBy;
+    public void setBrief(String brief) {
+        this.brief = brief;
     }
 
     public CaseStatus getStatus() {
@@ -174,43 +128,79 @@ public class ClinicalCase implements Serializable {
         this.status = status;
     }
 
-    public Instant getOpenDate() {
-        return this.openDate;
+    public String getSymptoms() {
+        return this.symptoms;
     }
 
-    public ClinicalCase openDate(Instant openDate) {
-        this.setOpenDate(openDate);
+    public ClinicalCase symptoms(String symptoms) {
+        this.setSymptoms(symptoms);
         return this;
     }
 
-    public void setOpenDate(Instant openDate) {
-        this.openDate = openDate;
+    public void setSymptoms(String symptoms) {
+        this.symptoms = symptoms;
     }
 
-    public Instant getCloseDate() {
-        return this.closeDate;
+    public String getDiagnosis() {
+        return this.diagnosis;
     }
 
-    public ClinicalCase closeDate(Instant closeDate) {
-        this.setCloseDate(closeDate);
+    public ClinicalCase diagnosis(String diagnosis) {
+        this.setDiagnosis(diagnosis);
         return this;
     }
 
-    public void setCloseDate(Instant closeDate) {
-        this.closeDate = closeDate;
+    public void setDiagnosis(String diagnosis) {
+        this.diagnosis = diagnosis;
     }
 
-    public CaseCategory getCategory() {
-        return this.category;
+    public String getAssignedProfessionalId() {
+        return this.assignedProfessionalId;
     }
 
-    public ClinicalCase category(CaseCategory category) {
-        this.setCategory(category);
+    public ClinicalCase assignedProfessionalId(String assignedProfessionalId) {
+        this.setAssignedProfessionalId(assignedProfessionalId);
         return this;
     }
 
-    public void setCategory(CaseCategory category) {
-        this.category = category;
+    public void setAssignedProfessionalId(String assignedProfessionalId) {
+        this.assignedProfessionalId = assignedProfessionalId;
+    }
+
+    public String getAssignedRosterId() {
+        return this.assignedRosterId;
+    }
+
+    public ClinicalCase assignedRosterId(String assignedRosterId) {
+        this.setAssignedRosterId(assignedRosterId);
+        return this;
+    }
+
+    public void setAssignedRosterId(String assignedRosterId) {
+        this.assignedRosterId = assignedRosterId;
+    }
+
+    public Set<Recommendation> getRecommendations() {
+        return this.recommendations;
+    }
+
+    public ClinicalCase recommendations(Set<Recommendation> recommendations) {
+        this.setRecommendations(recommendations);
+        return this;
+    }
+
+    public void setRecommendations(Set<Recommendation> recommendations) {
+        this.recommendations = recommendations;
+    }
+
+    public ClinicalCase addRecommendation(Recommendation recommendation) {
+        this.recommendations.add(recommendation);
+        return this;
+    }
+
+    public ClinicalCase removeRecommendation(Recommendation recommendation) {
+        this.recommendations.remove(recommendation);
+        return this;
     }
 
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here
@@ -237,17 +227,14 @@ public class ClinicalCase implements Serializable {
     public String toString() {
         return "ClinicalCase{" +
             "id=" + getId() +
-            ", symptoms='" + getSymptoms() + "'" +
-            ", diagnoses='" + getDiagnoses() + "'" +
-            ", recommendations='" + getRecommendations() + "'" +
-            ", createdDate='" + getCreatedDate() + "'" +
-            ", createdBy='" + getCreatedBy() + "'" +
-            ", modifiedDate='" + getModifiedDate() + "'" +
-            ", modifiedBy='" + getModifiedBy() + "'" +
+            ", patientId='" + getPatientId() + "'" +
+            ", openedAt='" + getOpenedAt() + "'" +
+            ", brief='" + getBrief() + "'" +
             ", status='" + getStatus() + "'" +
-            ", openDate='" + getOpenDate() + "'" +
-            ", closeDate='" + getCloseDate() + "'" +
-            ", category='" + getCategory() + "'" +
+            ", symptoms='" + getSymptoms() + "'" +
+            ", diagnosis='" + getDiagnosis() + "'" +
+            ", assignedProfessionalId='" + getAssignedProfessionalId() + "'" +
+            ", assignedRosterId='" + getAssignedRosterId() + "'" +
             "}";
     }
 }

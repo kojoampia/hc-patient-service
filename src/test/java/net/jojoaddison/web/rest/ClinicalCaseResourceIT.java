@@ -13,7 +13,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.ClinicalCase;
-import net.jojoaddison.domain.enumeration.CaseCategory;
 import net.jojoaddison.domain.enumeration.CaseStatus;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -33,38 +32,29 @@ import org.springframework.test.web.servlet.MockMvc;
 @WithMockUser
 class ClinicalCaseResourceIT {
 
-    private static final String DEFAULT_SYMPTOMS = "AAAAAAAAAA";
-    private static final String UPDATED_SYMPTOMS = "BBBBBBBBBB";
+    private static final String DEFAULT_PATIENT_ID = "AAAAAAAAAA";
+    private static final String UPDATED_PATIENT_ID = "BBBBBBBBBB";
 
-    private static final String DEFAULT_DIAGNOSES = "AAAAAAAAAA";
-    private static final String UPDATED_DIAGNOSES = "BBBBBBBBBB";
+    private static final Instant DEFAULT_OPENED_AT = Instant.ofEpochMilli(0L);
+    private static final Instant UPDATED_OPENED_AT = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
-    private static final String DEFAULT_RECOMMENDATIONS = "AAAAAAAAAA";
-    private static final String UPDATED_RECOMMENDATIONS = "BBBBBBBBBB";
-
-    private static final Instant DEFAULT_CREATED_DATE = Instant.ofEpochMilli(0L);
-    private static final Instant UPDATED_CREATED_DATE = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-
-    private static final String DEFAULT_CREATED_BY = "AAAAAAAAAA";
-    private static final String UPDATED_CREATED_BY = "BBBBBBBBBB";
-
-    private static final Instant DEFAULT_MODIFIED_DATE = Instant.ofEpochMilli(0L);
-    private static final Instant UPDATED_MODIFIED_DATE = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-
-    private static final String DEFAULT_MODIFIED_BY = "AAAAAAAAAA";
-    private static final String UPDATED_MODIFIED_BY = "BBBBBBBBBB";
+    private static final String DEFAULT_BRIEF = "AAAAAAAAAA";
+    private static final String UPDATED_BRIEF = "BBBBBBBBBB";
 
     private static final CaseStatus DEFAULT_STATUS = CaseStatus.URGENT;
     private static final CaseStatus UPDATED_STATUS = CaseStatus.OPEN;
 
-    private static final Instant DEFAULT_OPEN_DATE = Instant.ofEpochMilli(0L);
-    private static final Instant UPDATED_OPEN_DATE = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    private static final String DEFAULT_SYMPTOMS = "AAAAAAAAAA";
+    private static final String UPDATED_SYMPTOMS = "BBBBBBBBBB";
 
-    private static final Instant DEFAULT_CLOSE_DATE = Instant.ofEpochMilli(0L);
-    private static final Instant UPDATED_CLOSE_DATE = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    private static final String DEFAULT_DIAGNOSIS = "AAAAAAAAAA";
+    private static final String UPDATED_DIAGNOSIS = "BBBBBBBBBB";
 
-    private static final CaseCategory DEFAULT_CATEGORY = CaseCategory.ROUTINE;
-    private static final CaseCategory UPDATED_CATEGORY = CaseCategory.FOLLOW_UP;
+    private static final String DEFAULT_ASSIGNED_PROFESSIONAL_ID = "AAAAAAAAAA";
+    private static final String UPDATED_ASSIGNED_PROFESSIONAL_ID = "BBBBBBBBBB";
+
+    private static final String DEFAULT_ASSIGNED_ROSTER_ID = "AAAAAAAAAA";
+    private static final String UPDATED_ASSIGNED_ROSTER_ID = "BBBBBBBBBB";
 
     private static final String ENTITY_API_URL = "/api/clinical-cases";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
@@ -90,17 +80,14 @@ class ClinicalCaseResourceIT {
      */
     public static ClinicalCase createEntity() {
         return new ClinicalCase()
-            .symptoms(DEFAULT_SYMPTOMS)
-            .diagnoses(DEFAULT_DIAGNOSES)
-            .recommendations(DEFAULT_RECOMMENDATIONS)
-            .createdDate(DEFAULT_CREATED_DATE)
-            .createdBy(DEFAULT_CREATED_BY)
-            .modifiedDate(DEFAULT_MODIFIED_DATE)
-            .modifiedBy(DEFAULT_MODIFIED_BY)
+            .patientId(DEFAULT_PATIENT_ID)
+            .openedAt(DEFAULT_OPENED_AT)
+            .brief(DEFAULT_BRIEF)
             .status(DEFAULT_STATUS)
-            .openDate(DEFAULT_OPEN_DATE)
-            .closeDate(DEFAULT_CLOSE_DATE)
-            .category(DEFAULT_CATEGORY);
+            .symptoms(DEFAULT_SYMPTOMS)
+            .diagnosis(DEFAULT_DIAGNOSIS)
+            .assignedProfessionalId(DEFAULT_ASSIGNED_PROFESSIONAL_ID)
+            .assignedRosterId(DEFAULT_ASSIGNED_ROSTER_ID);
     }
 
     /**
@@ -111,17 +98,14 @@ class ClinicalCaseResourceIT {
      */
     public static ClinicalCase createUpdatedEntity() {
         return new ClinicalCase()
-            .symptoms(UPDATED_SYMPTOMS)
-            .diagnoses(UPDATED_DIAGNOSES)
-            .recommendations(UPDATED_RECOMMENDATIONS)
-            .createdDate(UPDATED_CREATED_DATE)
-            .createdBy(UPDATED_CREATED_BY)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY)
+            .patientId(UPDATED_PATIENT_ID)
+            .openedAt(UPDATED_OPENED_AT)
+            .brief(UPDATED_BRIEF)
             .status(UPDATED_STATUS)
-            .openDate(UPDATED_OPEN_DATE)
-            .closeDate(UPDATED_CLOSE_DATE)
-            .category(UPDATED_CATEGORY);
+            .symptoms(UPDATED_SYMPTOMS)
+            .diagnosis(UPDATED_DIAGNOSIS)
+            .assignedProfessionalId(UPDATED_ASSIGNED_PROFESSIONAL_ID)
+            .assignedRosterId(UPDATED_ASSIGNED_ROSTER_ID);
     }
 
     @BeforeEach
@@ -185,17 +169,14 @@ class ClinicalCaseResourceIT {
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
             .andExpect(jsonPath("$.[*].id").value(hasItem(clinicalCase.getId())))
-            .andExpect(jsonPath("$.[*].symptoms").value(hasItem(DEFAULT_SYMPTOMS)))
-            .andExpect(jsonPath("$.[*].diagnoses").value(hasItem(DEFAULT_DIAGNOSES)))
-            .andExpect(jsonPath("$.[*].recommendations").value(hasItem(DEFAULT_RECOMMENDATIONS)))
-            .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
-            .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
-            .andExpect(jsonPath("$.[*].modifiedBy").value(hasItem(DEFAULT_MODIFIED_BY)))
+            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
+            .andExpect(jsonPath("$.[*].openedAt").value(hasItem(DEFAULT_OPENED_AT.toString())))
+            .andExpect(jsonPath("$.[*].brief").value(hasItem(DEFAULT_BRIEF)))
             .andExpect(jsonPath("$.[*].status").value(hasItem(DEFAULT_STATUS.toString())))
-            .andExpect(jsonPath("$.[*].openDate").value(hasItem(DEFAULT_OPEN_DATE.toString())))
-            .andExpect(jsonPath("$.[*].closeDate").value(hasItem(DEFAULT_CLOSE_DATE.toString())))
-            .andExpect(jsonPath("$.[*].category").value(hasItem(DEFAULT_CATEGORY.toString())));
+            .andExpect(jsonPath("$.[*].symptoms").value(hasItem(DEFAULT_SYMPTOMS)))
+            .andExpect(jsonPath("$.[*].diagnosis").value(hasItem(DEFAULT_DIAGNOSIS)))
+            .andExpect(jsonPath("$.[*].assignedProfessionalId").value(hasItem(DEFAULT_ASSIGNED_PROFESSIONAL_ID)))
+            .andExpect(jsonPath("$.[*].assignedRosterId").value(hasItem(DEFAULT_ASSIGNED_ROSTER_ID)));
     }
 
     @Test
@@ -209,17 +190,14 @@ class ClinicalCaseResourceIT {
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
             .andExpect(jsonPath("$.id").value(clinicalCase.getId()))
-            .andExpect(jsonPath("$.symptoms").value(DEFAULT_SYMPTOMS))
-            .andExpect(jsonPath("$.diagnoses").value(DEFAULT_DIAGNOSES))
-            .andExpect(jsonPath("$.recommendations").value(DEFAULT_RECOMMENDATIONS))
-            .andExpect(jsonPath("$.createdDate").value(DEFAULT_CREATED_DATE.toString()))
-            .andExpect(jsonPath("$.createdBy").value(DEFAULT_CREATED_BY))
-            .andExpect(jsonPath("$.modifiedDate").value(DEFAULT_MODIFIED_DATE.toString()))
-            .andExpect(jsonPath("$.modifiedBy").value(DEFAULT_MODIFIED_BY))
+            .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID))
+            .andExpect(jsonPath("$.openedAt").value(DEFAULT_OPENED_AT.toString()))
+            .andExpect(jsonPath("$.brief").value(DEFAULT_BRIEF))
             .andExpect(jsonPath("$.status").value(DEFAULT_STATUS.toString()))
-            .andExpect(jsonPath("$.openDate").value(DEFAULT_OPEN_DATE.toString()))
-            .andExpect(jsonPath("$.closeDate").value(DEFAULT_CLOSE_DATE.toString()))
-            .andExpect(jsonPath("$.category").value(DEFAULT_CATEGORY.toString()));
+            .andExpect(jsonPath("$.symptoms").value(DEFAULT_SYMPTOMS))
+            .andExpect(jsonPath("$.diagnosis").value(DEFAULT_DIAGNOSIS))
+            .andExpect(jsonPath("$.assignedProfessionalId").value(DEFAULT_ASSIGNED_PROFESSIONAL_ID))
+            .andExpect(jsonPath("$.assignedRosterId").value(DEFAULT_ASSIGNED_ROSTER_ID));
     }
 
     @Test
@@ -238,17 +216,14 @@ class ClinicalCaseResourceIT {
         // Update the clinicalCase
         ClinicalCase updatedClinicalCase = clinicalCaseRepository.findById(clinicalCase.getId()).orElseThrow();
         updatedClinicalCase
-            .symptoms(UPDATED_SYMPTOMS)
-            .diagnoses(UPDATED_DIAGNOSES)
-            .recommendations(UPDATED_RECOMMENDATIONS)
-            .createdDate(UPDATED_CREATED_DATE)
-            .createdBy(UPDATED_CREATED_BY)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY)
+            .patientId(UPDATED_PATIENT_ID)
+            .openedAt(UPDATED_OPENED_AT)
+            .brief(UPDATED_BRIEF)
             .status(UPDATED_STATUS)
-            .openDate(UPDATED_OPEN_DATE)
-            .closeDate(UPDATED_CLOSE_DATE)
-            .category(UPDATED_CATEGORY);
+            .symptoms(UPDATED_SYMPTOMS)
+            .diagnosis(UPDATED_DIAGNOSIS)
+            .assignedProfessionalId(UPDATED_ASSIGNED_PROFESSIONAL_ID)
+            .assignedRosterId(UPDATED_ASSIGNED_ROSTER_ID);
 
         restClinicalCaseMockMvc
             .perform(
@@ -324,13 +299,7 @@ class ClinicalCaseResourceIT {
         ClinicalCase partialUpdatedClinicalCase = new ClinicalCase();
         partialUpdatedClinicalCase.setId(clinicalCase.getId());
 
-        partialUpdatedClinicalCase
-            .symptoms(UPDATED_SYMPTOMS)
-            .createdDate(UPDATED_CREATED_DATE)
-            .createdBy(UPDATED_CREATED_BY)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .status(UPDATED_STATUS)
-            .openDate(UPDATED_OPEN_DATE);
+        partialUpdatedClinicalCase.brief(UPDATED_BRIEF).status(UPDATED_STATUS).symptoms(UPDATED_SYMPTOMS);
 
         restClinicalCaseMockMvc
             .perform(
@@ -361,17 +330,14 @@ class ClinicalCaseResourceIT {
         partialUpdatedClinicalCase.setId(clinicalCase.getId());
 
         partialUpdatedClinicalCase
-            .symptoms(UPDATED_SYMPTOMS)
-            .diagnoses(UPDATED_DIAGNOSES)
-            .recommendations(UPDATED_RECOMMENDATIONS)
-            .createdDate(UPDATED_CREATED_DATE)
-            .createdBy(UPDATED_CREATED_BY)
-            .modifiedDate(UPDATED_MODIFIED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY)
+            .patientId(UPDATED_PATIENT_ID)
+            .openedAt(UPDATED_OPENED_AT)
+            .brief(UPDATED_BRIEF)
             .status(UPDATED_STATUS)
-            .openDate(UPDATED_OPEN_DATE)
-            .closeDate(UPDATED_CLOSE_DATE)
-            .category(UPDATED_CATEGORY);
+            .symptoms(UPDATED_SYMPTOMS)
+            .diagnosis(UPDATED_DIAGNOSIS)
+            .assignedProfessionalId(UPDATED_ASSIGNED_PROFESSIONAL_ID)
+            .assignedRosterId(UPDATED_ASSIGNED_ROSTER_ID);
 
         restClinicalCaseMockMvc
             .perform(

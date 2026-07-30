@@ -1,21 +1,26 @@
 {
   "annotations": {
-    "changelogDate": "20260720214037"
+    "changelogDate": "20260730120000"
   },
   "clientRootFolder": "hcPatientService",
   "databaseType": "mongodb",
   "dto": "no",
+  "entityTableName": "clinicalcase",
   "fields": [
     {
-      "fieldName": "symptoms",
+      "fieldName": "id",
       "fieldType": "String"
     },
     {
-      "fieldName": "diagnoses",
+      "fieldName": "patientId",
       "fieldType": "String"
     },
     {
-      "fieldName": "recommendations",
+      "fieldName": "openedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "brief",
       "fieldType": "String"
     },
     {
@@ -24,32 +29,19 @@
       "fieldValues": "URGENT,OPEN,CLOSED"
     },
     {
-      "fieldName": "openDate",
-      "fieldType": "Instant"
-    },
-    {
-      "fieldName": "closeDate",
-      "fieldType": "Instant"
-    },
-    {
-      "fieldName": "category",
-      "fieldType": "CaseCategory",
-      "fieldValues": "ROUTINE,FOLLOW_UP,EMERGENCY"
-    },
-    {
-      "fieldName": "createdDate",
-      "fieldType": "Instant"
-    },
-    {
-      "fieldName": "createdBy",
+      "fieldName": "symptoms",
       "fieldType": "String"
     },
     {
-      "fieldName": "modifiedDate",
-      "fieldType": "Instant"
+      "fieldName": "diagnosis",
+      "fieldType": "String"
     },
     {
-      "fieldName": "modifiedBy",
+      "fieldName": "assignedProfessionalId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "assignedRosterId",
       "fieldType": "String"
     }
   ],
@@ -57,7 +49,15 @@
   "name": "ClinicalCase",
   "pagination": "infinite-scroll",
   "readOnly": false,
-  "relationships": [],
+  "relationships": [
+    {
+      "otherEntityName": "recommendation",
+      "otherEntityRelationshipName": "clinicalCase",
+      "relationshipName": "recommendation",
+      "relationshipSide": "left",
+      "relationshipType": "many-to-many"
+    }
+  ],
   "searchEngine": "no",
   "service": "serviceClass"
 }

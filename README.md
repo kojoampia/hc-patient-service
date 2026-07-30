@@ -39,9 +39,18 @@ Implemented as `@Document` classes with a repository, REST resource, and `*Resou
 - **Membership** – plan or program memberships
 - **Report** – patient reports
 - **Metadata** – extensible metadata
-- **ClinicalCase** – clinical cases (renamed from `MedCase`; the REST path is `/api/clinical-cases` and the Mongo collection is `clinical_case`)
+- **ClinicalCase** – clinical cases: who the case is about and who it is assigned to (`patientId`,
+  `assignedProfessionalId`, `assignedRosterId`), a short `brief`, `status`, `symptoms`, `diagnosis`, `openedAt`,
+  and a many-to-many to **Recommendation**. REST path `/api/clinical-cases`, collection `clinicalcase`
+- **Recommendation** – labelled, categorised recommendations attached to clinical cases (`/api/recommendations`)
 
 Configured in `.jhipster/` but not yet generated as Java code: **PaymentOption** and **PersonalDocument** (renamed from `HCPayOption` and `IDocument`).
+
+`MedCase` was **replaced** by `ClinicalCase` — not renamed. The two share only `symptoms` and `status`:
+`ClinicalCase` adds `patientId`, `openedAt`, `brief`, `assignedProfessionalId` and `assignedRosterId`, renames
+`diagnoses` to `diagnosis`, turns free-text `recommendations` into a relationship to the new `Recommendation`
+entity, and drops `closeDate`, `category` and the audit fields. The `CaseCategory` enum went with it. The shape is
+defined by `hc-professional/web/.jhipster/ClinicalCase.json`, which the professional dashboard generates against.
 
 `HCCredential`, `HCPayOption`, and `HCDocument`/`IDocument` have been removed from this service. The `entities` array in `.yo-rc.json` still lists the old names and is stale — treat `.jhipster/*.json` plus the `domain` package as the source of truth.
 
