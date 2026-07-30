@@ -4,7 +4,7 @@
   },
   "clientRootFolder": "patientService",
   "databaseType": "mongodb",
-  "entityTableName": "idocument",
+  "entityTableName": "PersonalDocument",
   "fields": [
     {
       "fieldName": "name",
@@ -12,7 +12,7 @@
     }
   ],
   "microserviceName": "patientService",
-  "name": "IDocument",
+  "name": "PersonalDocument",
   "pagination": "no",
   "readOnly": false,
   "relationships": [],
