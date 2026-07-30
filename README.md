@@ -39,7 +39,7 @@ Implemented as `@Document` classes with a repository, REST resource, and `*Resou
 - **Membership** – plan or program memberships
 - **Report** – patient reports
 - **Metadata** – extensible metadata
-- **MedCase** – medical cases
+- **ClinicalCase** – clinical cases (renamed from `MedCase`; the REST path is `/api/clinical-cases` and the Mongo collection is `clinical_case`)
 
 Configured in `.jhipster/` but not yet generated as Java code: **PaymentOption** and **PersonalDocument** (renamed from `HCPayOption` and `IDocument`).
 

@@ -2,10 +2,10 @@ package net.jojoaddison.domain;
 
 import java.util.UUID;
 
-public class MedCaseTestSamples {
+public class ClinicalCaseTestSamples {
 
-    public static MedCase getMedCaseSample1() {
-        return new MedCase()
+    public static ClinicalCase getClinicalCaseSample1() {
+        return new ClinicalCase()
             .id("id1")
             .symptoms("symptoms1")
             .diagnoses("diagnoses1")
@@ -14,8 +14,8 @@ public class MedCaseTestSamples {
             .modifiedBy("modifiedBy1");
     }
 
-    public static MedCase getMedCaseSample2() {
-        return new MedCase()
+    public static ClinicalCase getClinicalCaseSample2() {
+        return new ClinicalCase()
             .id("id2")
             .symptoms("symptoms2")
             .diagnoses("diagnoses2")
@@ -24,8 +24,8 @@ public class MedCaseTestSamples {
             .modifiedBy("modifiedBy2");
     }
 
-    public static MedCase getMedCaseRandomSampleGenerator() {
-        return new MedCase()
+    public static ClinicalCase getClinicalCaseRandomSampleGenerator() {
+        return new ClinicalCase()
             .id(UUID.randomUUID().toString())
             .symptoms(UUID.randomUUID().toString())
             .diagnoses(UUID.randomUUID().toString())

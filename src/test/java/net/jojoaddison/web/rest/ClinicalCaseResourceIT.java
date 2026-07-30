@@ -1,6 +1,6 @@
 package net.jojoaddison.web.rest;
 
-import static net.jojoaddison.domain.MedCaseAsserts.*;
+import static net.jojoaddison.domain.ClinicalCaseAsserts.*;
 import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
@@ -12,10 +12,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
-import net.jojoaddison.domain.MedCase;
+import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.domain.enumeration.CaseCategory;
 import net.jojoaddison.domain.enumeration.CaseStatus;
-import net.jojoaddison.repository.MedCaseRepository;
+import net.jojoaddison.repository.ClinicalCaseRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,12 +26,12 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Integration tests for the {@link MedCaseResource} REST controller.
+ * Integration tests for the {@link ClinicalCaseResource} REST controller.
  */
 @IntegrationTest
 @AutoConfigureMockMvc
 @WithMockUser
-class MedCaseResourceIT {
+class ClinicalCaseResourceIT {
 
     private static final String DEFAULT_SYMPTOMS = "AAAAAAAAAA";
     private static final String UPDATED_SYMPTOMS = "BBBBBBBBBB";
@@ -66,21 +66,21 @@ class MedCaseResourceIT {
     private static final CaseCategory DEFAULT_CATEGORY = CaseCategory.ROUTINE;
     private static final CaseCategory UPDATED_CATEGORY = CaseCategory.FOLLOW_UP;
 
-    private static final String ENTITY_API_URL = "/api/med-cases";
+    private static final String ENTITY_API_URL = "/api/clinical-cases";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
     private ObjectMapper om;
 
     @Autowired
-    private MedCaseRepository medCaseRepository;
+    private ClinicalCaseRepository clinicalCaseRepository;
 
     @Autowired
-    private MockMvc restMedCaseMockMvc;
+    private MockMvc restClinicalCaseMockMvc;
 
-    private MedCase medCase;
+    private ClinicalCase clinicalCase;
 
-    private MedCase insertedMedCase;
+    private ClinicalCase insertedClinicalCase;
 
     /**
      * Create an entity for this test.
@@ -88,8 +88,8 @@ class MedCaseResourceIT {
      * This is a static method, as tests for other entities might also need it,
      * if they test an entity which requires the current entity.
      */
-    public static MedCase createEntity() {
-        return new MedCase()
+    public static ClinicalCase createEntity() {
+        return new ClinicalCase()
             .symptoms(DEFAULT_SYMPTOMS)
             .diagnoses(DEFAULT_DIAGNOSES)
             .recommendations(DEFAULT_RECOMMENDATIONS)
@@ -109,8 +109,8 @@ class MedCaseResourceIT {
      * This is a static method, as tests for other entities might also need it,
      * if they test an entity which requires the current entity.
      */
-    public static MedCase createUpdatedEntity() {
-        return new MedCase()
+    public static ClinicalCase createUpdatedEntity() {
+        return new ClinicalCase()
             .symptoms(UPDATED_SYMPTOMS)
             .diagnoses(UPDATED_DIAGNOSES)
             .recommendations(UPDATED_RECOMMENDATIONS)
@@ -126,65 +126,65 @@ class MedCaseResourceIT {
 
     @BeforeEach
     void initTest() {
-        medCase = createEntity();
+        clinicalCase = createEntity();
     }
 
     @AfterEach
     void cleanup() {
-        if (insertedMedCase != null) {
-            medCaseRepository.delete(insertedMedCase);
-            insertedMedCase = null;
+        if (insertedClinicalCase != null) {
+            clinicalCaseRepository.delete(insertedClinicalCase);
+            insertedClinicalCase = null;
         }
     }
 
     @Test
-    void createMedCase() throws Exception {
+    void createClinicalCase() throws Exception {
         long databaseSizeBeforeCreate = getRepositoryCount();
-        // Create the MedCase
-        var returnedMedCase = om.readValue(
-            restMedCaseMockMvc
-                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medCase)))
+        // Create the ClinicalCase
+        var returnedClinicalCase = om.readValue(
+            restClinicalCaseMockMvc
+                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(clinicalCase)))
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
                 .getContentAsString(),
-            MedCase.class
+            ClinicalCase.class
         );
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
-        assertMedCaseUpdatableFieldsEquals(returnedMedCase, getPersistedMedCase(returnedMedCase));
+        assertClinicalCaseUpdatableFieldsEquals(returnedClinicalCase, getPersistedClinicalCase(returnedClinicalCase));
 
-        insertedMedCase = returnedMedCase;
+        insertedClinicalCase = returnedClinicalCase;
     }
 
     @Test
-    void createMedCaseWithExistingId() throws Exception {
-        // Create the MedCase with an existing ID
-        medCase.setId("existing_id");
+    void createClinicalCaseWithExistingId() throws Exception {
+        // Create the ClinicalCase with an existing ID
+        clinicalCase.setId("existing_id");
 
         long databaseSizeBeforeCreate = getRepositoryCount();
 
         // An entity with an existing ID cannot be created, so this API call must fail
-        restMedCaseMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medCase)))
+        restClinicalCaseMockMvc
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(clinicalCase)))
             .andExpect(status().isBadRequest());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeCreate);
     }
 
     @Test
-    void getAllMedCases() throws Exception {
+    void getAllClinicalCases() throws Exception {
         // Initialize the database
-        insertedMedCase = medCaseRepository.save(medCase);
+        insertedClinicalCase = clinicalCaseRepository.save(clinicalCase);
 
-        // Get all the medCaseList
-        restMedCaseMockMvc
+        // Get all the clinicalCaseList
+        restClinicalCaseMockMvc
             .perform(get(ENTITY_API_URL + "?sort=id,desc"))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.[*].id").value(hasItem(medCase.getId())))
+            .andExpect(jsonPath("$.[*].id").value(hasItem(clinicalCase.getId())))
             .andExpect(jsonPath("$.[*].symptoms").value(hasItem(DEFAULT_SYMPTOMS)))
             .andExpect(jsonPath("$.[*].diagnoses").value(hasItem(DEFAULT_DIAGNOSES)))
             .andExpect(jsonPath("$.[*].recommendations").value(hasItem(DEFAULT_RECOMMENDATIONS)))
@@ -199,16 +199,16 @@ class MedCaseResourceIT {
     }
 
     @Test
-    void getMedCase() throws Exception {
+    void getClinicalCase() throws Exception {
         // Initialize the database
-        insertedMedCase = medCaseRepository.save(medCase);
+        insertedClinicalCase = clinicalCaseRepository.save(clinicalCase);
 
-        // Get the medCase
-        restMedCaseMockMvc
-            .perform(get(ENTITY_API_URL_ID, medCase.getId()))
+        // Get the clinicalCase
+        restClinicalCaseMockMvc
+            .perform(get(ENTITY_API_URL_ID, clinicalCase.getId()))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
-            .andExpect(jsonPath("$.id").value(medCase.getId()))
+            .andExpect(jsonPath("$.id").value(clinicalCase.getId()))
             .andExpect(jsonPath("$.symptoms").value(DEFAULT_SYMPTOMS))
             .andExpect(jsonPath("$.diagnoses").value(DEFAULT_DIAGNOSES))
             .andExpect(jsonPath("$.recommendations").value(DEFAULT_RECOMMENDATIONS))
@@ -223,21 +223,21 @@ class MedCaseResourceIT {
     }
 
     @Test
-    void getNonExistingMedCase() throws Exception {
-        // Get the medCase
-        restMedCaseMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isNotFound());
+    void getNonExistingClinicalCase() throws Exception {
+        // Get the clinicalCase
+        restClinicalCaseMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isNotFound());
     }
 
     @Test
-    void putExistingMedCase() throws Exception {
+    void putExistingClinicalCase() throws Exception {
         // Initialize the database
-        insertedMedCase = medCaseRepository.save(medCase);
+        insertedClinicalCase = clinicalCaseRepository.save(clinicalCase);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
-        // Update the medCase
-        MedCase updatedMedCase = medCaseRepository.findById(medCase.getId()).orElseThrow();
-        updatedMedCase
+        // Update the clinicalCase
+        ClinicalCase updatedClinicalCase = clinicalCaseRepository.findById(clinicalCase.getId()).orElseThrow();
+        updatedClinicalCase
             .symptoms(UPDATED_SYMPTOMS)
             .diagnoses(UPDATED_DIAGNOSES)
             .recommendations(UPDATED_RECOMMENDATIONS)
@@ -250,77 +250,81 @@ class MedCaseResourceIT {
             .closeDate(UPDATED_CLOSE_DATE)
             .category(UPDATED_CATEGORY);
 
-        restMedCaseMockMvc
+        restClinicalCaseMockMvc
             .perform(
-                put(ENTITY_API_URL_ID, updatedMedCase.getId())
+                put(ENTITY_API_URL_ID, updatedClinicalCase.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(updatedMedCase))
+                    .content(om.writeValueAsBytes(updatedClinicalCase))
             )
             .andExpect(status().isOk());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertPersistedMedCaseToMatchAllProperties(updatedMedCase);
+        assertPersistedClinicalCaseToMatchAllProperties(updatedClinicalCase);
     }
 
     @Test
-    void putNonExistingMedCase() throws Exception {
+    void putNonExistingClinicalCase() throws Exception {
         long databaseSizeBeforeUpdate = getRepositoryCount();
-        medCase.setId(UUID.randomUUID().toString());
+        clinicalCase.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
-        restMedCaseMockMvc
-            .perform(put(ENTITY_API_URL_ID, medCase.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medCase)))
-            .andExpect(status().isBadRequest());
-
-        // Validate the MedCase in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-    }
-
-    @Test
-    void putWithIdMismatchMedCase() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
-        medCase.setId(UUID.randomUUID().toString());
-
-        // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restMedCaseMockMvc
+        restClinicalCaseMockMvc
             .perform(
-                put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
+                put(ENTITY_API_URL_ID, clinicalCase.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(medCase))
+                    .content(om.writeValueAsBytes(clinicalCase))
             )
             .andExpect(status().isBadRequest());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
-    void putWithMissingIdPathParamMedCase() throws Exception {
+    void putWithIdMismatchClinicalCase() throws Exception {
         long databaseSizeBeforeUpdate = getRepositoryCount();
-        medCase.setId(UUID.randomUUID().toString());
+        clinicalCase.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restMedCaseMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(medCase)))
-            .andExpect(status().isMethodNotAllowed());
+        restClinicalCaseMockMvc
+            .perform(
+                put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(om.writeValueAsBytes(clinicalCase))
+            )
+            .andExpect(status().isBadRequest());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
-    void partialUpdateMedCaseWithPatch() throws Exception {
+    void putWithMissingIdPathParamClinicalCase() throws Exception {
+        long databaseSizeBeforeUpdate = getRepositoryCount();
+        clinicalCase.setId(UUID.randomUUID().toString());
+
+        // If url ID doesn't match entity ID, it will throw BadRequestAlertException
+        restClinicalCaseMockMvc
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(clinicalCase)))
+            .andExpect(status().isMethodNotAllowed());
+
+        // Validate the ClinicalCase in the database
+        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+    }
+
+    @Test
+    void partialUpdateClinicalCaseWithPatch() throws Exception {
         // Initialize the database
-        insertedMedCase = medCaseRepository.save(medCase);
+        insertedClinicalCase = clinicalCaseRepository.save(clinicalCase);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
-        // Update the medCase using partial update
-        MedCase partialUpdatedMedCase = new MedCase();
-        partialUpdatedMedCase.setId(medCase.getId());
+        // Update the clinicalCase using partial update
+        ClinicalCase partialUpdatedClinicalCase = new ClinicalCase();
+        partialUpdatedClinicalCase.setId(clinicalCase.getId());
 
-        partialUpdatedMedCase
+        partialUpdatedClinicalCase
             .symptoms(UPDATED_SYMPTOMS)
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY)
@@ -328,32 +332,35 @@ class MedCaseResourceIT {
             .status(UPDATED_STATUS)
             .openDate(UPDATED_OPEN_DATE);
 
-        restMedCaseMockMvc
+        restClinicalCaseMockMvc
             .perform(
-                patch(ENTITY_API_URL_ID, partialUpdatedMedCase.getId())
+                patch(ENTITY_API_URL_ID, partialUpdatedClinicalCase.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedMedCase))
+                    .content(om.writeValueAsBytes(partialUpdatedClinicalCase))
             )
             .andExpect(status().isOk());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
 
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertMedCaseUpdatableFieldsEquals(createUpdateProxyForBean(partialUpdatedMedCase, medCase), getPersistedMedCase(medCase));
+        assertClinicalCaseUpdatableFieldsEquals(
+            createUpdateProxyForBean(partialUpdatedClinicalCase, clinicalCase),
+            getPersistedClinicalCase(clinicalCase)
+        );
     }
 
     @Test
-    void fullUpdateMedCaseWithPatch() throws Exception {
+    void fullUpdateClinicalCaseWithPatch() throws Exception {
         // Initialize the database
-        insertedMedCase = medCaseRepository.save(medCase);
+        insertedClinicalCase = clinicalCaseRepository.save(clinicalCase);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
-        // Update the medCase using partial update
-        MedCase partialUpdatedMedCase = new MedCase();
-        partialUpdatedMedCase.setId(medCase.getId());
+        // Update the clinicalCase using partial update
+        ClinicalCase partialUpdatedClinicalCase = new ClinicalCase();
+        partialUpdatedClinicalCase.setId(clinicalCase.getId());
 
-        partialUpdatedMedCase
+        partialUpdatedClinicalCase
             .symptoms(UPDATED_SYMPTOMS)
             .diagnoses(UPDATED_DIAGNOSES)
             .recommendations(UPDATED_RECOMMENDATIONS)
@@ -366,78 +373,80 @@ class MedCaseResourceIT {
             .closeDate(UPDATED_CLOSE_DATE)
             .category(UPDATED_CATEGORY);
 
-        restMedCaseMockMvc
+        restClinicalCaseMockMvc
             .perform(
-                patch(ENTITY_API_URL_ID, partialUpdatedMedCase.getId())
+                patch(ENTITY_API_URL_ID, partialUpdatedClinicalCase.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedMedCase))
+                    .content(om.writeValueAsBytes(partialUpdatedClinicalCase))
             )
             .andExpect(status().isOk());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
 
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertMedCaseUpdatableFieldsEquals(partialUpdatedMedCase, getPersistedMedCase(partialUpdatedMedCase));
+        assertClinicalCaseUpdatableFieldsEquals(partialUpdatedClinicalCase, getPersistedClinicalCase(partialUpdatedClinicalCase));
     }
 
     @Test
-    void patchNonExistingMedCase() throws Exception {
+    void patchNonExistingClinicalCase() throws Exception {
         long databaseSizeBeforeUpdate = getRepositoryCount();
-        medCase.setId(UUID.randomUUID().toString());
+        clinicalCase.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
-        restMedCaseMockMvc
+        restClinicalCaseMockMvc
             .perform(
-                patch(ENTITY_API_URL_ID, medCase.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(medCase))
+                patch(ENTITY_API_URL_ID, clinicalCase.getId())
+                    .contentType("application/merge-patch+json")
+                    .content(om.writeValueAsBytes(clinicalCase))
             )
             .andExpect(status().isBadRequest());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
-    void patchWithIdMismatchMedCase() throws Exception {
+    void patchWithIdMismatchClinicalCase() throws Exception {
         long databaseSizeBeforeUpdate = getRepositoryCount();
-        medCase.setId(UUID.randomUUID().toString());
+        clinicalCase.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restMedCaseMockMvc
+        restClinicalCaseMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(medCase))
+                    .content(om.writeValueAsBytes(clinicalCase))
             )
             .andExpect(status().isBadRequest());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
-    void patchWithMissingIdPathParamMedCase() throws Exception {
+    void patchWithMissingIdPathParamClinicalCase() throws Exception {
         long databaseSizeBeforeUpdate = getRepositoryCount();
-        medCase.setId(UUID.randomUUID().toString());
+        clinicalCase.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
-        restMedCaseMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(medCase)))
+        restClinicalCaseMockMvc
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(clinicalCase)))
             .andExpect(status().isMethodNotAllowed());
 
-        // Validate the MedCase in the database
+        // Validate the ClinicalCase in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
     }
 
     @Test
-    void deleteMedCase() throws Exception {
+    void deleteClinicalCase() throws Exception {
         // Initialize the database
-        insertedMedCase = medCaseRepository.save(medCase);
+        insertedClinicalCase = clinicalCaseRepository.save(clinicalCase);
 
         long databaseSizeBeforeDelete = getRepositoryCount();
 
-        // Delete the medCase
-        restMedCaseMockMvc
-            .perform(delete(ENTITY_API_URL_ID, medCase.getId()).accept(MediaType.APPLICATION_JSON))
+        // Delete the clinicalCase
+        restClinicalCaseMockMvc
+            .perform(delete(ENTITY_API_URL_ID, clinicalCase.getId()).accept(MediaType.APPLICATION_JSON))
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
@@ -445,7 +454,7 @@ class MedCaseResourceIT {
     }
 
     protected long getRepositoryCount() {
-        return medCaseRepository.count();
+        return clinicalCaseRepository.count();
     }
 
     protected void assertIncrementedRepositoryCount(long countBefore) {
@@ -460,15 +469,15 @@ class MedCaseResourceIT {
         assertThat(countBefore).isEqualTo(getRepositoryCount());
     }
 
-    protected MedCase getPersistedMedCase(MedCase medCase) {
-        return medCaseRepository.findById(medCase.getId()).orElseThrow();
+    protected ClinicalCase getPersistedClinicalCase(ClinicalCase clinicalCase) {
+        return clinicalCaseRepository.findById(clinicalCase.getId()).orElseThrow();
     }
 
-    protected void assertPersistedMedCaseToMatchAllProperties(MedCase expectedMedCase) {
-        assertMedCaseAllPropertiesEquals(expectedMedCase, getPersistedMedCase(expectedMedCase));
+    protected void assertPersistedClinicalCaseToMatchAllProperties(ClinicalCase expectedClinicalCase) {
+        assertClinicalCaseAllPropertiesEquals(expectedClinicalCase, getPersistedClinicalCase(expectedClinicalCase));
     }
 
-    protected void assertPersistedMedCaseToMatchUpdatableProperties(MedCase expectedMedCase) {
-        assertMedCaseAllUpdatablePropertiesEquals(expectedMedCase, getPersistedMedCase(expectedMedCase));
+    protected void assertPersistedClinicalCaseToMatchUpdatableProperties(ClinicalCase expectedClinicalCase) {
+        assertClinicalCaseAllUpdatablePropertiesEquals(expectedClinicalCase, getPersistedClinicalCase(expectedClinicalCase));
     }
 }

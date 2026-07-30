@@ -20,7 +20,7 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 - `[x]` JHipster microservice scaffold: Consul discovery/config, MongoDB, Kafka (Spring Cloud Stream), JWT resource-server validation, `skipUserManagement`.
 - `[x]` Layered architecture with ArchUnit enforcement (`TechnicalStructureTest`).
 - `[x]` RFC 7807 error handling via `web/rest/errors/ExceptionTranslator`, covered by `ExceptionTranslatorIT`.
-- `[x]` Eleven documents with repository + resource + full CRUD `*ResourceIT`: `Profile`, `Address`, `Condition`, `Medication`, `MedCase`, `Stat`, `Team`, `Task`, `Membership`, `Report`, `Metadata`.
+- `[x]` Eleven documents with repository + resource + full CRUD `*ResourceIT`: `Profile`, `Address`, `ClinicalCase`, `Condition`, `Medication`, `Stat`, `Team`, `Task`, `Membership`, `Report`, `Metadata`.
 - `[x]` Auditing base class `AbstractAuditingEntity`; Mongo ids are `String` (not UUID).
 - `[x]` Local dependency compose files (`mongodb.yml`, `consul.yml`, `kafka.yml`, `services.yml`) plus Jib image build.
 - `[x]` Kafka producer/consumer wired (`broker/KafkaProducer`, `broker/KafkaConsumer`).
@@ -31,6 +31,15 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 - `[ ]` Generate `PersonalDocument` from `.jhipster/PersonalDocument.json` (same set). Confirm whether document _content_ is stored in Mongo or an object store before finalizing the shape.
 - `[ ]` Refresh the stale `entities` array in `.yo-rc.json` (still lists the removed `HCCredential`/`HCPayOption`/`HCDocument`, omits `MedCase`/`PaymentOption`/`PersonalDocument`).
 - `[ ]` Coordinate the rename with the dashboard: it still ships `hc-credential` and `hc-pay-option` CRUD screens. Track in `patient-web.md`.
+- `[x]` `MedCase` renamed to `ClinicalCase` throughout: document, repository, service, resource, the four
+  test classes, and `.jhipster/`. The REST path is now `/api/clinical-cases` and the Mongo collection is
+  `clinical_case`. `ClinicalCaseResourceIT` passes (15 tests). The only known consumer,
+  `hc-professional/web`, had its endpoint updated on a `feature/clinical-case` branch.
+- `[ ]` **Migrate existing `med_case` documents.** The collection name changed with the entity, so any
+  data already written under `med_case` is invisible to the renamed service. On a deployed database run
+  `db.med_case.renameCollection('clinical_case')` before the new build goes live; on an empty one there
+  is nothing to do. This service has no migration framework (see the Phase B item), so it is a manual
+  step for now.
 - `[ ]` Decide whether `Stat` is the home for vitals or whether `VitalStatistic` (Phase C) supersedes it — do this before adding more fields to either.
 
 ### `Profile` vs the blueprint spec
@@ -66,7 +75,7 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 ## Phase D — platform hardening
 
 - `[ ]` **Align the JWT signing key with the gateway.** The committed `base64-secret` in `application-dev.yml`/`application-prod.yml` differs from the gateway's, so a relayed token fails signature validation. Source both from one env var / Consul KV entry and remove the committed values.
-- `[ ]` Paginate the generated `getAll*` endpoints that can grow unbounded (`Stat`, `Report`, `MedCase`, `Metadata` first) — they currently return unpaged `List<Entity>`.
+- `[ ]` Paginate the generated `getAll*` endpoints that can grow unbounded (`Stat`, `Report`, `ClinicalCase`, `Metadata` first) — they currently return unpaged `List<Entity>`.
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
 - `[ ]` Decide on caching: `cacheProvider` is `"no"`; if read load justifies it, add Spring Cache deliberately rather than per-service ad hoc.
 - `[ ]` Rate limiting / abuse monitoring is not implemented in this service. Decide whether it belongs here or at the gateway.

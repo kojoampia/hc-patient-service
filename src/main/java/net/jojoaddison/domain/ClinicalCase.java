@@ -10,11 +10,11 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A MedCase.
+ * A ClinicalCase.
  */
-@Document(collection = "med_case")
+@Document(collection = "clinical_case")
 @SuppressWarnings("common-java:DuplicatedBlocks")
-public class MedCase implements Serializable {
+public class ClinicalCase implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -61,7 +61,7 @@ public class MedCase implements Serializable {
         return this.id;
     }
 
-    public MedCase id(String id) {
+    public ClinicalCase id(String id) {
         this.setId(id);
         return this;
     }
@@ -74,7 +74,7 @@ public class MedCase implements Serializable {
         return this.symptoms;
     }
 
-    public MedCase symptoms(String symptoms) {
+    public ClinicalCase symptoms(String symptoms) {
         this.setSymptoms(symptoms);
         return this;
     }
@@ -87,7 +87,7 @@ public class MedCase implements Serializable {
         return this.diagnoses;
     }
 
-    public MedCase diagnoses(String diagnoses) {
+    public ClinicalCase diagnoses(String diagnoses) {
         this.setDiagnoses(diagnoses);
         return this;
     }
@@ -100,7 +100,7 @@ public class MedCase implements Serializable {
         return this.recommendations;
     }
 
-    public MedCase recommendations(String recommendations) {
+    public ClinicalCase recommendations(String recommendations) {
         this.setRecommendations(recommendations);
         return this;
     }
@@ -113,7 +113,7 @@ public class MedCase implements Serializable {
         return this.createdDate;
     }
 
-    public MedCase createdDate(Instant createdDate) {
+    public ClinicalCase createdDate(Instant createdDate) {
         this.setCreatedDate(createdDate);
         return this;
     }
@@ -126,7 +126,7 @@ public class MedCase implements Serializable {
         return this.createdBy;
     }
 
-    public MedCase createdBy(String createdBy) {
+    public ClinicalCase createdBy(String createdBy) {
         this.setCreatedBy(createdBy);
         return this;
     }
@@ -139,7 +139,7 @@ public class MedCase implements Serializable {
         return this.modifiedDate;
     }
 
-    public MedCase modifiedDate(Instant modifiedDate) {
+    public ClinicalCase modifiedDate(Instant modifiedDate) {
         this.setModifiedDate(modifiedDate);
         return this;
     }
@@ -152,7 +152,7 @@ public class MedCase implements Serializable {
         return this.modifiedBy;
     }
 
-    public MedCase modifiedBy(String modifiedBy) {
+    public ClinicalCase modifiedBy(String modifiedBy) {
         this.setModifiedBy(modifiedBy);
         return this;
     }
@@ -165,7 +165,7 @@ public class MedCase implements Serializable {
         return this.status;
     }
 
-    public MedCase status(CaseStatus status) {
+    public ClinicalCase status(CaseStatus status) {
         this.setStatus(status);
         return this;
     }
@@ -178,7 +178,7 @@ public class MedCase implements Serializable {
         return this.openDate;
     }
 
-    public MedCase openDate(Instant openDate) {
+    public ClinicalCase openDate(Instant openDate) {
         this.setOpenDate(openDate);
         return this;
     }
@@ -191,7 +191,7 @@ public class MedCase implements Serializable {
         return this.closeDate;
     }
 
-    public MedCase closeDate(Instant closeDate) {
+    public ClinicalCase closeDate(Instant closeDate) {
         this.setCloseDate(closeDate);
         return this;
     }
@@ -204,7 +204,7 @@ public class MedCase implements Serializable {
         return this.category;
     }
 
-    public MedCase category(CaseCategory category) {
+    public ClinicalCase category(CaseCategory category) {
         this.setCategory(category);
         return this;
     }
@@ -220,10 +220,10 @@ public class MedCase implements Serializable {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof MedCase)) {
+        if (!(o instanceof ClinicalCase)) {
             return false;
         }
-        return getId() != null && getId().equals(((MedCase) o).getId());
+        return getId() != null && getId().equals(((ClinicalCase) o).getId());
     }
 
     @Override
@@ -235,7 +235,7 @@ public class MedCase implements Serializable {
     // prettier-ignore
     @Override
     public String toString() {
-        return "MedCase{" +
+        return "ClinicalCase{" +
             "id=" + getId() +
             ", symptoms='" + getSymptoms() + "'" +
             ", diagnoses='" + getDiagnoses() + "'" +

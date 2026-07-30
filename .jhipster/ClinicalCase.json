@@ -54,7 +54,7 @@
     }
   ],
   "microserviceName": "hcPatientService",
-  "name": "MedCase",
+  "name": "ClinicalCase",
   "pagination": "infinite-scroll",
   "readOnly": false,
   "relationships": [],

@@ -21,9 +21,9 @@ Statements below are split between **current** (true of the code today) and **ta
 ## Architecture and Design
 
 - Layered architecture (`web/rest` → `service` → `repository` → `domain`) with boundaries enforced by ArchUnit in `TechnicalStructureTest`.
-- Domain-driven modelling of patient data. Entities currently implemented: `Profile`, `Address`, `Condition`, `Medication`, `MedCase`, `Stat`, `Team`, `Task`, `Membership`, `Report`, `Metadata`. `PaymentOption` and `PersonalDocument` exist only as `.jhipster/*.json` configs so far.
+- Domain-driven modelling of patient data. Entities currently implemented: `Profile`, `Address`, `Condition`, `Medication`, `ClinicalCase`, `Stat`, `Team`, `Task`, `Membership`, `Report`, `Metadata`. `PaymentOption` and `PersonalDocument` exist only as `.jhipster/*.json` configs so far.
 - Constructor injection for all services and repositories; no static initialization blocks.
-- **Current:** only `ProfileService` and `MedCaseService` exist, and there is no DTO/mapper layer — resources return domain documents directly.
+- **Current:** only `ProfileService` and `ClinicalCaseService` exist, and there is no DTO/mapper layer — resources return domain documents directly.
 - **Target:** when a resource grows logic beyond straight persistence, add a service; introduce DTOs (immutable where practical) only when the wire shape must diverge from the document.
 - Kafka (Spring Cloud Stream) for asynchronous cross-service communication, e.g. telemetry and alerts; producer/consumer live in `broker`.
 - Error handling stays centralized in `web/rest/errors` (`ExceptionTranslator`, `BadRequestAlertException`) rather than per-controller `@ExceptionHandler`s.

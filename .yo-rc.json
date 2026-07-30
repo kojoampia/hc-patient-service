@@ -27,7 +27,7 @@
       "HCCredential",
       "HCPayOption",
       "HCDocument",
-      "MedCase"
+      "ClinicalCase"
     ],
     "feignClient": false,
     "gradleEnterpriseHost": null,

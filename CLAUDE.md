@@ -100,8 +100,8 @@ config → web → service (optional) → security → repository (optional) →
 
 Directory map (`src/main/java/net/jojoaddison/`):
 
-- `web/rest` — `@RestController`s, one per entity (`ProfileResource`, `MedCaseResource`, etc.) plus `web/rest/errors` for the RFC-7807-style exception translation (`ExceptionTranslator`, `BadRequestAlertException`).
-- `service` — business/persistence orchestration. Only `ProfileService` and `MedCaseService` exist; simpler entities call their repository directly from the resource. There is no DTO/mapper layer — domain documents are returned directly.
+- `web/rest` — `@RestController`s, one per entity (`ProfileResource`, `ClinicalCaseResource`, etc.) plus `web/rest/errors` for the RFC-7807-style exception translation (`ExceptionTranslator`, `BadRequestAlertException`).
+- `service` — business/persistence orchestration. Only `ProfileService` and `ClinicalCaseService` exist; simpler entities call their repository directly from the resource. There is no DTO/mapper layer — domain documents are returned directly.
 - `repository` — `Spring Data MongoRepository` interfaces only, one per entity, no query logic beyond what Spring Data derives.
 - `domain` — Mongo document classes (`@Document`) plus `AbstractAuditingEntity` and `domain/enumeration` for enums (`CaseCategory`, `CaseStatus`).
 - `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`).
@@ -134,7 +134,7 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 
 Generated and present as `@Document` classes with repository + resource + `*ResourceIT`:
 
-`Address`, `Condition`, `MedCase`, `Medication`, `Membership`, `Metadata`, `Profile`, `Report`, `Stat`, `Task`, `Team`.
+`Address`, `ClinicalCase`, `Condition`, `Medication`, `Membership`, `Metadata`, `Profile`, `Report`, `Stat`, `Task`, `Team`.
 
 Configured in `.jhipster/` but **not yet generated** (no domain/repository/resource/test): `PaymentOption`, `PersonalDocument` — renamed from the removed `HCPayOption` and `IDocument`. `HCCredential`, `HCPayOption`, `HCDocument`/`IDocument` no longer exist as code. Generating those two is Phase A in `patient-api.md`.
 
