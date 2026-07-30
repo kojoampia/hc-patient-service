@@ -31,15 +31,24 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 - `[ ]` Generate `PersonalDocument` from `.jhipster/PersonalDocument.json` (same set). Confirm whether document _content_ is stored in Mongo or an object store before finalizing the shape.
 - `[ ]` Refresh the stale `entities` array in `.yo-rc.json` (still lists the removed `HCCredential`/`HCPayOption`/`HCDocument`, omits `MedCase`/`PaymentOption`/`PersonalDocument`).
 - `[ ]` Coordinate the rename with the dashboard: it still ships `hc-credential` and `hc-pay-option` CRUD screens. Track in `patient-web.md`.
-- `[x]` `MedCase` renamed to `ClinicalCase` throughout: document, repository, service, resource, the four
-  test classes, and `.jhipster/`. The REST path is now `/api/clinical-cases` and the Mongo collection is
-  `clinical_case`. `ClinicalCaseResourceIT` passes (15 tests). The only known consumer,
-  `hc-professional/web`, had its endpoint updated on a `feature/clinical-case` branch.
-- `[ ]` **Migrate existing `med_case` documents.** The collection name changed with the entity, so any
-  data already written under `med_case` is invisible to the renamed service. On a deployed database run
-  `db.med_case.renameCollection('clinical_case')` before the new build goes live; on an empty one there
-  is nothing to do. This service has no migration framework (see the Phase B item), so it is a manual
-  step for now.
+- `[x]` **`MedCase` replaced by `ClinicalCase`** — a different entity, not a rename. The shape is the one
+  the professional dashboard generates against
+  (`hc-professional/web/.jhipster/ClinicalCase.json`): added `patientId`, `openedAt`, `brief`,
+  `assignedProfessionalId`, `assignedRosterId`; `diagnoses` became `diagnosis`; free-text
+  `recommendations` became a many-to-many to a new `Recommendation` entity; `closeDate`, `category`
+  and the audit fields are gone, and the `CaseCategory` enum with them. Collection is `clinicalcase`,
+  REST path `/api/clinical-cases`.
+- `[x]` **`Recommendation` added** (`id`, `label`, `category`) with repository, service, resource at
+  `/api/recommendations` — unpaged, per its `"pagination": "no"` — and a full CRUD integration test.
+  It is the first entity here with a relationship, so the first use of `@DBRef`.
+- `[ ]` **Migrate existing `med_case` documents.** This is not a collection rename: `clinicalcase`
+  has fields the old documents have no source for. A migration has to decide, per document, what
+  `patientId` is (the old entity never recorded one), map `diagnoses` to `diagnosis`, turn the
+  free-text `recommendations` string into `Recommendation` documents plus `@DBRef`s, and drop
+  `closeDate`/`category`/audit fields. `openedAt` can come from `open_date`, and `brief` has no
+  source at all. If the deployed database has no `med_case` documents worth keeping — check before
+  assuming — dropping the collection is the cheaper answer. This service still has no migration
+  framework (Phase B tracks that).
 - `[ ]` Decide whether `Stat` is the home for vitals or whether `VitalStatistic` (Phase C) supersedes it — do this before adding more fields to either.
 
 ### `Profile` vs the blueprint spec
