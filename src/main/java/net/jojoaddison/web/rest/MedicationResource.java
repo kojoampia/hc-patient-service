@@ -5,16 +5,20 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
+import tech.jhipster.web.util.PaginationUtil;
 import tech.jhipster.web.util.ResponseUtil;
 
 /**
@@ -24,11 +28,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/medications")
 public class MedicationResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(MedicationResource.class);
+    private final Logger log = LoggerFactory.getLogger(MedicationResource.class);
 
     private static final String ENTITY_NAME = "patientMsMedication";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final MedicationRepository medicationRepository;
@@ -46,15 +50,15 @@ public class MedicationResource {
      */
     @PostMapping("")
     public ResponseEntity<Medication> createMedication(@RequestBody Medication medication) throws URISyntaxException {
-        LOG.debug("REST request to save Medication : {}", medication);
+        log.debug("REST request to save Medication : {}", medication);
         if (medication.getId() != null) {
             throw new BadRequestAlertException("A new medication cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        medication = medicationRepository.save(medication);
+        Medication result = medicationRepository.save(medication);
         return ResponseEntity
-            .created(new URI("/api/medications/" + medication.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, medication.getId()))
-            .body(medication);
+            .created(new URI("/api/medications/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -72,7 +76,7 @@ public class MedicationResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Medication medication
     ) throws URISyntaxException {
-        LOG.debug("REST request to update Medication : {}, {}", id, medication);
+        log.debug("REST request to update Medication : {}, {}", id, medication);
         if (medication.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -84,11 +88,11 @@ public class MedicationResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        medication = medicationRepository.save(medication);
+        Medication result = medicationRepository.save(medication);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, medication.getId()))
-            .body(medication);
+            .body(result);
     }
 
     /**
@@ -107,7 +111,7 @@ public class MedicationResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Medication medication
     ) throws URISyntaxException {
-        LOG.debug("REST request to partial update Medication partially : {}, {}", id, medication);
+        log.debug("REST request to partial update Medication partially : {}, {}", id, medication);
         if (medication.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -122,14 +126,45 @@ public class MedicationResource {
         Optional<Medication> result = medicationRepository
             .findById(medication.getId())
             .map(existingMedication -> {
-                updateIfPresent(existingMedication::setName, medication.getName());
-                updateIfPresent(existingMedication::setDescription, medication.getDescription());
-                updateIfPresent(existingMedication::setPatientId, medication.getPatientId());
-                updateIfPresent(existingMedication::setPrescription, medication.getPrescription());
-                updateIfPresent(existingMedication::setCreatedDate, medication.getCreatedDate());
-                updateIfPresent(existingMedication::setModifiedDate, medication.getModifiedDate());
-                updateIfPresent(existingMedication::setCreatedBy, medication.getCreatedBy());
-                updateIfPresent(existingMedication::setModifiedBy, medication.getModifiedBy());
+                if (medication.getName() != null) {
+                    existingMedication.setName(medication.getName());
+                }
+                if (medication.getDescription() != null) {
+                    existingMedication.setDescription(medication.getDescription());
+                }
+                if (medication.getPatientId() != null) {
+                    existingMedication.setPatientId(medication.getPatientId());
+                }
+                if (medication.getCaseId() != null) {
+                    existingMedication.setCaseId(medication.getCaseId());
+                }
+                if (medication.getPrescription() != null) {
+                    existingMedication.setPrescription(medication.getPrescription());
+                }
+                if (medication.getDosage() != null) {
+                    existingMedication.setDosage(medication.getDosage());
+                }
+                if (medication.getStatus() != null) {
+                    existingMedication.setStatus(medication.getStatus());
+                }
+                if (medication.getStartedOn() != null) {
+                    existingMedication.setStartedOn(medication.getStartedOn());
+                }
+                if (medication.getPrescribedById() != null) {
+                    existingMedication.setPrescribedById(medication.getPrescribedById());
+                }
+                if (medication.getCreatedDate() != null) {
+                    existingMedication.setCreatedDate(medication.getCreatedDate());
+                }
+                if (medication.getModifiedDate() != null) {
+                    existingMedication.setModifiedDate(medication.getModifiedDate());
+                }
+                if (medication.getCreatedBy() != null) {
+                    existingMedication.setCreatedBy(medication.getCreatedBy());
+                }
+                if (medication.getModifiedBy() != null) {
+                    existingMedication.setModifiedBy(medication.getModifiedBy());
+                }
 
                 return existingMedication;
             })
@@ -142,14 +177,23 @@ public class MedicationResource {
     }
 
     /**
-     * {@code GET  /medications} : get all the Medications.
+     * {@code GET  /medications} : get all the medications.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Medications in body.
+     * @param pageable the pagination information.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of medications in body.
+     * @param patientId when present, restricts the result to that patient's records.
      */
     @GetMapping("")
-    public List<Medication> getAllMedications() {
-        LOG.debug("REST request to get all Medications");
-        return medicationRepository.findAll();
+    public ResponseEntity<List<Medication>> getAllMedications(
+        @RequestParam(required = false) String patientId,
+        @org.springdoc.core.annotations.ParameterObject Pageable pageable
+    ) {
+        log.debug("REST request to get a page of Medications for patient {}", patientId);
+        Page<Medication> page = patientId == null
+            ? medicationRepository.findAll(pageable)
+            : medicationRepository.findByPatientId(patientId, pageable);
+        HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
+        return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
 
     /**
@@ -160,7 +204,7 @@ public class MedicationResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Medication> getMedication(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Medication : {}", id);
+        log.debug("REST request to get Medication : {}", id);
         Optional<Medication> medication = medicationRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(medication);
     }
@@ -173,14 +217,8 @@ public class MedicationResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMedication(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Medication : {}", id);
+        log.debug("REST request to delete Medication : {}", id);
         medicationRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }

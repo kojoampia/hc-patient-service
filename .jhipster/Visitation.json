@@ -1,0 +1,67 @@
+{
+  "annotations": {
+    "changelogDate": "20260803090100"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "documentation": "A visit that took place — the counterpart to Task, which is a visit that is planned.",
+  "dto": "no",
+  "entityTableName": "visitation",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "caseId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "professionalId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "visitedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "purpose",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "location",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "notes",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "Visitation",
+  "pagination": "pagination",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}

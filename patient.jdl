@@ -1,0 +1,473 @@
+/**
+ * Health Connect — Patient subsystem entity model.
+ *
+ * This file is the model of record for the patient domain. Until now the model lived only as
+ * `.jhipster/*.json` fragments, which had drifted apart between `hc-patient-service` (api) and
+ * `hc-patient-dashboard` (web): `ClinicalCase` and `Recommendation` existed only on the backend,
+ * `Stat` had lost `patientId` on the frontend, and several screens in the patient portal design
+ * had no domain objects behind them at all.
+ *
+ * This file lives here because `api` owns the domain. The dashboard consumes the same model
+ * through its own `.jhipster/*.json`, which is rendered from this file — regenerate both repos
+ * together, never edit one side's entity JSON by hand.
+ *
+ * Import with:
+ *   jhipster jdl patient.jdl
+ *
+ * Conventions kept from the existing entities, deliberately, so this stays a *extension* rather
+ * than a rewrite:
+ *   - ids are String (MongoDB ObjectId rendered as a string)
+ *   - cross-entity references are held as plain String ids (`patientId`, `caseId`, …) rather than
+ *     JHipster relationships. Only ClinicalCase <-> Recommendation uses a real relationship,
+ *     because that one already exists on the backend.
+ *   - audit columns are `createdDate` / `modifiedDate` / `createdBy` / `modifiedBy`
+ *
+ * Vitals are `Stat` — there is no separate Vital entity, by decision.
+ */
+
+// ===========================================================================
+// Enumerations
+// ===========================================================================
+
+// TREATMENT is added by the portal refactor.
+/** Lifecycle of a clinical case: raised, assessed, under treatment, then closed. */
+enum CaseStatus {
+  URGENT,
+  OPEN,
+  TREATMENT,
+  CLOSED
+}
+
+/** Where a stat sits against its reference band, as judged when the reading was filed. */
+enum StatFlag {
+  OK,
+  WARN,
+  DANGER
+}
+
+/** Whether a prescription is still being taken. WITHHELD records a drug deliberately not given —
+ *  the patient record has to be able to show "Amoxicillin — not given, penicillin allergy". */
+enum MedicationStatus {
+  ACTIVE,
+  COMPLETED,
+  WITHHELD
+}
+
+/** Appointment lifecycle, used by Task when it carries a scheduled visit. */
+enum ScheduleStatus {
+  CONFIRMED,
+  PENDING,
+  ATTENDED,
+  CANCELLED
+}
+
+enum EmergencySeverity {
+  LOW,
+  MODERATE,
+  HIGH
+}
+
+enum EmergencyStatus {
+  RAISED,
+  ACKNOWLEDGED,
+  RESOLVED
+}
+
+/** Who put an entry on the activity timeline. */
+enum ActivitySource {
+  PATIENT,
+  PROFESSIONAL,
+  SYSTEM
+}
+
+/** What kind of event an activity entry describes — drives the timeline icon and colour. */
+enum ActivityKind {
+  CASE,
+  VITAL,
+  RECOMMENDATION,
+  REPORT,
+  VISIT,
+  MEDICATION,
+  NOTE
+}
+
+enum CarePlanType {
+  DIET,
+  EXERCISE
+}
+
+enum AllergyCategory {
+  MEDICATION,
+  FOOD,
+  ENVIRONMENTAL,
+  OTHER
+}
+
+enum AllergySeverity {
+  MILD,
+  MODERATE,
+  SEVERE
+}
+
+// ===========================================================================
+// Existing entities — carried over, with additions marked
+// ===========================================================================
+
+// Added by the portal refactor: bloodGroup, careAngel*, about, socialHandle, imageUrl, patientId.
+/** The patient's own details, as shown on the record header and the profile screen. */
+entity Profile {
+  id String
+  patientId String
+  firstName String
+  middleNames String
+  lastName String
+  membership String
+  birthDate LocalDate
+  sex String
+  bloodGroup String
+  mobilePhone String
+  phoneNumber String
+  email String
+  cardType String
+  cardNumber String
+  contacts String
+  address String
+  team String
+  imageUrl String
+  about String
+  socialHandle String
+  careAngelName String
+  careAngelPhone String
+}
+
+entity Address {
+  id String
+  digitalAddress String
+  streetAddress String
+  areaCode String
+  town String
+  city String
+  district String
+  state String
+  region String
+  country String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// Added by the portal refactor: patientId, memberNumber, plan, startDate, renewalDate.
+/** The patient's subscription to a care plan, and the dates it runs between. */
+entity Membership {
+  id String
+  patientId String
+  name String
+  description String
+  status String
+  memberNumber String
+  plan String
+  startDate LocalDate
+  renewalDate LocalDate
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// Added by the portal refactor: caseNumber, title, closedAt.
+/**
+ * A clinical episode: what the patient reported, what was found, and what was recommended.
+ * caseNumber is the human-facing reference ("Case 12"); brief is the one-line summary shown
+ * under the title.
+ */
+entity ClinicalCase {
+  id String
+  patientId String
+  caseNumber Integer
+  title String
+  openedAt Instant
+  closedAt Instant
+  brief String
+  status CaseStatus
+  symptoms String
+  diagnosis String
+  assignedProfessionalId String
+  assignedRosterId String
+}
+
+entity Recommendation {
+  id String
+  label String
+  category String
+}
+
+// Added by the portal refactor: unit, secondaryValue, referenceLow, referenceHigh, flag, recordedAt.
+// recordedAt exists because createdDate is a LocalDate and the trend charts need a time of day.
+/**
+ * A single recorded measurement — this is where vitals live. Blood pressure uses `value` for
+ * the systolic reading and `secondaryValue` for the diastolic; every other vital uses `value`
+ * alone. referenceLow/referenceHigh carry the normal band the reading is judged against.
+ */
+entity Stat {
+  id String
+  patientId String
+  type String
+  name String
+  description String
+  value Double
+  secondaryValue Double
+  unit String
+  referenceLow Double
+  referenceHigh Double
+  flag StatFlag
+  note String
+  recordedAt Instant
+  createdDate LocalDate
+  createdBy String
+}
+
+// Added by the portal refactor: caseId, dosage, status, startedOn, prescribedById.
+// `prescription` is kept as-is for compatibility with records already written.
+/**
+ * A drug prescribed against a case. `dosage` is the instruction as the patient reads it
+ * ("Twice daily with food"), which is what the medications screen shows.
+ */
+entity Medication {
+  id String
+  name String
+  description String
+  patientId String
+  caseId String
+  prescription String
+  dosage String
+  status MedicationStatus
+  startedOn LocalDate
+  prescribedById String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// Added by the portal refactor: summary, caseId, authorId, reportDate.
+/**
+ * A lab, imaging, clinical or immunisation report filed against a case. `summary` is the
+ * plain-language reading shown to the patient; `description` stays free-form clinical text.
+ */
+entity Report {
+  id String
+  category String
+  description String
+  summary String
+  name String
+  url String
+  patientId String
+  caseId String
+  authorId String
+  reportDate LocalDate
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+entity Condition {
+  id String
+  name String
+  description String
+  patientId String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// Added by the portal refactor: scheduledAt, status, location, caseId.
+// scheduledAt exists because `schedule` is a LocalDate and appointments need a time of day.
+/** A planned appointment or piece of work — the counterpart to Visitation, which already happened. */
+entity Task {
+  id String
+  name String
+  description String
+  schedule LocalDate
+  scheduledAt Instant
+  duration Double
+  status ScheduleStatus
+  location String
+  caseId String
+  attendantId String
+  teamId String
+  patientId String
+  attendant String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+entity Team {
+  id String
+  name String
+  description String
+  contact String
+}
+
+entity Metadata {
+  id String
+  createdBy String
+  modifiedBy String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  data String
+}
+
+entity PaymentOption {
+  id String
+  type String
+  userID String
+  metadata String
+}
+
+entity PersonalDocument {
+  id String
+  name String
+  category String
+  url String
+  patientId String
+  issuedOn LocalDate
+  expiresOn LocalDate
+}
+
+// ===========================================================================
+// New entities — the portal screens that had no domain object
+// ===========================================================================
+
+// New. Cases, visits, reports and medications all carry a professional id that nothing could resolve.
+/** A member of the patient's care team — who they are, what they do and where they practise. */
+entity Professional {
+  id String
+  firstName String
+  lastName String
+  role String
+  specialty String
+  email String
+  phoneNumber String
+  imageUrl String
+  initials String
+  location String
+  teamId String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// New.
+/** A visit that took place — the counterpart to Task, which is a visit that is planned. */
+entity Visitation {
+  id String
+  patientId String
+  caseId String
+  professionalId String
+  visitedAt Instant
+  purpose String
+  location String
+  notes String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+entity Emergency {
+  id String
+  patientId String
+  caseId String
+  raisedAt Instant
+  resolvedAt Instant
+  brief String
+  detail String
+  severity EmergencySeverity
+  status EmergencyStatus
+  outcome String
+  location String
+  respondentId String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// New.
+/**
+ * One entry on the record timeline. Entries are written by professionals, by the system when
+ * something is filed, and by the patient themselves — hence `source` alongside `authorId`.
+ */
+entity ActivityLog {
+  id String
+  patientId String
+  caseId String
+  loggedAt Instant
+  summary String
+  detail String
+  kind ActivityKind
+  source ActivitySource
+  authorId String
+  createdDate LocalDate
+  createdBy String
+}
+
+// New.
+/** One line of a diet or exercise plan, with its own completion state so the patient can tick it off. */
+entity CarePlanItem {
+  id String
+  patientId String
+  planType CarePlanType
+  label String
+  detail String
+  cadence String
+  completed Boolean
+  sortOrder Integer
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// New. Allergies were being kept as Conditions, which cannot express severity or the reaction.
+/** Something the patient reacts to, how badly, and what the reaction looked like. */
+entity Allergy {
+  id String
+  patientId String
+  name String
+  category AllergyCategory
+  severity AllergySeverity
+  reaction String
+  notedOn LocalDate
+  notedById String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// ===========================================================================
+// Relationships
+// ===========================================================================
+
+relationship ManyToMany {
+  ClinicalCase{recommendation} to Recommendation{clinicalCase}
+}
+
+// ===========================================================================
+// Options
+// ===========================================================================
+
+service ClinicalCase, Recommendation, Profile, Professional, Visitation, Emergency, ActivityLog, CarePlanItem, Allergy with serviceClass
+
+paginate Profile, Report, Medication, Visitation, ActivityLog, Task with pagination
+paginate ClinicalCase with infinite-scroll
+
+microservice * with hcPatientService
+clientRootFolder * with patientMS

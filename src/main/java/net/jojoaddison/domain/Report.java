@@ -1,6 +1,6 @@
 package net.jojoaddison.domain;
 
-import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.LocalDate;
 import org.springframework.data.annotation.Id;
@@ -8,13 +8,15 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A Report.
+ * A lab, imaging, clinical or immunisation report filed against a case. `summary` is the plain-language reading shown to the patient; `description` stays free-form clinical text.
  */
+@Schema(
+    description = "A lab, imaging, clinical or immunisation report filed against a case. `summary` is the plain-language reading shown to the patient; `description` stays free-form clinical text."
+)
 @Document(collection = "report")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Report implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
@@ -26,6 +28,9 @@ public class Report implements Serializable {
     @Field("description")
     private String description;
 
+    @Field("summary")
+    private String summary;
+
     @Field("name")
     private String name;
 
@@ -34,6 +39,15 @@ public class Report implements Serializable {
 
     @Field("patient_id")
     private String patientId;
+
+    @Field("case_id")
+    private String caseId;
+
+    @Field("author_id")
+    private String authorId;
+
+    @Field("report_date")
+    private LocalDate reportDate;
 
     @Field("created_date")
     private LocalDate createdDate;
@@ -88,6 +102,19 @@ public class Report implements Serializable {
         this.description = description;
     }
 
+    public String getSummary() {
+        return this.summary;
+    }
+
+    public Report summary(String summary) {
+        this.setSummary(summary);
+        return this;
+    }
+
+    public void setSummary(String summary) {
+        this.summary = summary;
+    }
+
     public String getName() {
         return this.name;
     }
@@ -125,6 +152,45 @@ public class Report implements Serializable {
 
     public void setPatientId(String patientId) {
         this.patientId = patientId;
+    }
+
+    public String getCaseId() {
+        return this.caseId;
+    }
+
+    public Report caseId(String caseId) {
+        this.setCaseId(caseId);
+        return this;
+    }
+
+    public void setCaseId(String caseId) {
+        this.caseId = caseId;
+    }
+
+    public String getAuthorId() {
+        return this.authorId;
+    }
+
+    public Report authorId(String authorId) {
+        this.setAuthorId(authorId);
+        return this;
+    }
+
+    public void setAuthorId(String authorId) {
+        this.authorId = authorId;
+    }
+
+    public LocalDate getReportDate() {
+        return this.reportDate;
+    }
+
+    public Report reportDate(LocalDate reportDate) {
+        this.setReportDate(reportDate);
+        return this;
+    }
+
+    public void setReportDate(LocalDate reportDate) {
+        this.reportDate = reportDate;
     }
 
     public LocalDate getCreatedDate() {
@@ -205,9 +271,13 @@ public class Report implements Serializable {
             "id=" + getId() +
             ", category='" + getCategory() + "'" +
             ", description='" + getDescription() + "'" +
+            ", summary='" + getSummary() + "'" +
             ", name='" + getName() + "'" +
             ", url='" + getUrl() + "'" +
             ", patientId='" + getPatientId() + "'" +
+            ", caseId='" + getCaseId() + "'" +
+            ", authorId='" + getAuthorId() + "'" +
+            ", reportDate='" + getReportDate() + "'" +
             ", createdDate='" + getCreatedDate() + "'" +
             ", modifiedDate='" + getModifiedDate() + "'" +
             ", createdBy='" + getCreatedBy() + "'" +

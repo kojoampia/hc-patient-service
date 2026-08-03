@@ -5,11 +5,16 @@
   "changelogDate": "20240206221158",
   "clientRootFolder": "patientService",
   "databaseType": "mongodb",
+  "documentation": "The patient's own details, as shown on the record header and the profile screen.",
   "dto": "no",
   "entityTableName": "profile",
   "fields": [
     {
       "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
       "fieldType": "String"
     },
     {
@@ -34,6 +39,10 @@
     },
     {
       "fieldName": "sex",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "bloodGroup",
       "fieldType": "String"
     },
     {
@@ -66,6 +75,26 @@
     },
     {
       "fieldName": "team",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "imageUrl",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "about",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "socialHandle",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "careAngelName",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "careAngelPhone",
       "fieldType": "String"
     }
   ],

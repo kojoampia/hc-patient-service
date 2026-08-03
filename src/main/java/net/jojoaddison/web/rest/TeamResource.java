@@ -5,7 +5,6 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.Team;
 import net.jojoaddison.repository.TeamRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -24,11 +23,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/teams")
 public class TeamResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(TeamResource.class);
+    private final Logger log = LoggerFactory.getLogger(TeamResource.class);
 
     private static final String ENTITY_NAME = "patientMsTeam";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final TeamRepository teamRepository;
@@ -46,15 +45,15 @@ public class TeamResource {
      */
     @PostMapping("")
     public ResponseEntity<Team> createTeam(@RequestBody Team team) throws URISyntaxException {
-        LOG.debug("REST request to save Team : {}", team);
+        log.debug("REST request to save Team : {}", team);
         if (team.getId() != null) {
             throw new BadRequestAlertException("A new team cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        team = teamRepository.save(team);
+        Team result = teamRepository.save(team);
         return ResponseEntity
-            .created(new URI("/api/teams/" + team.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, team.getId()))
-            .body(team);
+            .created(new URI("/api/teams/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -70,7 +69,7 @@ public class TeamResource {
     @PutMapping("/{id}")
     public ResponseEntity<Team> updateTeam(@PathVariable(value = "id", required = false) final String id, @RequestBody Team team)
         throws URISyntaxException {
-        LOG.debug("REST request to update Team : {}, {}", id, team);
+        log.debug("REST request to update Team : {}, {}", id, team);
         if (team.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -82,11 +81,11 @@ public class TeamResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        team = teamRepository.save(team);
+        Team result = teamRepository.save(team);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, team.getId()))
-            .body(team);
+            .body(result);
     }
 
     /**
@@ -103,7 +102,7 @@ public class TeamResource {
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
     public ResponseEntity<Team> partialUpdateTeam(@PathVariable(value = "id", required = false) final String id, @RequestBody Team team)
         throws URISyntaxException {
-        LOG.debug("REST request to partial update Team partially : {}, {}", id, team);
+        log.debug("REST request to partial update Team partially : {}, {}", id, team);
         if (team.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -118,9 +117,15 @@ public class TeamResource {
         Optional<Team> result = teamRepository
             .findById(team.getId())
             .map(existingTeam -> {
-                updateIfPresent(existingTeam::setName, team.getName());
-                updateIfPresent(existingTeam::setDescription, team.getDescription());
-                updateIfPresent(existingTeam::setContact, team.getContact());
+                if (team.getName() != null) {
+                    existingTeam.setName(team.getName());
+                }
+                if (team.getDescription() != null) {
+                    existingTeam.setDescription(team.getDescription());
+                }
+                if (team.getContact() != null) {
+                    existingTeam.setContact(team.getContact());
+                }
 
                 return existingTeam;
             })
@@ -130,13 +135,13 @@ public class TeamResource {
     }
 
     /**
-     * {@code GET  /teams} : get all the Teams.
+     * {@code GET  /teams} : get all the teams.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Teams in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of teams in body.
      */
     @GetMapping("")
     public List<Team> getAllTeams() {
-        LOG.debug("REST request to get all Teams");
+        log.debug("REST request to get all Teams");
         return teamRepository.findAll();
     }
 
@@ -148,7 +153,7 @@ public class TeamResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Team> getTeam(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Team : {}", id);
+        log.debug("REST request to get Team : {}", id);
         Optional<Team> team = teamRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(team);
     }
@@ -161,14 +166,8 @@ public class TeamResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTeam(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Team : {}", id);
+        log.debug("REST request to delete Team : {}", id);
         teamRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }

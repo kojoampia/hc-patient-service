@@ -1,0 +1,69 @@
+{
+  "annotations": {
+    "changelogDate": "20260803090500"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "documentation": "Something the patient reacts to, how badly, and what the reaction looked like.",
+  "dto": "no",
+  "entityTableName": "allergy",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "name",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "category",
+      "fieldType": "AllergyCategory",
+      "fieldValues": "MEDICATION,FOOD,ENVIRONMENTAL,OTHER"
+    },
+    {
+      "fieldName": "severity",
+      "fieldType": "AllergySeverity",
+      "fieldValues": "MILD,MODERATE,SEVERE"
+    },
+    {
+      "fieldName": "reaction",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "notedOn",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "notedById",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "Allergy",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}

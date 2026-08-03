@@ -12,7 +12,6 @@ import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import tech.jhipster.web.util.HeaderUtil;
@@ -25,11 +24,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/recommendations")
 public class RecommendationResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(RecommendationResource.class);
+    private final Logger log = LoggerFactory.getLogger(RecommendationResource.class);
 
     private static final String ENTITY_NAME = "hcPatientServiceRecommendation";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final RecommendationService recommendationService;
@@ -50,15 +49,15 @@ public class RecommendationResource {
      */
     @PostMapping("")
     public ResponseEntity<Recommendation> createRecommendation(@RequestBody Recommendation recommendation) throws URISyntaxException {
-        LOG.debug("REST request to save Recommendation : {}", recommendation);
+        log.debug("REST request to save Recommendation : {}", recommendation);
         if (recommendation.getId() != null) {
             throw new BadRequestAlertException("A new recommendation cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        recommendation = recommendationService.save(recommendation);
+        Recommendation result = recommendationService.save(recommendation);
         return ResponseEntity
-            .created(new URI("/api/recommendations/" + recommendation.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, recommendation.getId()))
-            .body(recommendation);
+            .created(new URI("/api/recommendations/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -76,7 +75,7 @@ public class RecommendationResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Recommendation recommendation
     ) throws URISyntaxException {
-        LOG.debug("REST request to update Recommendation : {}, {}", id, recommendation);
+        log.debug("REST request to update Recommendation : {}, {}", id, recommendation);
         if (recommendation.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -88,11 +87,11 @@ public class RecommendationResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        recommendation = recommendationService.update(recommendation);
+        Recommendation result = recommendationService.update(recommendation);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, recommendation.getId()))
-            .body(recommendation);
+            .body(result);
     }
 
     /**
@@ -111,7 +110,7 @@ public class RecommendationResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Recommendation recommendation
     ) throws URISyntaxException {
-        LOG.debug("REST request to partial update Recommendation partially : {}, {}", id, recommendation);
+        log.debug("REST request to partial update Recommendation partially : {}, {}", id, recommendation);
         if (recommendation.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -132,14 +131,13 @@ public class RecommendationResource {
     }
 
     /**
-     * {@code GET  /recommendations} : get all the Med Cases.
+     * {@code GET  /recommendations} : get all the recommendations.
      *
-     * @param pageable the pagination information.
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Med Cases in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of recommendations in body.
      */
     @GetMapping("")
     public List<Recommendation> getAllRecommendations() {
-        LOG.debug("REST request to get all Recommendations");
+        log.debug("REST request to get all Recommendations");
         return recommendationService.findAll();
     }
 
@@ -151,7 +149,7 @@ public class RecommendationResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Recommendation> getRecommendation(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Recommendation : {}", id);
+        log.debug("REST request to get Recommendation : {}", id);
         Optional<Recommendation> recommendation = recommendationService.findOne(id);
         return ResponseUtil.wrapOrNotFound(recommendation);
     }
@@ -164,7 +162,7 @@ public class RecommendationResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteRecommendation(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Recommendation : {}", id);
+        log.debug("REST request to delete Recommendation : {}", id);
         recommendationService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

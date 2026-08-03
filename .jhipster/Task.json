@@ -5,6 +5,8 @@
   "changelogDate": "20240206220119",
   "clientRootFolder": "patientMS",
   "databaseType": "mongodb",
+  "documentation": "A planned appointment or piece of work — the counterpart to Visitation, which already happened.",
+  "dto": "no",
   "entityTableName": "task",
   "fields": [
     {
@@ -24,8 +26,26 @@
       "fieldType": "LocalDate"
     },
     {
+      "fieldName": "scheduledAt",
+      "fieldType": "Instant"
+    },
+    {
       "fieldName": "duration",
       "fieldType": "Double"
+    },
+    {
+      "fieldName": "status",
+      "fieldType": "ScheduleStatus",
+      "fieldTypeDocumentation": "Appointment lifecycle, used by Task when it carries a scheduled visit.",
+      "fieldValues": "CONFIRMED,PENDING,ATTENDED,CANCELLED"
+    },
+    {
+      "fieldName": "location",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "caseId",
+      "fieldType": "String"
     },
     {
       "fieldName": "attendantId",
@@ -62,7 +82,7 @@
   ],
   "microserviceName": "patientMS",
   "name": "Task",
-  "pagination": "no",
+  "pagination": "pagination",
   "readOnly": false,
   "relationships": [],
   "searchEngine": "no",

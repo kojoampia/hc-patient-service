@@ -1,7 +1,7 @@
 package net.jojoaddison.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.HashSet;
@@ -13,20 +13,15 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A ClinicalCase.
- *
- * <p>Replaces the former {@code MedCase}, whose shape it does not share. The contract is the one the professional
- * dashboard generates against ({@code hc-professional/web/.jhipster/ClinicalCase.json}): a case now carries who it
- * is about and who it is assigned to ({@code patientId}, {@code assignedProfessionalId}, {@code assignedRosterId})
- * plus a short {@code brief} for queue rows, and {@code recommendations} became a relationship to
- * {@link Recommendation} instead of a free-text field. {@code MedCase}'s {@code closeDate}, {@code category} and
- * audit fields are gone.</p>
+ * A clinical episode: what the patient reported, what was found, and what was recommended. caseNumber is the human-facing reference (\"Case 12\"); brief is the one-line summary shown under the title.
  */
+@Schema(
+    description = "A clinical episode: what the patient reported, what was found, and what was recommended. caseNumber is the human-facing reference (\"Case 12\"); brief is the one-line summary shown under the title."
+)
 @Document(collection = "clinicalcase")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class ClinicalCase implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
@@ -35,8 +30,17 @@ public class ClinicalCase implements Serializable {
     @Field("patient_id")
     private String patientId;
 
+    @Field("case_number")
+    private Integer caseNumber;
+
+    @Field("title")
+    private String title;
+
     @Field("opened_at")
     private Instant openedAt;
+
+    @Field("closed_at")
+    private Instant closedAt;
 
     @Field("brief")
     private String brief;
@@ -57,7 +61,7 @@ public class ClinicalCase implements Serializable {
     private String assignedRosterId;
 
     @DBRef
-    @Field("recommendation")
+    @Field("recommendations")
     @JsonIgnoreProperties(value = { "clinicalCases" }, allowSetters = true)
     private Set<Recommendation> recommendations = new HashSet<>();
 
@@ -89,6 +93,32 @@ public class ClinicalCase implements Serializable {
         this.patientId = patientId;
     }
 
+    public Integer getCaseNumber() {
+        return this.caseNumber;
+    }
+
+    public ClinicalCase caseNumber(Integer caseNumber) {
+        this.setCaseNumber(caseNumber);
+        return this;
+    }
+
+    public void setCaseNumber(Integer caseNumber) {
+        this.caseNumber = caseNumber;
+    }
+
+    public String getTitle() {
+        return this.title;
+    }
+
+    public ClinicalCase title(String title) {
+        this.setTitle(title);
+        return this;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
     public Instant getOpenedAt() {
         return this.openedAt;
     }
@@ -100,6 +130,19 @@ public class ClinicalCase implements Serializable {
 
     public void setOpenedAt(Instant openedAt) {
         this.openedAt = openedAt;
+    }
+
+    public Instant getClosedAt() {
+        return this.closedAt;
+    }
+
+    public ClinicalCase closedAt(Instant closedAt) {
+        this.setClosedAt(closedAt);
+        return this;
+    }
+
+    public void setClosedAt(Instant closedAt) {
+        this.closedAt = closedAt;
     }
 
     public String getBrief() {
@@ -184,13 +227,13 @@ public class ClinicalCase implements Serializable {
         return this.recommendations;
     }
 
+    public void setRecommendations(Set<Recommendation> recommendations) {
+        this.recommendations = recommendations;
+    }
+
     public ClinicalCase recommendations(Set<Recommendation> recommendations) {
         this.setRecommendations(recommendations);
         return this;
-    }
-
-    public void setRecommendations(Set<Recommendation> recommendations) {
-        this.recommendations = recommendations;
     }
 
     public ClinicalCase addRecommendation(Recommendation recommendation) {
@@ -228,7 +271,10 @@ public class ClinicalCase implements Serializable {
         return "ClinicalCase{" +
             "id=" + getId() +
             ", patientId='" + getPatientId() + "'" +
+            ", caseNumber=" + getCaseNumber() +
+            ", title='" + getTitle() + "'" +
             ", openedAt='" + getOpenedAt() + "'" +
+            ", closedAt='" + getClosedAt() + "'" +
             ", brief='" + getBrief() + "'" +
             ", status='" + getStatus() + "'" +
             ", symptoms='" + getSymptoms() + "'" +

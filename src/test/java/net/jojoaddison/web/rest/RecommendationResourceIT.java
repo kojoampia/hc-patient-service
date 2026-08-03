@@ -1,22 +1,19 @@
 package net.jojoaddison.web.rest;
 
-import static net.jojoaddison.domain.RecommendationAsserts.*;
-import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Recommendation;
 import net.jojoaddison.repository.RecommendationRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,17 +36,12 @@ class RecommendationResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
-    private ObjectMapper om;
-
-    @Autowired
     private RecommendationRepository recommendationRepository;
 
     @Autowired
     private MockMvc restRecommendationMockMvc;
 
     private Recommendation recommendation;
-
-    private Recommendation insertedRecommendation;
 
     /**
      * Create an entity for this test.
@@ -58,7 +50,8 @@ class RecommendationResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Recommendation createEntity() {
-        return new Recommendation().label(DEFAULT_LABEL).category(DEFAULT_CATEGORY);
+        Recommendation recommendation = new Recommendation().label(DEFAULT_LABEL).category(DEFAULT_CATEGORY);
+        return recommendation;
     }
 
     /**
@@ -68,41 +61,32 @@ class RecommendationResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Recommendation createUpdatedEntity() {
-        return new Recommendation().label(UPDATED_LABEL).category(UPDATED_CATEGORY);
+        Recommendation recommendation = new Recommendation().label(UPDATED_LABEL).category(UPDATED_CATEGORY);
+        return recommendation;
     }
 
     @BeforeEach
-    void initTest() {
+    public void initTest() {
+        recommendationRepository.deleteAll();
         recommendation = createEntity();
-    }
-
-    @AfterEach
-    void cleanup() {
-        if (insertedRecommendation != null) {
-            recommendationRepository.delete(insertedRecommendation);
-            insertedRecommendation = null;
-        }
     }
 
     @Test
     void createRecommendation() throws Exception {
-        long databaseSizeBeforeCreate = getRepositoryCount();
+        int databaseSizeBeforeCreate = recommendationRepository.findAll().size();
         // Create the Recommendation
-        var returnedRecommendation = om.readValue(
-            restRecommendationMockMvc
-                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(recommendation)))
-                .andExpect(status().isCreated())
-                .andReturn()
-                .getResponse()
-                .getContentAsString(),
-            Recommendation.class
-        );
+        restRecommendationMockMvc
+            .perform(
+                post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(recommendation))
+            )
+            .andExpect(status().isCreated());
 
         // Validate the Recommendation in the database
-        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
-        assertRecommendationUpdatableFieldsEquals(returnedRecommendation, getPersistedRecommendation(returnedRecommendation));
-
-        insertedRecommendation = returnedRecommendation;
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeCreate + 1);
+        Recommendation testRecommendation = recommendationList.get(recommendationList.size() - 1);
+        assertThat(testRecommendation.getLabel()).isEqualTo(DEFAULT_LABEL);
+        assertThat(testRecommendation.getCategory()).isEqualTo(DEFAULT_CATEGORY);
     }
 
     @Test
@@ -110,25 +94,28 @@ class RecommendationResourceIT {
         // Create the Recommendation with an existing ID
         recommendation.setId("existing_id");
 
-        long databaseSizeBeforeCreate = getRepositoryCount();
+        int databaseSizeBeforeCreate = recommendationRepository.findAll().size();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restRecommendationMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(recommendation)))
+            .perform(
+                post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(recommendation))
+            )
             .andExpect(status().isBadRequest());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeCreate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllRecommendations() throws Exception {
         // Initialize the database
-        insertedRecommendation = recommendationRepository.save(recommendation);
+        recommendationRepository.save(recommendation);
 
         // Get all the recommendationList
         restRecommendationMockMvc
-            .perform(get(ENTITY_API_URL))
+            .perform(get(ENTITY_API_URL + "?sort=id,desc"))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
             .andExpect(jsonPath("$.[*].id").value(hasItem(recommendation.getId())))
@@ -139,7 +126,7 @@ class RecommendationResourceIT {
     @Test
     void getRecommendation() throws Exception {
         // Initialize the database
-        insertedRecommendation = recommendationRepository.save(recommendation);
+        recommendationRepository.save(recommendation);
 
         // Get the recommendation
         restRecommendationMockMvc
@@ -160,9 +147,9 @@ class RecommendationResourceIT {
     @Test
     void putExistingRecommendation() throws Exception {
         // Initialize the database
-        insertedRecommendation = recommendationRepository.save(recommendation);
+        recommendationRepository.save(recommendation);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
 
         // Update the recommendation
         Recommendation updatedRecommendation = recommendationRepository.findById(recommendation.getId()).orElseThrow();
@@ -172,18 +159,21 @@ class RecommendationResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedRecommendation.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(updatedRecommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(updatedRecommendation))
             )
             .andExpect(status().isOk());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertPersistedRecommendationToMatchAllProperties(updatedRecommendation);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
+        Recommendation testRecommendation = recommendationList.get(recommendationList.size() - 1);
+        assertThat(testRecommendation.getLabel()).isEqualTo(UPDATED_LABEL);
+        assertThat(testRecommendation.getCategory()).isEqualTo(UPDATED_CATEGORY);
     }
 
     @Test
     void putNonExistingRecommendation() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
         recommendation.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
@@ -191,17 +181,18 @@ class RecommendationResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, recommendation.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(recommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(recommendation))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchRecommendation() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
         recommendation.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -209,64 +200,65 @@ class RecommendationResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(recommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(recommendation))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamRecommendation() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
         recommendation.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restRecommendationMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(recommendation)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(recommendation)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateRecommendationWithPatch() throws Exception {
         // Initialize the database
-        insertedRecommendation = recommendationRepository.save(recommendation);
+        recommendationRepository.save(recommendation);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
 
         // Update the recommendation using partial update
         Recommendation partialUpdatedRecommendation = new Recommendation();
         partialUpdatedRecommendation.setId(recommendation.getId());
 
-        partialUpdatedRecommendation.label(UPDATED_LABEL);
+        partialUpdatedRecommendation.category(UPDATED_CATEGORY);
 
         restRecommendationMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedRecommendation.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedRecommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedRecommendation))
             )
             .andExpect(status().isOk());
 
         // Validate the Recommendation in the database
-
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertRecommendationUpdatableFieldsEquals(
-            createUpdateProxyForBean(partialUpdatedRecommendation, recommendation),
-            getPersistedRecommendation(recommendation)
-        );
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
+        Recommendation testRecommendation = recommendationList.get(recommendationList.size() - 1);
+        assertThat(testRecommendation.getLabel()).isEqualTo(DEFAULT_LABEL);
+        assertThat(testRecommendation.getCategory()).isEqualTo(UPDATED_CATEGORY);
     }
 
     @Test
     void fullUpdateRecommendationWithPatch() throws Exception {
         // Initialize the database
-        insertedRecommendation = recommendationRepository.save(recommendation);
+        recommendationRepository.save(recommendation);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
 
         // Update the recommendation using partial update
         Recommendation partialUpdatedRecommendation = new Recommendation();
@@ -278,19 +270,21 @@ class RecommendationResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedRecommendation.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedRecommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedRecommendation))
             )
             .andExpect(status().isOk());
 
         // Validate the Recommendation in the database
-
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertRecommendationUpdatableFieldsEquals(partialUpdatedRecommendation, getPersistedRecommendation(partialUpdatedRecommendation));
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
+        Recommendation testRecommendation = recommendationList.get(recommendationList.size() - 1);
+        assertThat(testRecommendation.getLabel()).isEqualTo(UPDATED_LABEL);
+        assertThat(testRecommendation.getCategory()).isEqualTo(UPDATED_CATEGORY);
     }
 
     @Test
     void patchNonExistingRecommendation() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
         recommendation.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
@@ -298,17 +292,18 @@ class RecommendationResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, recommendation.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(recommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(recommendation))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchRecommendation() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
         recommendation.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -316,34 +311,38 @@ class RecommendationResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(recommendation))
+                    .content(TestUtil.convertObjectToJsonBytes(recommendation))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamRecommendation() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = recommendationRepository.findAll().size();
         recommendation.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restRecommendationMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(recommendation)))
+            .perform(
+                patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(recommendation))
+            )
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Recommendation in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteRecommendation() throws Exception {
         // Initialize the database
-        insertedRecommendation = recommendationRepository.save(recommendation);
+        recommendationRepository.save(recommendation);
 
-        long databaseSizeBeforeDelete = getRepositoryCount();
+        int databaseSizeBeforeDelete = recommendationRepository.findAll().size();
 
         // Delete the recommendation
         restRecommendationMockMvc
@@ -351,34 +350,7 @@ class RecommendationResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
-    }
-
-    protected long getRepositoryCount() {
-        return recommendationRepository.count();
-    }
-
-    protected void assertIncrementedRepositoryCount(long countBefore) {
-        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
-    }
-
-    protected void assertDecrementedRepositoryCount(long countBefore) {
-        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
-    }
-
-    protected void assertSameRepositoryCount(long countBefore) {
-        assertThat(countBefore).isEqualTo(getRepositoryCount());
-    }
-
-    protected Recommendation getPersistedRecommendation(Recommendation recommendation) {
-        return recommendationRepository.findById(recommendation.getId()).orElseThrow();
-    }
-
-    protected void assertPersistedRecommendationToMatchAllProperties(Recommendation expectedRecommendation) {
-        assertRecommendationAllPropertiesEquals(expectedRecommendation, getPersistedRecommendation(expectedRecommendation));
-    }
-
-    protected void assertPersistedRecommendationToMatchUpdatableProperties(Recommendation expectedRecommendation) {
-        assertRecommendationAllUpdatablePropertiesEquals(expectedRecommendation, getPersistedRecommendation(expectedRecommendation));
+        List<Recommendation> recommendationList = recommendationRepository.findAll();
+        assertThat(recommendationList).hasSize(databaseSizeBeforeDelete - 1);
     }
 }

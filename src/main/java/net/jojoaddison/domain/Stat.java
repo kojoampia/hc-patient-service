@@ -1,24 +1,31 @@
 package net.jojoaddison.domain;
 
-import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
+import java.time.Instant;
 import java.time.LocalDate;
+import net.jojoaddison.domain.enumeration.StatFlag;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A Stat.
+ * A single recorded measurement — this is where vitals live. Blood pressure uses `value` for the systolic reading and `secondaryValue` for the diastolic; every other vital uses `value` alone. referenceLow/referenceHigh carry the normal band the reading is judged against.
  */
+@Schema(
+    description = "A single recorded measurement — this is where vitals live. Blood pressure uses `value` for the systolic reading and `secondaryValue` for the diastolic; every other vital uses `value` alone. referenceLow/referenceHigh carry the normal band the reading is judged against."
+)
 @Document(collection = "stat")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Stat implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
     private String id;
+
+    @Field("patient_id")
+    private String patientId;
 
     @Field("type")
     private String type;
@@ -32,11 +39,26 @@ public class Stat implements Serializable {
     @Field("value")
     private Double value;
 
+    @Field("secondary_value")
+    private Double secondaryValue;
+
+    @Field("unit")
+    private String unit;
+
+    @Field("reference_low")
+    private Double referenceLow;
+
+    @Field("reference_high")
+    private Double referenceHigh;
+
+    @Field("flag")
+    private StatFlag flag;
+
     @Field("note")
     private String note;
 
-    @Field("patient_id")
-    private String patientId;
+    @Field("recorded_at")
+    private Instant recordedAt;
 
     @Field("created_date")
     private LocalDate createdDate;
@@ -57,6 +79,19 @@ public class Stat implements Serializable {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getPatientId() {
+        return this.patientId;
+    }
+
+    public Stat patientId(String patientId) {
+        this.setPatientId(patientId);
+        return this;
+    }
+
+    public void setPatientId(String patientId) {
+        this.patientId = patientId;
     }
 
     public String getType() {
@@ -111,6 +146,71 @@ public class Stat implements Serializable {
         this.value = value;
     }
 
+    public Double getSecondaryValue() {
+        return this.secondaryValue;
+    }
+
+    public Stat secondaryValue(Double secondaryValue) {
+        this.setSecondaryValue(secondaryValue);
+        return this;
+    }
+
+    public void setSecondaryValue(Double secondaryValue) {
+        this.secondaryValue = secondaryValue;
+    }
+
+    public String getUnit() {
+        return this.unit;
+    }
+
+    public Stat unit(String unit) {
+        this.setUnit(unit);
+        return this;
+    }
+
+    public void setUnit(String unit) {
+        this.unit = unit;
+    }
+
+    public Double getReferenceLow() {
+        return this.referenceLow;
+    }
+
+    public Stat referenceLow(Double referenceLow) {
+        this.setReferenceLow(referenceLow);
+        return this;
+    }
+
+    public void setReferenceLow(Double referenceLow) {
+        this.referenceLow = referenceLow;
+    }
+
+    public Double getReferenceHigh() {
+        return this.referenceHigh;
+    }
+
+    public Stat referenceHigh(Double referenceHigh) {
+        this.setReferenceHigh(referenceHigh);
+        return this;
+    }
+
+    public void setReferenceHigh(Double referenceHigh) {
+        this.referenceHigh = referenceHigh;
+    }
+
+    public StatFlag getFlag() {
+        return this.flag;
+    }
+
+    public Stat flag(StatFlag flag) {
+        this.setFlag(flag);
+        return this;
+    }
+
+    public void setFlag(StatFlag flag) {
+        this.flag = flag;
+    }
+
     public String getNote() {
         return this.note;
     }
@@ -124,17 +224,17 @@ public class Stat implements Serializable {
         this.note = note;
     }
 
-    public String getPatientId() {
-        return this.patientId;
+    public Instant getRecordedAt() {
+        return this.recordedAt;
     }
 
-    public Stat patientId(String patientId) {
-        this.setPatientId(patientId);
+    public Stat recordedAt(Instant recordedAt) {
+        this.setRecordedAt(recordedAt);
         return this;
     }
 
-    public void setPatientId(String patientId) {
-        this.patientId = patientId;
+    public void setRecordedAt(Instant recordedAt) {
+        this.recordedAt = recordedAt;
     }
 
     public LocalDate getCreatedDate() {
@@ -187,12 +287,18 @@ public class Stat implements Serializable {
     public String toString() {
         return "Stat{" +
             "id=" + getId() +
+            ", patientId='" + getPatientId() + "'" +
             ", type='" + getType() + "'" +
             ", name='" + getName() + "'" +
             ", description='" + getDescription() + "'" +
             ", value=" + getValue() +
+            ", secondaryValue=" + getSecondaryValue() +
+            ", unit='" + getUnit() + "'" +
+            ", referenceLow=" + getReferenceLow() +
+            ", referenceHigh=" + getReferenceHigh() +
+            ", flag='" + getFlag() + "'" +
             ", note='" + getNote() + "'" +
-            ", patientId='" + getPatientId() + "'" +
+            ", recordedAt='" + getRecordedAt() + "'" +
             ", createdDate='" + getCreatedDate() + "'" +
             ", createdBy='" + getCreatedBy() + "'" +
             "}";

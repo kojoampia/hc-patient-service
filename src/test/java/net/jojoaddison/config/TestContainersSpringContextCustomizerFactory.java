@@ -30,7 +30,10 @@ public class TestContainersSpringContextCustomizerFactory implements ContextCust
                     beanFactory.registerSingleton(MongoDbTestContainer.class.getName(), mongoDbBean);
                     // ((DefaultListableBeanFactory)beanFactory).registerDisposableBean(MongoDbTestContainer.class.getName(), mongoDbBean);
                 }
-                testValues = testValues.and("spring.data.mongodb.uri=" + mongoDbBean.getMongoDBContainer().getReplicaSetUrl());
+                // spring.mongodb.*, not spring.data.mongodb.*: Spring Boot 4 no longer binds the old prefix, so
+                // the container URI would be ignored and the tests would quietly run against whatever Mongo
+                // happens to be on localhost:27017.
+                testValues = testValues.and("spring.mongodb.uri=" + mongoDbBean.getMongoDBContainer().getReplicaSetUrl());
             }
             testValues.applyTo(context);
         };

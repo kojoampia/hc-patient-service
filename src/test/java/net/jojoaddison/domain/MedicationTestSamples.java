@@ -10,7 +10,10 @@ public class MedicationTestSamples {
             .name("name1")
             .description("description1")
             .patientId("patientId1")
+            .caseId("caseId1")
             .prescription("prescription1")
+            .dosage("dosage1")
+            .prescribedById("prescribedById1")
             .createdBy("createdBy1")
             .modifiedBy("modifiedBy1");
     }
@@ -21,7 +24,10 @@ public class MedicationTestSamples {
             .name("name2")
             .description("description2")
             .patientId("patientId2")
+            .caseId("caseId2")
             .prescription("prescription2")
+            .dosage("dosage2")
+            .prescribedById("prescribedById2")
             .createdBy("createdBy2")
             .modifiedBy("modifiedBy2");
     }
@@ -32,7 +38,10 @@ public class MedicationTestSamples {
             .name(UUID.randomUUID().toString())
             .description(UUID.randomUUID().toString())
             .patientId(UUID.randomUUID().toString())
+            .caseId(UUID.randomUUID().toString())
             .prescription(UUID.randomUUID().toString())
+            .dosage(UUID.randomUUID().toString())
+            .prescribedById(UUID.randomUUID().toString())
             .createdBy(UUID.randomUUID().toString())
             .modifiedBy(UUID.randomUUID().toString());
     }

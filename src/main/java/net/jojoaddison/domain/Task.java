@@ -1,20 +1,22 @@
 package net.jojoaddison.domain;
 
-import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
+import java.time.Instant;
 import java.time.LocalDate;
+import net.jojoaddison.domain.enumeration.ScheduleStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A Task.
+ * A planned appointment or piece of work — the counterpart to Visitation, which already happened.
  */
+@Schema(description = "A planned appointment or piece of work — the counterpart to Visitation, which already happened.")
 @Document(collection = "task")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Task implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
@@ -29,8 +31,20 @@ public class Task implements Serializable {
     @Field("schedule")
     private LocalDate schedule;
 
+    @Field("scheduled_at")
+    private Instant scheduledAt;
+
     @Field("duration")
     private Double duration;
+
+    @Field("status")
+    private ScheduleStatus status;
+
+    @Field("location")
+    private String location;
+
+    @Field("case_id")
+    private String caseId;
 
     @Field("attendant_id")
     private String attendantId;
@@ -110,6 +124,19 @@ public class Task implements Serializable {
         this.schedule = schedule;
     }
 
+    public Instant getScheduledAt() {
+        return this.scheduledAt;
+    }
+
+    public Task scheduledAt(Instant scheduledAt) {
+        this.setScheduledAt(scheduledAt);
+        return this;
+    }
+
+    public void setScheduledAt(Instant scheduledAt) {
+        this.scheduledAt = scheduledAt;
+    }
+
     public Double getDuration() {
         return this.duration;
     }
@@ -121,6 +148,45 @@ public class Task implements Serializable {
 
     public void setDuration(Double duration) {
         this.duration = duration;
+    }
+
+    public ScheduleStatus getStatus() {
+        return this.status;
+    }
+
+    public Task status(ScheduleStatus status) {
+        this.setStatus(status);
+        return this;
+    }
+
+    public void setStatus(ScheduleStatus status) {
+        this.status = status;
+    }
+
+    public String getLocation() {
+        return this.location;
+    }
+
+    public Task location(String location) {
+        this.setLocation(location);
+        return this;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
+    }
+
+    public String getCaseId() {
+        return this.caseId;
+    }
+
+    public Task caseId(String caseId) {
+        this.setCaseId(caseId);
+        return this;
+    }
+
+    public void setCaseId(String caseId) {
+        this.caseId = caseId;
     }
 
     public String getAttendantId() {
@@ -254,7 +320,11 @@ public class Task implements Serializable {
             ", name='" + getName() + "'" +
             ", description='" + getDescription() + "'" +
             ", schedule='" + getSchedule() + "'" +
+            ", scheduledAt='" + getScheduledAt() + "'" +
             ", duration=" + getDuration() +
+            ", status='" + getStatus() + "'" +
+            ", location='" + getLocation() + "'" +
+            ", caseId='" + getCaseId() + "'" +
             ", attendantId='" + getAttendantId() + "'" +
             ", teamId='" + getTeamId() + "'" +
             ", patientId='" + getPatientId() + "'" +

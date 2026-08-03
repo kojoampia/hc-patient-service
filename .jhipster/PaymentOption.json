@@ -3,8 +3,9 @@
     "changelogDate": "20240206221753"
   },
   "changelogDate": "20240206221753",
-  "clientRootFolder": "patientService",
+  "clientRootFolder": "hcPatientService",
   "databaseType": "mongodb",
+  "dto": "no",
   "entityTableName": "payment_option",
   "fields": [
     {
@@ -24,7 +25,7 @@
       "fieldType": "String"
     }
   ],
-  "microserviceName": "patientService",
+  "microserviceName": "hcPatientService",
   "name": "PaymentOption",
   "pagination": "no",
   "readOnly": false,

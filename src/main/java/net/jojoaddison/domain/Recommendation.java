@@ -1,7 +1,6 @@
 package net.jojoaddison.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Set;
@@ -12,16 +11,11 @@ import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
  * A Recommendation.
- *
- * <p>The other side of {@link ClinicalCase}'s many-to-many. It exists because the replacement for {@code MedCase}
- * models recommendations as their own labelled, categorised records rather than the free-text field the old entity
- * carried. Defined by {@code hc-professional/web/.jhipster/Recommendation.json}.</p>
  */
 @Document(collection = "recommendation")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Recommendation implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
@@ -34,7 +28,7 @@ public class Recommendation implements Serializable {
     private String category;
 
     @DBRef
-    @Field("clinicalCase")
+    @Field("clinicalCases")
     @JsonIgnoreProperties(value = { "recommendations" }, allowSetters = true)
     private Set<ClinicalCase> clinicalCases = new HashSet<>();
 
@@ -83,19 +77,19 @@ public class Recommendation implements Serializable {
         return this.clinicalCases;
     }
 
+    public void setClinicalCases(Set<ClinicalCase> clinicalCases) {
+        if (this.clinicalCases != null) {
+            this.clinicalCases.forEach(i -> i.removeRecommendation(this));
+        }
+        if (clinicalCases != null) {
+            clinicalCases.forEach(i -> i.addRecommendation(this));
+        }
+        this.clinicalCases = clinicalCases;
+    }
+
     public Recommendation clinicalCases(Set<ClinicalCase> clinicalCases) {
         this.setClinicalCases(clinicalCases);
         return this;
-    }
-
-    public void setClinicalCases(Set<ClinicalCase> clinicalCases) {
-        if (this.clinicalCases != null) {
-            this.clinicalCases.forEach(clinicalCase -> clinicalCase.removeRecommendation(this));
-        }
-        if (clinicalCases != null) {
-            clinicalCases.forEach(clinicalCase -> clinicalCase.addRecommendation(this));
-        }
-        this.clinicalCases = clinicalCases;
     }
 
     public Recommendation addClinicalCase(ClinicalCase clinicalCase) {

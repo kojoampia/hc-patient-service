@@ -1,6 +1,6 @@
 package net.jojoaddison.domain;
 
-import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.LocalDate;
 import org.springframework.data.annotation.Id;
@@ -8,17 +8,20 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A Membership.
+ * The patient's subscription to a care plan, and the dates it runs between.
  */
+@Schema(description = "The patient's subscription to a care plan, and the dates it runs between.")
 @Document(collection = "membership")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Membership implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
     private String id;
+
+    @Field("patient_id")
+    private String patientId;
 
     @Field("name")
     private String name;
@@ -28,6 +31,18 @@ public class Membership implements Serializable {
 
     @Field("status")
     private String status;
+
+    @Field("member_number")
+    private String memberNumber;
+
+    @Field("plan")
+    private String plan;
+
+    @Field("start_date")
+    private LocalDate startDate;
+
+    @Field("renewal_date")
+    private LocalDate renewalDate;
 
     @Field("created_date")
     private LocalDate createdDate;
@@ -54,6 +69,19 @@ public class Membership implements Serializable {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getPatientId() {
+        return this.patientId;
+    }
+
+    public Membership patientId(String patientId) {
+        this.setPatientId(patientId);
+        return this;
+    }
+
+    public void setPatientId(String patientId) {
+        this.patientId = patientId;
     }
 
     public String getName() {
@@ -93,6 +121,58 @@ public class Membership implements Serializable {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getMemberNumber() {
+        return this.memberNumber;
+    }
+
+    public Membership memberNumber(String memberNumber) {
+        this.setMemberNumber(memberNumber);
+        return this;
+    }
+
+    public void setMemberNumber(String memberNumber) {
+        this.memberNumber = memberNumber;
+    }
+
+    public String getPlan() {
+        return this.plan;
+    }
+
+    public Membership plan(String plan) {
+        this.setPlan(plan);
+        return this;
+    }
+
+    public void setPlan(String plan) {
+        this.plan = plan;
+    }
+
+    public LocalDate getStartDate() {
+        return this.startDate;
+    }
+
+    public Membership startDate(LocalDate startDate) {
+        this.setStartDate(startDate);
+        return this;
+    }
+
+    public void setStartDate(LocalDate startDate) {
+        this.startDate = startDate;
+    }
+
+    public LocalDate getRenewalDate() {
+        return this.renewalDate;
+    }
+
+    public Membership renewalDate(LocalDate renewalDate) {
+        this.setRenewalDate(renewalDate);
+        return this;
+    }
+
+    public void setRenewalDate(LocalDate renewalDate) {
+        this.renewalDate = renewalDate;
     }
 
     public LocalDate getCreatedDate() {
@@ -171,9 +251,14 @@ public class Membership implements Serializable {
     public String toString() {
         return "Membership{" +
             "id=" + getId() +
+            ", patientId='" + getPatientId() + "'" +
             ", name='" + getName() + "'" +
             ", description='" + getDescription() + "'" +
             ", status='" + getStatus() + "'" +
+            ", memberNumber='" + getMemberNumber() + "'" +
+            ", plan='" + getPlan() + "'" +
+            ", startDate='" + getStartDate() + "'" +
+            ", renewalDate='" + getRenewalDate() + "'" +
             ", createdDate='" + getCreatedDate() + "'" +
             ", modifiedDate='" + getModifiedDate() + "'" +
             ", createdBy='" + getCreatedBy() + "'" +

@@ -1,24 +1,21 @@
 package net.jojoaddison.web.rest;
 
-import static net.jojoaddison.domain.ProfileAsserts.*;
-import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.repository.ProfileRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,6 +27,9 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 @WithMockUser
 class ProfileResourceIT {
+
+    private static final String DEFAULT_PATIENT_ID = "AAAAAAAAAA";
+    private static final String UPDATED_PATIENT_ID = "BBBBBBBBBB";
 
     private static final String DEFAULT_FIRST_NAME = "AAAAAAAAAA";
     private static final String UPDATED_FIRST_NAME = "BBBBBBBBBB";
@@ -48,6 +48,9 @@ class ProfileResourceIT {
 
     private static final String DEFAULT_SEX = "AAAAAAAAAA";
     private static final String UPDATED_SEX = "BBBBBBBBBB";
+
+    private static final String DEFAULT_BLOOD_GROUP = "AAAAAAAAAA";
+    private static final String UPDATED_BLOOD_GROUP = "BBBBBBBBBB";
 
     private static final String DEFAULT_MOBILE_PHONE = "AAAAAAAAAA";
     private static final String UPDATED_MOBILE_PHONE = "BBBBBBBBBB";
@@ -73,11 +76,23 @@ class ProfileResourceIT {
     private static final String DEFAULT_TEAM = "AAAAAAAAAA";
     private static final String UPDATED_TEAM = "BBBBBBBBBB";
 
+    private static final String DEFAULT_IMAGE_URL = "AAAAAAAAAA";
+    private static final String UPDATED_IMAGE_URL = "BBBBBBBBBB";
+
+    private static final String DEFAULT_ABOUT = "AAAAAAAAAA";
+    private static final String UPDATED_ABOUT = "BBBBBBBBBB";
+
+    private static final String DEFAULT_SOCIAL_HANDLE = "AAAAAAAAAA";
+    private static final String UPDATED_SOCIAL_HANDLE = "BBBBBBBBBB";
+
+    private static final String DEFAULT_CARE_ANGEL_NAME = "AAAAAAAAAA";
+    private static final String UPDATED_CARE_ANGEL_NAME = "BBBBBBBBBB";
+
+    private static final String DEFAULT_CARE_ANGEL_PHONE = "AAAAAAAAAA";
+    private static final String UPDATED_CARE_ANGEL_PHONE = "BBBBBBBBBB";
+
     private static final String ENTITY_API_URL = "/api/profiles";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
-
-    @Autowired
-    private ObjectMapper om;
 
     @Autowired
     private ProfileRepository profileRepository;
@@ -87,8 +102,6 @@ class ProfileResourceIT {
 
     private Profile profile;
 
-    private Profile insertedProfile;
-
     /**
      * Create an entity for this test.
      *
@@ -96,13 +109,15 @@ class ProfileResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Profile createEntity() {
-        return new Profile()
+        Profile profile = new Profile()
+            .patientId(DEFAULT_PATIENT_ID)
             .firstName(DEFAULT_FIRST_NAME)
             .middleNames(DEFAULT_MIDDLE_NAMES)
             .lastName(DEFAULT_LAST_NAME)
             .membership(DEFAULT_MEMBERSHIP)
             .birthDate(DEFAULT_BIRTH_DATE)
             .sex(DEFAULT_SEX)
+            .bloodGroup(DEFAULT_BLOOD_GROUP)
             .mobilePhone(DEFAULT_MOBILE_PHONE)
             .phoneNumber(DEFAULT_PHONE_NUMBER)
             .email(DEFAULT_EMAIL)
@@ -110,7 +125,13 @@ class ProfileResourceIT {
             .cardNumber(DEFAULT_CARD_NUMBER)
             .contacts(DEFAULT_CONTACTS)
             .address(DEFAULT_ADDRESS)
-            .team(DEFAULT_TEAM);
+            .team(DEFAULT_TEAM)
+            .imageUrl(DEFAULT_IMAGE_URL)
+            .about(DEFAULT_ABOUT)
+            .socialHandle(DEFAULT_SOCIAL_HANDLE)
+            .careAngelName(DEFAULT_CARE_ANGEL_NAME)
+            .careAngelPhone(DEFAULT_CARE_ANGEL_PHONE);
+        return profile;
     }
 
     /**
@@ -120,13 +141,15 @@ class ProfileResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Profile createUpdatedEntity() {
-        return new Profile()
+        Profile profile = new Profile()
+            .patientId(UPDATED_PATIENT_ID)
             .firstName(UPDATED_FIRST_NAME)
             .middleNames(UPDATED_MIDDLE_NAMES)
             .lastName(UPDATED_LAST_NAME)
             .membership(UPDATED_MEMBERSHIP)
             .birthDate(UPDATED_BIRTH_DATE)
             .sex(UPDATED_SEX)
+            .bloodGroup(UPDATED_BLOOD_GROUP)
             .mobilePhone(UPDATED_MOBILE_PHONE)
             .phoneNumber(UPDATED_PHONE_NUMBER)
             .email(UPDATED_EMAIL)
@@ -134,41 +157,54 @@ class ProfileResourceIT {
             .cardNumber(UPDATED_CARD_NUMBER)
             .contacts(UPDATED_CONTACTS)
             .address(UPDATED_ADDRESS)
-            .team(UPDATED_TEAM);
+            .team(UPDATED_TEAM)
+            .imageUrl(UPDATED_IMAGE_URL)
+            .about(UPDATED_ABOUT)
+            .socialHandle(UPDATED_SOCIAL_HANDLE)
+            .careAngelName(UPDATED_CARE_ANGEL_NAME)
+            .careAngelPhone(UPDATED_CARE_ANGEL_PHONE);
+        return profile;
     }
 
     @BeforeEach
-    void initTest() {
+    public void initTest() {
+        profileRepository.deleteAll();
         profile = createEntity();
-    }
-
-    @AfterEach
-    void cleanup() {
-        if (insertedProfile != null) {
-            profileRepository.delete(insertedProfile);
-            insertedProfile = null;
-        }
     }
 
     @Test
     void createProfile() throws Exception {
-        long databaseSizeBeforeCreate = getRepositoryCount();
+        int databaseSizeBeforeCreate = profileRepository.findAll().size();
         // Create the Profile
-        var returnedProfile = om.readValue(
-            restProfileMockMvc
-                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(profile)))
-                .andExpect(status().isCreated())
-                .andReturn()
-                .getResponse()
-                .getContentAsString(),
-            Profile.class
-        );
+        restProfileMockMvc
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(profile)))
+            .andExpect(status().isCreated());
 
         // Validate the Profile in the database
-        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
-        assertProfileUpdatableFieldsEquals(returnedProfile, getPersistedProfile(returnedProfile));
-
-        insertedProfile = returnedProfile;
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeCreate + 1);
+        Profile testProfile = profileList.get(profileList.size() - 1);
+        assertThat(testProfile.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
+        assertThat(testProfile.getFirstName()).isEqualTo(DEFAULT_FIRST_NAME);
+        assertThat(testProfile.getMiddleNames()).isEqualTo(DEFAULT_MIDDLE_NAMES);
+        assertThat(testProfile.getLastName()).isEqualTo(DEFAULT_LAST_NAME);
+        assertThat(testProfile.getMembership()).isEqualTo(DEFAULT_MEMBERSHIP);
+        assertThat(testProfile.getBirthDate()).isEqualTo(DEFAULT_BIRTH_DATE);
+        assertThat(testProfile.getSex()).isEqualTo(DEFAULT_SEX);
+        assertThat(testProfile.getBloodGroup()).isEqualTo(DEFAULT_BLOOD_GROUP);
+        assertThat(testProfile.getMobilePhone()).isEqualTo(DEFAULT_MOBILE_PHONE);
+        assertThat(testProfile.getPhoneNumber()).isEqualTo(DEFAULT_PHONE_NUMBER);
+        assertThat(testProfile.getEmail()).isEqualTo(DEFAULT_EMAIL);
+        assertThat(testProfile.getCardType()).isEqualTo(DEFAULT_CARD_TYPE);
+        assertThat(testProfile.getCardNumber()).isEqualTo(DEFAULT_CARD_NUMBER);
+        assertThat(testProfile.getContacts()).isEqualTo(DEFAULT_CONTACTS);
+        assertThat(testProfile.getAddress()).isEqualTo(DEFAULT_ADDRESS);
+        assertThat(testProfile.getTeam()).isEqualTo(DEFAULT_TEAM);
+        assertThat(testProfile.getImageUrl()).isEqualTo(DEFAULT_IMAGE_URL);
+        assertThat(testProfile.getAbout()).isEqualTo(DEFAULT_ABOUT);
+        assertThat(testProfile.getSocialHandle()).isEqualTo(DEFAULT_SOCIAL_HANDLE);
+        assertThat(testProfile.getCareAngelName()).isEqualTo(DEFAULT_CARE_ANGEL_NAME);
+        assertThat(testProfile.getCareAngelPhone()).isEqualTo(DEFAULT_CARE_ANGEL_PHONE);
     }
 
     @Test
@@ -176,21 +212,22 @@ class ProfileResourceIT {
         // Create the Profile with an existing ID
         profile.setId("existing_id");
 
-        long databaseSizeBeforeCreate = getRepositoryCount();
+        int databaseSizeBeforeCreate = profileRepository.findAll().size();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restProfileMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(profile)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(profile)))
             .andExpect(status().isBadRequest());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeCreate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllProfiles() throws Exception {
         // Initialize the database
-        insertedProfile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
         // Get all the profileList
         restProfileMockMvc
@@ -198,12 +235,14 @@ class ProfileResourceIT {
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
             .andExpect(jsonPath("$.[*].id").value(hasItem(profile.getId())))
+            .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
             .andExpect(jsonPath("$.[*].firstName").value(hasItem(DEFAULT_FIRST_NAME)))
             .andExpect(jsonPath("$.[*].middleNames").value(hasItem(DEFAULT_MIDDLE_NAMES)))
             .andExpect(jsonPath("$.[*].lastName").value(hasItem(DEFAULT_LAST_NAME)))
             .andExpect(jsonPath("$.[*].membership").value(hasItem(DEFAULT_MEMBERSHIP)))
             .andExpect(jsonPath("$.[*].birthDate").value(hasItem(DEFAULT_BIRTH_DATE.toString())))
             .andExpect(jsonPath("$.[*].sex").value(hasItem(DEFAULT_SEX)))
+            .andExpect(jsonPath("$.[*].bloodGroup").value(hasItem(DEFAULT_BLOOD_GROUP)))
             .andExpect(jsonPath("$.[*].mobilePhone").value(hasItem(DEFAULT_MOBILE_PHONE)))
             .andExpect(jsonPath("$.[*].phoneNumber").value(hasItem(DEFAULT_PHONE_NUMBER)))
             .andExpect(jsonPath("$.[*].email").value(hasItem(DEFAULT_EMAIL)))
@@ -211,13 +250,71 @@ class ProfileResourceIT {
             .andExpect(jsonPath("$.[*].cardNumber").value(hasItem(DEFAULT_CARD_NUMBER)))
             .andExpect(jsonPath("$.[*].contacts").value(hasItem(DEFAULT_CONTACTS)))
             .andExpect(jsonPath("$.[*].address").value(hasItem(DEFAULT_ADDRESS)))
-            .andExpect(jsonPath("$.[*].team").value(hasItem(DEFAULT_TEAM)));
+            .andExpect(jsonPath("$.[*].team").value(hasItem(DEFAULT_TEAM)))
+            .andExpect(jsonPath("$.[*].imageUrl").value(hasItem(DEFAULT_IMAGE_URL)))
+            .andExpect(jsonPath("$.[*].about").value(hasItem(DEFAULT_ABOUT)))
+            .andExpect(jsonPath("$.[*].socialHandle").value(hasItem(DEFAULT_SOCIAL_HANDLE)))
+            .andExpect(jsonPath("$.[*].careAngelName").value(hasItem(DEFAULT_CARE_ANGEL_NAME)))
+            .andExpect(jsonPath("$.[*].careAngelPhone").value(hasItem(DEFAULT_CARE_ANGEL_PHONE)));
+    }
+
+    @Test
+    void getAllProfilesByPatientId() throws Exception {
+        // Initialize the database
+        profileRepository.save(profile);
+
+        // The patient's own records come back
+        restProfileMockMvc
+            .perform(get(ENTITY_API_URL + "?patientId=" + DEFAULT_PATIENT_ID + "&sort=id,desc"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
+            .andExpect(jsonPath("$.[*].id").value(hasItem(profile.getId())));
+
+        // Another patient's id returns nothing rather than everything
+        restProfileMockMvc
+            .perform(get(ENTITY_API_URL + "?patientId=" + UPDATED_PATIENT_ID + "&sort=id,desc"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
+            .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void getProfileByEmail() throws Exception {
+        // Initialize the database
+        profileRepository.save(profile);
+
+        // The dashboard looks a patient up by the email its token carries
+        restProfileMockMvc
+            .perform(get(ENTITY_API_URL + "/email/{email}", DEFAULT_EMAIL))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
+            .andExpect(jsonPath("$.id").value(profile.getId()))
+            .andExpect(jsonPath("$.email").value(DEFAULT_EMAIL))
+            .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID));
+    }
+
+    @Test
+    void getProfileByEmailIsCaseInsensitive() throws Exception {
+        // Initialize the database
+        profileRepository.save(profile);
+
+        // Sign-in emails are not case-normalised, so the lookup must not be either
+        restProfileMockMvc
+            .perform(get(ENTITY_API_URL + "/email/{email}", DEFAULT_EMAIL.toLowerCase()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(profile.getId()));
+    }
+
+    @Test
+    void getNonExistingProfileByEmail() throws Exception {
+        // A signed-in user with no profile document yet gets a 404, not an error
+        restProfileMockMvc.perform(get(ENTITY_API_URL + "/email/{email}", "nobody@example.com")).andExpect(status().isNotFound());
     }
 
     @Test
     void getProfile() throws Exception {
         // Initialize the database
-        insertedProfile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
         // Get the profile
         restProfileMockMvc
@@ -225,12 +322,14 @@ class ProfileResourceIT {
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
             .andExpect(jsonPath("$.id").value(profile.getId()))
+            .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID))
             .andExpect(jsonPath("$.firstName").value(DEFAULT_FIRST_NAME))
             .andExpect(jsonPath("$.middleNames").value(DEFAULT_MIDDLE_NAMES))
             .andExpect(jsonPath("$.lastName").value(DEFAULT_LAST_NAME))
             .andExpect(jsonPath("$.membership").value(DEFAULT_MEMBERSHIP))
             .andExpect(jsonPath("$.birthDate").value(DEFAULT_BIRTH_DATE.toString()))
             .andExpect(jsonPath("$.sex").value(DEFAULT_SEX))
+            .andExpect(jsonPath("$.bloodGroup").value(DEFAULT_BLOOD_GROUP))
             .andExpect(jsonPath("$.mobilePhone").value(DEFAULT_MOBILE_PHONE))
             .andExpect(jsonPath("$.phoneNumber").value(DEFAULT_PHONE_NUMBER))
             .andExpect(jsonPath("$.email").value(DEFAULT_EMAIL))
@@ -238,7 +337,12 @@ class ProfileResourceIT {
             .andExpect(jsonPath("$.cardNumber").value(DEFAULT_CARD_NUMBER))
             .andExpect(jsonPath("$.contacts").value(DEFAULT_CONTACTS))
             .andExpect(jsonPath("$.address").value(DEFAULT_ADDRESS))
-            .andExpect(jsonPath("$.team").value(DEFAULT_TEAM));
+            .andExpect(jsonPath("$.team").value(DEFAULT_TEAM))
+            .andExpect(jsonPath("$.imageUrl").value(DEFAULT_IMAGE_URL))
+            .andExpect(jsonPath("$.about").value(DEFAULT_ABOUT))
+            .andExpect(jsonPath("$.socialHandle").value(DEFAULT_SOCIAL_HANDLE))
+            .andExpect(jsonPath("$.careAngelName").value(DEFAULT_CARE_ANGEL_NAME))
+            .andExpect(jsonPath("$.careAngelPhone").value(DEFAULT_CARE_ANGEL_PHONE));
     }
 
     @Test
@@ -250,19 +354,21 @@ class ProfileResourceIT {
     @Test
     void putExistingProfile() throws Exception {
         // Initialize the database
-        insertedProfile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
 
         // Update the profile
         Profile updatedProfile = profileRepository.findById(profile.getId()).orElseThrow();
         updatedProfile
+            .patientId(UPDATED_PATIENT_ID)
             .firstName(UPDATED_FIRST_NAME)
             .middleNames(UPDATED_MIDDLE_NAMES)
             .lastName(UPDATED_LAST_NAME)
             .membership(UPDATED_MEMBERSHIP)
             .birthDate(UPDATED_BIRTH_DATE)
             .sex(UPDATED_SEX)
+            .bloodGroup(UPDATED_BLOOD_GROUP)
             .mobilePhone(UPDATED_MOBILE_PHONE)
             .phoneNumber(UPDATED_PHONE_NUMBER)
             .email(UPDATED_EMAIL)
@@ -270,38 +376,70 @@ class ProfileResourceIT {
             .cardNumber(UPDATED_CARD_NUMBER)
             .contacts(UPDATED_CONTACTS)
             .address(UPDATED_ADDRESS)
-            .team(UPDATED_TEAM);
+            .team(UPDATED_TEAM)
+            .imageUrl(UPDATED_IMAGE_URL)
+            .about(UPDATED_ABOUT)
+            .socialHandle(UPDATED_SOCIAL_HANDLE)
+            .careAngelName(UPDATED_CARE_ANGEL_NAME)
+            .careAngelPhone(UPDATED_CARE_ANGEL_PHONE);
 
         restProfileMockMvc
             .perform(
                 put(ENTITY_API_URL_ID, updatedProfile.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(updatedProfile))
+                    .content(TestUtil.convertObjectToJsonBytes(updatedProfile))
             )
             .andExpect(status().isOk());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertPersistedProfileToMatchAllProperties(updatedProfile);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
+        Profile testProfile = profileList.get(profileList.size() - 1);
+        assertThat(testProfile.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
+        assertThat(testProfile.getFirstName()).isEqualTo(UPDATED_FIRST_NAME);
+        assertThat(testProfile.getMiddleNames()).isEqualTo(UPDATED_MIDDLE_NAMES);
+        assertThat(testProfile.getLastName()).isEqualTo(UPDATED_LAST_NAME);
+        assertThat(testProfile.getMembership()).isEqualTo(UPDATED_MEMBERSHIP);
+        assertThat(testProfile.getBirthDate()).isEqualTo(UPDATED_BIRTH_DATE);
+        assertThat(testProfile.getSex()).isEqualTo(UPDATED_SEX);
+        assertThat(testProfile.getBloodGroup()).isEqualTo(UPDATED_BLOOD_GROUP);
+        assertThat(testProfile.getMobilePhone()).isEqualTo(UPDATED_MOBILE_PHONE);
+        assertThat(testProfile.getPhoneNumber()).isEqualTo(UPDATED_PHONE_NUMBER);
+        assertThat(testProfile.getEmail()).isEqualTo(UPDATED_EMAIL);
+        assertThat(testProfile.getCardType()).isEqualTo(UPDATED_CARD_TYPE);
+        assertThat(testProfile.getCardNumber()).isEqualTo(UPDATED_CARD_NUMBER);
+        assertThat(testProfile.getContacts()).isEqualTo(UPDATED_CONTACTS);
+        assertThat(testProfile.getAddress()).isEqualTo(UPDATED_ADDRESS);
+        assertThat(testProfile.getTeam()).isEqualTo(UPDATED_TEAM);
+        assertThat(testProfile.getImageUrl()).isEqualTo(UPDATED_IMAGE_URL);
+        assertThat(testProfile.getAbout()).isEqualTo(UPDATED_ABOUT);
+        assertThat(testProfile.getSocialHandle()).isEqualTo(UPDATED_SOCIAL_HANDLE);
+        assertThat(testProfile.getCareAngelName()).isEqualTo(UPDATED_CARE_ANGEL_NAME);
+        assertThat(testProfile.getCareAngelPhone()).isEqualTo(UPDATED_CARE_ANGEL_PHONE);
     }
 
     @Test
     void putNonExistingProfile() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
         profile.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restProfileMockMvc
-            .perform(put(ENTITY_API_URL_ID, profile.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(profile)))
+            .perform(
+                put(ENTITY_API_URL_ID, profile.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TestUtil.convertObjectToJsonBytes(profile))
+            )
             .andExpect(status().isBadRequest());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchProfile() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
         profile.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -309,86 +447,105 @@ class ProfileResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(profile))
+                    .content(TestUtil.convertObjectToJsonBytes(profile))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamProfile() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
         profile.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restProfileMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(profile)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(profile)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateProfileWithPatch() throws Exception {
         // Initialize the database
-        insertedProfile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
 
         // Update the profile using partial update
         Profile partialUpdatedProfile = new Profile();
         partialUpdatedProfile.setId(profile.getId());
 
         partialUpdatedProfile
-            .firstName(UPDATED_FIRST_NAME)
-            .middleNames(UPDATED_MIDDLE_NAMES)
-            .lastName(UPDATED_LAST_NAME)
-            .membership(UPDATED_MEMBERSHIP)
             .birthDate(UPDATED_BIRTH_DATE)
-            .sex(UPDATED_SEX)
+            .bloodGroup(UPDATED_BLOOD_GROUP)
             .mobilePhone(UPDATED_MOBILE_PHONE)
-            .phoneNumber(UPDATED_PHONE_NUMBER)
             .email(UPDATED_EMAIL)
             .cardType(UPDATED_CARD_TYPE)
-            .contacts(UPDATED_CONTACTS)
-            .address(UPDATED_ADDRESS)
-            .team(UPDATED_TEAM);
+            .cardNumber(UPDATED_CARD_NUMBER)
+            .contacts(UPDATED_CONTACTS);
 
         restProfileMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedProfile.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedProfile))
+                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedProfile))
             )
             .andExpect(status().isOk());
 
         // Validate the Profile in the database
-
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertProfileUpdatableFieldsEquals(createUpdateProxyForBean(partialUpdatedProfile, profile), getPersistedProfile(profile));
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
+        Profile testProfile = profileList.get(profileList.size() - 1);
+        assertThat(testProfile.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
+        assertThat(testProfile.getFirstName()).isEqualTo(DEFAULT_FIRST_NAME);
+        assertThat(testProfile.getMiddleNames()).isEqualTo(DEFAULT_MIDDLE_NAMES);
+        assertThat(testProfile.getLastName()).isEqualTo(DEFAULT_LAST_NAME);
+        assertThat(testProfile.getMembership()).isEqualTo(DEFAULT_MEMBERSHIP);
+        assertThat(testProfile.getBirthDate()).isEqualTo(UPDATED_BIRTH_DATE);
+        assertThat(testProfile.getSex()).isEqualTo(DEFAULT_SEX);
+        assertThat(testProfile.getBloodGroup()).isEqualTo(UPDATED_BLOOD_GROUP);
+        assertThat(testProfile.getMobilePhone()).isEqualTo(UPDATED_MOBILE_PHONE);
+        assertThat(testProfile.getPhoneNumber()).isEqualTo(DEFAULT_PHONE_NUMBER);
+        assertThat(testProfile.getEmail()).isEqualTo(UPDATED_EMAIL);
+        assertThat(testProfile.getCardType()).isEqualTo(UPDATED_CARD_TYPE);
+        assertThat(testProfile.getCardNumber()).isEqualTo(UPDATED_CARD_NUMBER);
+        assertThat(testProfile.getContacts()).isEqualTo(UPDATED_CONTACTS);
+        assertThat(testProfile.getAddress()).isEqualTo(DEFAULT_ADDRESS);
+        assertThat(testProfile.getTeam()).isEqualTo(DEFAULT_TEAM);
+        assertThat(testProfile.getImageUrl()).isEqualTo(DEFAULT_IMAGE_URL);
+        assertThat(testProfile.getAbout()).isEqualTo(DEFAULT_ABOUT);
+        assertThat(testProfile.getSocialHandle()).isEqualTo(DEFAULT_SOCIAL_HANDLE);
+        assertThat(testProfile.getCareAngelName()).isEqualTo(DEFAULT_CARE_ANGEL_NAME);
+        assertThat(testProfile.getCareAngelPhone()).isEqualTo(DEFAULT_CARE_ANGEL_PHONE);
     }
 
     @Test
     void fullUpdateProfileWithPatch() throws Exception {
         // Initialize the database
-        insertedProfile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
 
         // Update the profile using partial update
         Profile partialUpdatedProfile = new Profile();
         partialUpdatedProfile.setId(profile.getId());
 
         partialUpdatedProfile
+            .patientId(UPDATED_PATIENT_ID)
             .firstName(UPDATED_FIRST_NAME)
             .middleNames(UPDATED_MIDDLE_NAMES)
             .lastName(UPDATED_LAST_NAME)
             .membership(UPDATED_MEMBERSHIP)
             .birthDate(UPDATED_BIRTH_DATE)
             .sex(UPDATED_SEX)
+            .bloodGroup(UPDATED_BLOOD_GROUP)
             .mobilePhone(UPDATED_MOBILE_PHONE)
             .phoneNumber(UPDATED_PHONE_NUMBER)
             .email(UPDATED_EMAIL)
@@ -396,41 +553,70 @@ class ProfileResourceIT {
             .cardNumber(UPDATED_CARD_NUMBER)
             .contacts(UPDATED_CONTACTS)
             .address(UPDATED_ADDRESS)
-            .team(UPDATED_TEAM);
+            .team(UPDATED_TEAM)
+            .imageUrl(UPDATED_IMAGE_URL)
+            .about(UPDATED_ABOUT)
+            .socialHandle(UPDATED_SOCIAL_HANDLE)
+            .careAngelName(UPDATED_CARE_ANGEL_NAME)
+            .careAngelPhone(UPDATED_CARE_ANGEL_PHONE);
 
         restProfileMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedProfile.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedProfile))
+                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedProfile))
             )
             .andExpect(status().isOk());
 
         // Validate the Profile in the database
-
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertProfileUpdatableFieldsEquals(partialUpdatedProfile, getPersistedProfile(partialUpdatedProfile));
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
+        Profile testProfile = profileList.get(profileList.size() - 1);
+        assertThat(testProfile.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
+        assertThat(testProfile.getFirstName()).isEqualTo(UPDATED_FIRST_NAME);
+        assertThat(testProfile.getMiddleNames()).isEqualTo(UPDATED_MIDDLE_NAMES);
+        assertThat(testProfile.getLastName()).isEqualTo(UPDATED_LAST_NAME);
+        assertThat(testProfile.getMembership()).isEqualTo(UPDATED_MEMBERSHIP);
+        assertThat(testProfile.getBirthDate()).isEqualTo(UPDATED_BIRTH_DATE);
+        assertThat(testProfile.getSex()).isEqualTo(UPDATED_SEX);
+        assertThat(testProfile.getBloodGroup()).isEqualTo(UPDATED_BLOOD_GROUP);
+        assertThat(testProfile.getMobilePhone()).isEqualTo(UPDATED_MOBILE_PHONE);
+        assertThat(testProfile.getPhoneNumber()).isEqualTo(UPDATED_PHONE_NUMBER);
+        assertThat(testProfile.getEmail()).isEqualTo(UPDATED_EMAIL);
+        assertThat(testProfile.getCardType()).isEqualTo(UPDATED_CARD_TYPE);
+        assertThat(testProfile.getCardNumber()).isEqualTo(UPDATED_CARD_NUMBER);
+        assertThat(testProfile.getContacts()).isEqualTo(UPDATED_CONTACTS);
+        assertThat(testProfile.getAddress()).isEqualTo(UPDATED_ADDRESS);
+        assertThat(testProfile.getTeam()).isEqualTo(UPDATED_TEAM);
+        assertThat(testProfile.getImageUrl()).isEqualTo(UPDATED_IMAGE_URL);
+        assertThat(testProfile.getAbout()).isEqualTo(UPDATED_ABOUT);
+        assertThat(testProfile.getSocialHandle()).isEqualTo(UPDATED_SOCIAL_HANDLE);
+        assertThat(testProfile.getCareAngelName()).isEqualTo(UPDATED_CARE_ANGEL_NAME);
+        assertThat(testProfile.getCareAngelPhone()).isEqualTo(UPDATED_CARE_ANGEL_PHONE);
     }
 
     @Test
     void patchNonExistingProfile() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
         profile.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restProfileMockMvc
             .perform(
-                patch(ENTITY_API_URL_ID, profile.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(profile))
+                patch(ENTITY_API_URL_ID, profile.getId())
+                    .contentType("application/merge-patch+json")
+                    .content(TestUtil.convertObjectToJsonBytes(profile))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchProfile() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
         profile.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -438,34 +624,36 @@ class ProfileResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(profile))
+                    .content(TestUtil.convertObjectToJsonBytes(profile))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamProfile() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = profileRepository.findAll().size();
         profile.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restProfileMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(profile)))
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(profile)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Profile in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteProfile() throws Exception {
         // Initialize the database
-        insertedProfile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
-        long databaseSizeBeforeDelete = getRepositoryCount();
+        int databaseSizeBeforeDelete = profileRepository.findAll().size();
 
         // Delete the profile
         restProfileMockMvc
@@ -473,34 +661,7 @@ class ProfileResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
-    }
-
-    protected long getRepositoryCount() {
-        return profileRepository.count();
-    }
-
-    protected void assertIncrementedRepositoryCount(long countBefore) {
-        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
-    }
-
-    protected void assertDecrementedRepositoryCount(long countBefore) {
-        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
-    }
-
-    protected void assertSameRepositoryCount(long countBefore) {
-        assertThat(countBefore).isEqualTo(getRepositoryCount());
-    }
-
-    protected Profile getPersistedProfile(Profile profile) {
-        return profileRepository.findById(profile.getId()).orElseThrow();
-    }
-
-    protected void assertPersistedProfileToMatchAllProperties(Profile expectedProfile) {
-        assertProfileAllPropertiesEquals(expectedProfile, getPersistedProfile(expectedProfile));
-    }
-
-    protected void assertPersistedProfileToMatchUpdatableProperties(Profile expectedProfile) {
-        assertProfileAllUpdatablePropertiesEquals(expectedProfile, getPersistedProfile(expectedProfile));
+        List<Profile> profileList = profileRepository.findAll();
+        assertThat(profileList).hasSize(databaseSizeBeforeDelete - 1);
     }
 }

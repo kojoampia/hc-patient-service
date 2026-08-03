@@ -5,7 +5,6 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.Metadata;
 import net.jojoaddison.repository.MetadataRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -24,11 +23,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/metadata")
 public class MetadataResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(MetadataResource.class);
+    private final Logger log = LoggerFactory.getLogger(MetadataResource.class);
 
     private static final String ENTITY_NAME = "patientMsMetadata";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final MetadataRepository metadataRepository;
@@ -46,15 +45,15 @@ public class MetadataResource {
      */
     @PostMapping("")
     public ResponseEntity<Metadata> createMetadata(@RequestBody Metadata metadata) throws URISyntaxException {
-        LOG.debug("REST request to save Metadata : {}", metadata);
+        log.debug("REST request to save Metadata : {}", metadata);
         if (metadata.getId() != null) {
             throw new BadRequestAlertException("A new metadata cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        metadata = metadataRepository.save(metadata);
+        Metadata result = metadataRepository.save(metadata);
         return ResponseEntity
-            .created(new URI("/api/metadata/" + metadata.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, metadata.getId()))
-            .body(metadata);
+            .created(new URI("/api/metadata/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -72,7 +71,7 @@ public class MetadataResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Metadata metadata
     ) throws URISyntaxException {
-        LOG.debug("REST request to update Metadata : {}, {}", id, metadata);
+        log.debug("REST request to update Metadata : {}, {}", id, metadata);
         if (metadata.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -84,11 +83,11 @@ public class MetadataResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        metadata = metadataRepository.save(metadata);
+        Metadata result = metadataRepository.save(metadata);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, metadata.getId()))
-            .body(metadata);
+            .body(result);
     }
 
     /**
@@ -107,7 +106,7 @@ public class MetadataResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Metadata metadata
     ) throws URISyntaxException {
-        LOG.debug("REST request to partial update Metadata partially : {}, {}", id, metadata);
+        log.debug("REST request to partial update Metadata partially : {}, {}", id, metadata);
         if (metadata.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -122,11 +121,21 @@ public class MetadataResource {
         Optional<Metadata> result = metadataRepository
             .findById(metadata.getId())
             .map(existingMetadata -> {
-                updateIfPresent(existingMetadata::setCreatedBy, metadata.getCreatedBy());
-                updateIfPresent(existingMetadata::setModifiedBy, metadata.getModifiedBy());
-                updateIfPresent(existingMetadata::setCreatedDate, metadata.getCreatedDate());
-                updateIfPresent(existingMetadata::setModifiedDate, metadata.getModifiedDate());
-                updateIfPresent(existingMetadata::setData, metadata.getData());
+                if (metadata.getCreatedBy() != null) {
+                    existingMetadata.setCreatedBy(metadata.getCreatedBy());
+                }
+                if (metadata.getModifiedBy() != null) {
+                    existingMetadata.setModifiedBy(metadata.getModifiedBy());
+                }
+                if (metadata.getCreatedDate() != null) {
+                    existingMetadata.setCreatedDate(metadata.getCreatedDate());
+                }
+                if (metadata.getModifiedDate() != null) {
+                    existingMetadata.setModifiedDate(metadata.getModifiedDate());
+                }
+                if (metadata.getData() != null) {
+                    existingMetadata.setData(metadata.getData());
+                }
 
                 return existingMetadata;
             })
@@ -139,13 +148,13 @@ public class MetadataResource {
     }
 
     /**
-     * {@code GET  /metadata} : get all the Metadata.
+     * {@code GET  /metadata} : get all the metadata.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Metadata in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of metadata in body.
      */
     @GetMapping("")
-    public List<Metadata> getAllMetadatas() {
-        LOG.debug("REST request to get all Metadatas");
+    public List<Metadata> getAllMetadata() {
+        log.debug("REST request to get all Metadata");
         return metadataRepository.findAll();
     }
 
@@ -157,7 +166,7 @@ public class MetadataResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Metadata> getMetadata(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Metadata : {}", id);
+        log.debug("REST request to get Metadata : {}", id);
         Optional<Metadata> metadata = metadataRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(metadata);
     }
@@ -170,14 +179,8 @@ public class MetadataResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMetadata(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Metadata : {}", id);
+        log.debug("REST request to delete Metadata : {}", id);
         metadataRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }

@@ -5,10 +5,16 @@
   "changelogDate": "20240206220314",
   "clientRootFolder": "patientMS",
   "databaseType": "mongodb",
+  "documentation": "The patient's subscription to a care plan, and the dates it runs between.",
+  "dto": "no",
   "entityTableName": "membership",
   "fields": [
     {
       "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
       "fieldType": "String"
     },
     {
@@ -22,6 +28,22 @@
     {
       "fieldName": "status",
       "fieldType": "String"
+    },
+    {
+      "fieldName": "memberNumber",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "plan",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "startDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "renewalDate",
+      "fieldType": "LocalDate"
     },
     {
       "fieldName": "createdDate",

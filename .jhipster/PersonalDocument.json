@@ -2,16 +2,41 @@
   "annotations": {
     "changelogDate": "20240330234721"
   },
-  "clientRootFolder": "patientService",
+  "clientRootFolder": "hcPatientService",
   "databaseType": "mongodb",
-  "entityTableName": "PersonalDocument",
+  "dto": "no",
+  "entityTableName": "personal_document",
   "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
     {
       "fieldName": "name",
       "fieldType": "String"
+    },
+    {
+      "fieldName": "category",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "url",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "issuedOn",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "expiresOn",
+      "fieldType": "LocalDate"
     }
   ],
-  "microserviceName": "patientService",
+  "microserviceName": "hcPatientService",
   "name": "PersonalDocument",
   "pagination": "no",
   "readOnly": false,

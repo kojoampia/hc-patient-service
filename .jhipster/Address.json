@@ -5,6 +5,7 @@
   "changelogDate": "20240206205816",
   "clientRootFolder": "patientMS",
   "databaseType": "mongodb",
+  "dto": "no",
   "entityTableName": "address",
   "fields": [
     {

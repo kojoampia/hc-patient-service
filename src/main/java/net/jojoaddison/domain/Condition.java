@@ -1,6 +1,5 @@
 package net.jojoaddison.domain;
 
-import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDate;
 import org.springframework.data.annotation.Id;
@@ -14,7 +13,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Condition implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id

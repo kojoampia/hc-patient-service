@@ -1,20 +1,23 @@
 package net.jojoaddison.domain;
 
-import java.io.Serial;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.LocalDate;
+import net.jojoaddison.domain.enumeration.MedicationStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * A Medication.
+ * A drug prescribed against a case. `dosage` is the instruction as the patient reads it (\"Twice daily with food\"), which is what the medications screen shows.
  */
+@Schema(
+    description = "A drug prescribed against a case. `dosage` is the instruction as the patient reads it (\"Twice daily with food\"), which is what the medications screen shows."
+)
 @Document(collection = "medication")
 @SuppressWarnings("common-java:DuplicatedBlocks")
 public class Medication implements Serializable {
 
-    @Serial
     private static final long serialVersionUID = 1L;
 
     @Id
@@ -29,8 +32,23 @@ public class Medication implements Serializable {
     @Field("patient_id")
     private String patientId;
 
+    @Field("case_id")
+    private String caseId;
+
     @Field("prescription")
     private String prescription;
+
+    @Field("dosage")
+    private String dosage;
+
+    @Field("status")
+    private MedicationStatus status;
+
+    @Field("started_on")
+    private LocalDate startedOn;
+
+    @Field("prescribed_by_id")
+    private String prescribedById;
 
     @Field("created_date")
     private LocalDate createdDate;
@@ -98,6 +116,19 @@ public class Medication implements Serializable {
         this.patientId = patientId;
     }
 
+    public String getCaseId() {
+        return this.caseId;
+    }
+
+    public Medication caseId(String caseId) {
+        this.setCaseId(caseId);
+        return this;
+    }
+
+    public void setCaseId(String caseId) {
+        this.caseId = caseId;
+    }
+
     public String getPrescription() {
         return this.prescription;
     }
@@ -109,6 +140,58 @@ public class Medication implements Serializable {
 
     public void setPrescription(String prescription) {
         this.prescription = prescription;
+    }
+
+    public String getDosage() {
+        return this.dosage;
+    }
+
+    public Medication dosage(String dosage) {
+        this.setDosage(dosage);
+        return this;
+    }
+
+    public void setDosage(String dosage) {
+        this.dosage = dosage;
+    }
+
+    public MedicationStatus getStatus() {
+        return this.status;
+    }
+
+    public Medication status(MedicationStatus status) {
+        this.setStatus(status);
+        return this;
+    }
+
+    public void setStatus(MedicationStatus status) {
+        this.status = status;
+    }
+
+    public LocalDate getStartedOn() {
+        return this.startedOn;
+    }
+
+    public Medication startedOn(LocalDate startedOn) {
+        this.setStartedOn(startedOn);
+        return this;
+    }
+
+    public void setStartedOn(LocalDate startedOn) {
+        this.startedOn = startedOn;
+    }
+
+    public String getPrescribedById() {
+        return this.prescribedById;
+    }
+
+    public Medication prescribedById(String prescribedById) {
+        this.setPrescribedById(prescribedById);
+        return this;
+    }
+
+    public void setPrescribedById(String prescribedById) {
+        this.prescribedById = prescribedById;
     }
 
     public LocalDate getCreatedDate() {
@@ -190,7 +273,12 @@ public class Medication implements Serializable {
             ", name='" + getName() + "'" +
             ", description='" + getDescription() + "'" +
             ", patientId='" + getPatientId() + "'" +
+            ", caseId='" + getCaseId() + "'" +
             ", prescription='" + getPrescription() + "'" +
+            ", dosage='" + getDosage() + "'" +
+            ", status='" + getStatus() + "'" +
+            ", startedOn='" + getStartedOn() + "'" +
+            ", prescribedById='" + getPrescribedById() + "'" +
             ", createdDate='" + getCreatedDate() + "'" +
             ", modifiedDate='" + getModifiedDate() + "'" +
             ", createdBy='" + getCreatedBy() + "'" +

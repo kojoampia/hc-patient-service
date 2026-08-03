@@ -9,9 +9,12 @@ public class ReportTestSamples {
             .id("id1")
             .category("category1")
             .description("description1")
+            .summary("summary1")
             .name("name1")
             .url("url1")
             .patientId("patientId1")
+            .caseId("caseId1")
+            .authorId("authorId1")
             .createdBy("createdBy1")
             .modifiedBy("modifiedBy1");
     }
@@ -21,9 +24,12 @@ public class ReportTestSamples {
             .id("id2")
             .category("category2")
             .description("description2")
+            .summary("summary2")
             .name("name2")
             .url("url2")
             .patientId("patientId2")
+            .caseId("caseId2")
+            .authorId("authorId2")
             .createdBy("createdBy2")
             .modifiedBy("modifiedBy2");
     }
@@ -33,9 +39,12 @@ public class ReportTestSamples {
             .id(UUID.randomUUID().toString())
             .category(UUID.randomUUID().toString())
             .description(UUID.randomUUID().toString())
+            .summary(UUID.randomUUID().toString())
             .name(UUID.randomUUID().toString())
             .url(UUID.randomUUID().toString())
             .patientId(UUID.randomUUID().toString())
+            .caseId(UUID.randomUUID().toString())
+            .authorId(UUID.randomUUID().toString())
             .createdBy(UUID.randomUUID().toString())
             .modifiedBy(UUID.randomUUID().toString());
     }

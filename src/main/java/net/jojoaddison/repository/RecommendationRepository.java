@@ -7,5 +7,6 @@ import org.springframework.stereotype.Repository;
 /**
  * Spring Data MongoDB repository for the Recommendation entity.
  */
+@SuppressWarnings("unused")
 @Repository
 public interface RecommendationRepository extends MongoRepository<Recommendation, String> {}

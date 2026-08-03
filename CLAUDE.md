@@ -10,14 +10,14 @@ Stack as actually configured in `pom.xml` / `.yo-rc.json`:
 
 |                  |                                                                                                       |
 | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| Java             | `java.version` 21 (compiler source/target); Maven Enforcer accepts JDK `[17,27)`                      |
-| Framework        | Spring Boot 3.4.5, JHipster BOM (`jhipster-dependencies`) 8.11.0 — **Spring MVC, not WebFlux**        |
+| Java             | `java.version` 25 (`maven.compiler.release`); Maven Enforcer accepts JDK `[17,26)`                    |
+| Framework        | Spring Boot 4.0.6, Spring Cloud 2025.1.1, `jhipster-framework` 9.0.0 — **Spring MVC, not WebFlux**    |
 | Generator        | app scaffolded with JHipster 8.1.0; entities regenerated with 9.1.0 (`.yo-rc.json` `jhipsterVersion`) |
 | Datastore        | MongoDB (`mongo:7.0.4` locally)                                                                       |
 | Messaging        | Kafka via Spring Cloud Stream (`confluentinc/cp-kafka:7.6.0`)                                         |
 | Discovery/config | Consul (`bitnami/consul:1.17.0`)                                                                      |
 | Auth             | JWT validation only — `skipUserManagement: true`, no `User` domain here                               |
-| Container image  | Jib, base `eclipse-temurin:26-jre`                                                                    |
+| Container image  | Jib, base `eclipse-temurin:25-jre`                                                                    |
 
 It is one service in a larger microservice architecture: it registers with Consul and **will refuse to start if Consul is unreachable at `http://localhost:8500`**. Tokens are minted by the patient gateway (`hc-patient-gateway`); this service only validates them, so both must agree on the JWT secret.
 
@@ -151,7 +151,7 @@ Note the frontend (`hc-patient-dashboard`) still ships `hc-credential`/`hc-pay-o
 
 ## Constraints
 
-- Java must stay within the Enforcer range `[17,27)` (JDK 17–26); the compiler targets 21; Maven must be ≥ 3.2.5.
+- Java must stay within the Enforcer range `[17,26)` (JDK 17–25); the compiler targets 25 via `maven.compiler.release`; Maven must be ≥ 3.2.5.
 - Do not convert this service to reactive (`Mono`/`Flux`); it's Spring MVC + MongoDB throughout.
 - Don't bypass the JHipster alert-header/exception-translation conventions in `web/rest/errors`.
 - Follow ArchUnit layer boundaries in `TechnicalStructureTest` — a change that makes `service` depend on `web`, for example, will fail the build.

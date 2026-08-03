@@ -5,7 +5,6 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.Condition;
 import net.jojoaddison.repository.ConditionRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -24,11 +23,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/conditions")
 public class ConditionResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ConditionResource.class);
+    private final Logger log = LoggerFactory.getLogger(ConditionResource.class);
 
     private static final String ENTITY_NAME = "patientMsCondition";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final ConditionRepository conditionRepository;
@@ -46,15 +45,15 @@ public class ConditionResource {
      */
     @PostMapping("")
     public ResponseEntity<Condition> createCondition(@RequestBody Condition condition) throws URISyntaxException {
-        LOG.debug("REST request to save Condition : {}", condition);
+        log.debug("REST request to save Condition : {}", condition);
         if (condition.getId() != null) {
             throw new BadRequestAlertException("A new condition cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        condition = conditionRepository.save(condition);
+        Condition result = conditionRepository.save(condition);
         return ResponseEntity
-            .created(new URI("/api/conditions/" + condition.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, condition.getId()))
-            .body(condition);
+            .created(new URI("/api/conditions/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -72,7 +71,7 @@ public class ConditionResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Condition condition
     ) throws URISyntaxException {
-        LOG.debug("REST request to update Condition : {}, {}", id, condition);
+        log.debug("REST request to update Condition : {}, {}", id, condition);
         if (condition.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -84,11 +83,11 @@ public class ConditionResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        condition = conditionRepository.save(condition);
+        Condition result = conditionRepository.save(condition);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, condition.getId()))
-            .body(condition);
+            .body(result);
     }
 
     /**
@@ -107,7 +106,7 @@ public class ConditionResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Condition condition
     ) throws URISyntaxException {
-        LOG.debug("REST request to partial update Condition partially : {}, {}", id, condition);
+        log.debug("REST request to partial update Condition partially : {}, {}", id, condition);
         if (condition.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -122,13 +121,27 @@ public class ConditionResource {
         Optional<Condition> result = conditionRepository
             .findById(condition.getId())
             .map(existingCondition -> {
-                updateIfPresent(existingCondition::setName, condition.getName());
-                updateIfPresent(existingCondition::setDescription, condition.getDescription());
-                updateIfPresent(existingCondition::setPatientId, condition.getPatientId());
-                updateIfPresent(existingCondition::setCreatedDate, condition.getCreatedDate());
-                updateIfPresent(existingCondition::setModifiedDate, condition.getModifiedDate());
-                updateIfPresent(existingCondition::setCreatedBy, condition.getCreatedBy());
-                updateIfPresent(existingCondition::setModifiedBy, condition.getModifiedBy());
+                if (condition.getName() != null) {
+                    existingCondition.setName(condition.getName());
+                }
+                if (condition.getDescription() != null) {
+                    existingCondition.setDescription(condition.getDescription());
+                }
+                if (condition.getPatientId() != null) {
+                    existingCondition.setPatientId(condition.getPatientId());
+                }
+                if (condition.getCreatedDate() != null) {
+                    existingCondition.setCreatedDate(condition.getCreatedDate());
+                }
+                if (condition.getModifiedDate() != null) {
+                    existingCondition.setModifiedDate(condition.getModifiedDate());
+                }
+                if (condition.getCreatedBy() != null) {
+                    existingCondition.setCreatedBy(condition.getCreatedBy());
+                }
+                if (condition.getModifiedBy() != null) {
+                    existingCondition.setModifiedBy(condition.getModifiedBy());
+                }
 
                 return existingCondition;
             })
@@ -141,14 +154,15 @@ public class ConditionResource {
     }
 
     /**
-     * {@code GET  /conditions} : get all the Conditions.
+     * {@code GET  /conditions} : get all the conditions.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Conditions in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of conditions in body.
+     * @param patientId when present, restricts the result to that patient's records.
      */
     @GetMapping("")
-    public List<Condition> getAllConditions() {
-        LOG.debug("REST request to get all Conditions");
-        return conditionRepository.findAll();
+    public List<Condition> getAllConditions(@RequestParam(required = false) String patientId) {
+        log.debug("REST request to get all Conditions for patient {}", patientId);
+        return patientId == null ? conditionRepository.findAll() : conditionRepository.findByPatientId(patientId);
     }
 
     /**
@@ -159,7 +173,7 @@ public class ConditionResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Condition> getCondition(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Condition : {}", id);
+        log.debug("REST request to get Condition : {}", id);
         Optional<Condition> condition = conditionRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(condition);
     }
@@ -172,14 +186,8 @@ public class ConditionResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCondition(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Condition : {}", id);
+        log.debug("REST request to delete Condition : {}", id);
         conditionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }

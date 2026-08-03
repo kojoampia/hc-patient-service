@@ -29,11 +29,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/clinical-cases")
 public class ClinicalCaseResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ClinicalCaseResource.class);
+    private final Logger log = LoggerFactory.getLogger(ClinicalCaseResource.class);
 
     private static final String ENTITY_NAME = "hcPatientServiceClinicalCase";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final ClinicalCaseService clinicalCaseService;
@@ -54,15 +54,15 @@ public class ClinicalCaseResource {
      */
     @PostMapping("")
     public ResponseEntity<ClinicalCase> createClinicalCase(@RequestBody ClinicalCase clinicalCase) throws URISyntaxException {
-        LOG.debug("REST request to save ClinicalCase : {}", clinicalCase);
+        log.debug("REST request to save ClinicalCase : {}", clinicalCase);
         if (clinicalCase.getId() != null) {
             throw new BadRequestAlertException("A new clinicalCase cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        clinicalCase = clinicalCaseService.save(clinicalCase);
+        ClinicalCase result = clinicalCaseService.save(clinicalCase);
         return ResponseEntity
-            .created(new URI("/api/clinical-cases/" + clinicalCase.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, clinicalCase.getId()))
-            .body(clinicalCase);
+            .created(new URI("/api/clinical-cases/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -80,7 +80,7 @@ public class ClinicalCaseResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody ClinicalCase clinicalCase
     ) throws URISyntaxException {
-        LOG.debug("REST request to update ClinicalCase : {}, {}", id, clinicalCase);
+        log.debug("REST request to update ClinicalCase : {}, {}", id, clinicalCase);
         if (clinicalCase.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -92,11 +92,11 @@ public class ClinicalCaseResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        clinicalCase = clinicalCaseService.update(clinicalCase);
+        ClinicalCase result = clinicalCaseService.update(clinicalCase);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, clinicalCase.getId()))
-            .body(clinicalCase);
+            .body(result);
     }
 
     /**
@@ -115,7 +115,7 @@ public class ClinicalCaseResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody ClinicalCase clinicalCase
     ) throws URISyntaxException {
-        LOG.debug("REST request to partial update ClinicalCase partially : {}, {}", id, clinicalCase);
+        log.debug("REST request to partial update ClinicalCase partially : {}, {}", id, clinicalCase);
         if (clinicalCase.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -136,15 +136,29 @@ public class ClinicalCaseResource {
     }
 
     /**
-     * {@code GET  /clinical-cases} : get all the Med Cases.
+     * {@code GET  /clinical-cases} : get all the clinicalCases.
      *
      * @param pageable the pagination information.
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Med Cases in body.
+     * @param eagerload flag to eager load entities from relationships (This is applicable for many-to-many).
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of clinicalCases in body.
      */
     @GetMapping("")
-    public ResponseEntity<List<ClinicalCase>> getAllClinicalCases(@org.springdoc.core.annotations.ParameterObject Pageable pageable) {
-        LOG.debug("REST request to get a page of ClinicalCases");
-        Page<ClinicalCase> page = clinicalCaseService.findAll(pageable);
+    public ResponseEntity<List<ClinicalCase>> getAllClinicalCases(
+        @RequestParam(required = false) String patientId,
+        @org.springdoc.core.annotations.ParameterObject Pageable pageable,
+        @RequestParam(name = "eagerload", required = false, defaultValue = "true") boolean eagerload
+    ) {
+        log.debug("REST request to get a page of ClinicalCases for patient {}", patientId);
+        Page<ClinicalCase> page;
+        if (patientId != null) {
+            // Recommendations are a DBRef, so a patient-scoped query cannot eager-load them the way
+            // findAllWithEagerRelationships does; the case list does not render them anyway.
+            page = clinicalCaseRepository.findByPatientId(patientId, pageable);
+        } else if (eagerload) {
+            page = clinicalCaseService.findAllWithEagerRelationships(pageable);
+        } else {
+            page = clinicalCaseService.findAll(pageable);
+        }
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -157,7 +171,7 @@ public class ClinicalCaseResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<ClinicalCase> getClinicalCase(@PathVariable("id") String id) {
-        LOG.debug("REST request to get ClinicalCase : {}", id);
+        log.debug("REST request to get ClinicalCase : {}", id);
         Optional<ClinicalCase> clinicalCase = clinicalCaseService.findOne(id);
         return ResponseUtil.wrapOrNotFound(clinicalCase);
     }
@@ -170,7 +184,7 @@ public class ClinicalCaseResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteClinicalCase(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete ClinicalCase : {}", id);
+        log.debug("REST request to delete ClinicalCase : {}", id);
         clinicalCaseService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

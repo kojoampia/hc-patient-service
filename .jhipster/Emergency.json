@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "changelogDate": "20260803090200"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "dto": "no",
+  "entityTableName": "emergency",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "caseId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "raisedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "resolvedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "brief",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "detail",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "severity",
+      "fieldType": "EmergencySeverity",
+      "fieldValues": "LOW,MODERATE,HIGH"
+    },
+    {
+      "fieldName": "status",
+      "fieldType": "EmergencyStatus",
+      "fieldValues": "RAISED,ACKNOWLEDGED,RESOLVED"
+    },
+    {
+      "fieldName": "outcome",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "location",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "respondentId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "Emergency",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}

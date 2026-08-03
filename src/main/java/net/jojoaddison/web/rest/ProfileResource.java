@@ -29,11 +29,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/profiles")
 public class ProfileResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ProfileResource.class);
+    private final Logger log = LoggerFactory.getLogger(ProfileResource.class);
 
-    private static final String ENTITY_NAME = "patientMsProfile";
+    private static final String ENTITY_NAME = "patientServiceProfile";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final ProfileService profileService;
@@ -54,15 +54,15 @@ public class ProfileResource {
      */
     @PostMapping("")
     public ResponseEntity<Profile> createProfile(@RequestBody Profile profile) throws URISyntaxException {
-        LOG.debug("REST request to save Profile : {}", profile);
+        log.debug("REST request to save Profile : {}", profile);
         if (profile.getId() != null) {
             throw new BadRequestAlertException("A new profile cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        profile = profileService.save(profile);
+        Profile result = profileService.save(profile);
         return ResponseEntity
-            .created(new URI("/api/profiles/" + profile.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, profile.getId()))
-            .body(profile);
+            .created(new URI("/api/profiles/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -80,7 +80,7 @@ public class ProfileResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Profile profile
     ) throws URISyntaxException {
-        LOG.debug("REST request to update Profile : {}, {}", id, profile);
+        log.debug("REST request to update Profile : {}, {}", id, profile);
         if (profile.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -92,11 +92,11 @@ public class ProfileResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        profile = profileService.update(profile);
+        Profile result = profileService.update(profile);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, profile.getId()))
-            .body(profile);
+            .body(result);
     }
 
     /**
@@ -115,7 +115,7 @@ public class ProfileResource {
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Profile profile
     ) throws URISyntaxException {
-        LOG.debug("REST request to partial update Profile partially : {}, {}", id, profile);
+        log.debug("REST request to partial update Profile partially : {}, {}", id, profile);
         if (profile.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -136,17 +136,39 @@ public class ProfileResource {
     }
 
     /**
-     * {@code GET  /profiles} : get all the Profiles.
+     * {@code GET  /profiles} : get all the profiles.
      *
      * @param pageable the pagination information.
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Profiles in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of profiles in body.
+     * @param patientId when present, restricts the result to that patient's records.
      */
     @GetMapping("")
-    public ResponseEntity<List<Profile>> getAllProfiles(@org.springdoc.core.annotations.ParameterObject Pageable pageable) {
-        LOG.debug("REST request to get a page of Profiles");
-        Page<Profile> page = profileService.findAll(pageable);
+    public ResponseEntity<List<Profile>> getAllProfiles(
+        @RequestParam(required = false) String patientId,
+        @org.springdoc.core.annotations.ParameterObject Pageable pageable
+    ) {
+        log.debug("REST request to get a page of Profiles for patient {}", patientId);
+        Page<Profile> page = patientId == null
+            ? profileRepository.findAll(pageable)
+            : profileRepository.findByPatientId(patientId, pageable);
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
+    }
+
+    /**
+     * {@code GET  /profiles/email/:email} : get the profile belonging to an email address.
+     *
+     * <p>This is the dashboard's entry point into the record. The gateway issues tokens keyed on
+     * email, so email is the only identifier the client holds before it has loaded anything —
+     * every other collection is then fetched by the {@code patientId} this returns.</p>
+     *
+     * @param email the email address to look up, matched case-insensitively.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the profile, or with status {@code 404 (Not Found)}.
+     */
+    @GetMapping("/email/{email}")
+    public ResponseEntity<Profile> getProfileByEmail(@PathVariable("email") String email) {
+        log.debug("REST request to get Profile by email : {}", email);
+        return ResponseUtil.wrapOrNotFound(profileRepository.findOneByEmailIgnoreCase(email));
     }
 
     /**
@@ -157,7 +179,7 @@ public class ProfileResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Profile> getProfile(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Profile : {}", id);
+        log.debug("REST request to get Profile : {}", id);
         Optional<Profile> profile = profileService.findOne(id);
         return ResponseUtil.wrapOrNotFound(profile);
     }
@@ -170,7 +192,7 @@ public class ProfileResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProfile(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Profile : {}", id);
+        log.debug("REST request to delete Profile : {}", id);
         profileService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

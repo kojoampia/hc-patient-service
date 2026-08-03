@@ -4,6 +4,7 @@
   },
   "clientRootFolder": "hcPatientService",
   "databaseType": "mongodb",
+  "documentation": "A clinical episode: what the patient reported, what was found, and what was recommended. caseNumber is the human-facing reference (\"Case 12\"); brief is the one-line summary shown under the title.",
   "dto": "no",
   "entityTableName": "clinicalcase",
   "fields": [
@@ -16,7 +17,19 @@
       "fieldType": "String"
     },
     {
+      "fieldName": "caseNumber",
+      "fieldType": "Integer"
+    },
+    {
+      "fieldName": "title",
+      "fieldType": "String"
+    },
+    {
       "fieldName": "openedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "closedAt",
       "fieldType": "Instant"
     },
     {
@@ -26,7 +39,8 @@
     {
       "fieldName": "status",
       "fieldType": "CaseStatus",
-      "fieldValues": "URGENT,OPEN,CLOSED"
+      "fieldTypeDocumentation": "Lifecycle of a clinical case: raised, assessed, under treatment, then closed.",
+      "fieldValues": "URGENT,OPEN,TREATMENT,CLOSED"
     },
     {
       "fieldName": "symptoms",

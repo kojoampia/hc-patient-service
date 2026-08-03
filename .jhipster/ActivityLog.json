@@ -1,0 +1,67 @@
+{
+  "annotations": {
+    "changelogDate": "20260803090300"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "documentation": "One entry on the record timeline. Entries are written by professionals, by the system when something is filed, and by the patient themselves — hence `source` alongside `authorId`.",
+  "dto": "no",
+  "entityTableName": "activity_log",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "caseId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "loggedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "summary",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "detail",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "kind",
+      "fieldType": "ActivityKind",
+      "fieldTypeDocumentation": "What kind of event an activity entry describes — drives the timeline icon and colour.",
+      "fieldValues": "CASE,VITAL,RECOMMENDATION,REPORT,VISIT,MEDICATION,NOTE"
+    },
+    {
+      "fieldName": "source",
+      "fieldType": "ActivitySource",
+      "fieldTypeDocumentation": "Who put an entry on the activity timeline.",
+      "fieldValues": "PATIENT,PROFESSIONAL,SYSTEM"
+    },
+    {
+      "fieldName": "authorId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "ActivityLog",
+  "pagination": "pagination",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}

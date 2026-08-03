@@ -5,7 +5,6 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -24,11 +23,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/stats")
 public class StatResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(StatResource.class);
+    private final Logger log = LoggerFactory.getLogger(StatResource.class);
 
     private static final String ENTITY_NAME = "patientMsStat";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final StatRepository statRepository;
@@ -46,15 +45,15 @@ public class StatResource {
      */
     @PostMapping("")
     public ResponseEntity<Stat> createStat(@RequestBody Stat stat) throws URISyntaxException {
-        LOG.debug("REST request to save Stat : {}", stat);
+        log.debug("REST request to save Stat : {}", stat);
         if (stat.getId() != null) {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        stat = statRepository.save(stat);
+        Stat result = statRepository.save(stat);
         return ResponseEntity
-            .created(new URI("/api/stats/" + stat.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, stat.getId()))
-            .body(stat);
+            .created(new URI("/api/stats/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -70,7 +69,7 @@ public class StatResource {
     @PutMapping("/{id}")
     public ResponseEntity<Stat> updateStat(@PathVariable(value = "id", required = false) final String id, @RequestBody Stat stat)
         throws URISyntaxException {
-        LOG.debug("REST request to update Stat : {}, {}", id, stat);
+        log.debug("REST request to update Stat : {}, {}", id, stat);
         if (stat.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -82,11 +81,11 @@ public class StatResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        stat = statRepository.save(stat);
+        Stat result = statRepository.save(stat);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, stat.getId()))
-            .body(stat);
+            .body(result);
     }
 
     /**
@@ -103,7 +102,7 @@ public class StatResource {
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
     public ResponseEntity<Stat> partialUpdateStat(@PathVariable(value = "id", required = false) final String id, @RequestBody Stat stat)
         throws URISyntaxException {
-        LOG.debug("REST request to partial update Stat partially : {}, {}", id, stat);
+        log.debug("REST request to partial update Stat partially : {}, {}", id, stat);
         if (stat.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -118,14 +117,48 @@ public class StatResource {
         Optional<Stat> result = statRepository
             .findById(stat.getId())
             .map(existingStat -> {
-                updateIfPresent(existingStat::setType, stat.getType());
-                updateIfPresent(existingStat::setName, stat.getName());
-                updateIfPresent(existingStat::setDescription, stat.getDescription());
-                updateIfPresent(existingStat::setValue, stat.getValue());
-                updateIfPresent(existingStat::setNote, stat.getNote());
-                updateIfPresent(existingStat::setPatientId, stat.getPatientId());
-                updateIfPresent(existingStat::setCreatedDate, stat.getCreatedDate());
-                updateIfPresent(existingStat::setCreatedBy, stat.getCreatedBy());
+                if (stat.getPatientId() != null) {
+                    existingStat.setPatientId(stat.getPatientId());
+                }
+                if (stat.getType() != null) {
+                    existingStat.setType(stat.getType());
+                }
+                if (stat.getName() != null) {
+                    existingStat.setName(stat.getName());
+                }
+                if (stat.getDescription() != null) {
+                    existingStat.setDescription(stat.getDescription());
+                }
+                if (stat.getValue() != null) {
+                    existingStat.setValue(stat.getValue());
+                }
+                if (stat.getSecondaryValue() != null) {
+                    existingStat.setSecondaryValue(stat.getSecondaryValue());
+                }
+                if (stat.getUnit() != null) {
+                    existingStat.setUnit(stat.getUnit());
+                }
+                if (stat.getReferenceLow() != null) {
+                    existingStat.setReferenceLow(stat.getReferenceLow());
+                }
+                if (stat.getReferenceHigh() != null) {
+                    existingStat.setReferenceHigh(stat.getReferenceHigh());
+                }
+                if (stat.getFlag() != null) {
+                    existingStat.setFlag(stat.getFlag());
+                }
+                if (stat.getNote() != null) {
+                    existingStat.setNote(stat.getNote());
+                }
+                if (stat.getRecordedAt() != null) {
+                    existingStat.setRecordedAt(stat.getRecordedAt());
+                }
+                if (stat.getCreatedDate() != null) {
+                    existingStat.setCreatedDate(stat.getCreatedDate());
+                }
+                if (stat.getCreatedBy() != null) {
+                    existingStat.setCreatedBy(stat.getCreatedBy());
+                }
 
                 return existingStat;
             })
@@ -135,14 +168,15 @@ public class StatResource {
     }
 
     /**
-     * {@code GET  /stats} : get all the Stats.
+     * {@code GET  /stats} : get all the stats.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Stats in body.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of stats in body.
+     * @param patientId when present, restricts the result to that patient's records.
      */
     @GetMapping("")
-    public List<Stat> getAllStats() {
-        LOG.debug("REST request to get all Stats");
-        return statRepository.findAll();
+    public List<Stat> getAllStats(@RequestParam(required = false) String patientId) {
+        log.debug("REST request to get all Stats for patient {}", patientId);
+        return patientId == null ? statRepository.findAll() : statRepository.findByPatientId(patientId);
     }
 
     /**
@@ -153,7 +187,7 @@ public class StatResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Stat> getStat(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Stat : {}", id);
+        log.debug("REST request to get Stat : {}", id);
         Optional<Stat> stat = statRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(stat);
     }
@@ -166,14 +200,8 @@ public class StatResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteStat(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Stat : {}", id);
+        log.debug("REST request to delete Stat : {}", id);
         statRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }

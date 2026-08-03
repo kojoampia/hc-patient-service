@@ -1,8 +1,11 @@
 package net.jojoaddison.domain;
 
 import static net.jojoaddison.domain.ClinicalCaseTestSamples.*;
+import static net.jojoaddison.domain.RecommendationTestSamples.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.HashSet;
+import java.util.Set;
 import net.jojoaddison.web.rest.TestUtil;
 import org.junit.jupiter.api.Test;
 
@@ -20,5 +23,23 @@ class ClinicalCaseTest {
 
         clinicalCase2 = getClinicalCaseSample2();
         assertThat(clinicalCase1).isNotEqualTo(clinicalCase2);
+    }
+
+    @Test
+    void recommendationTest() throws Exception {
+        ClinicalCase clinicalCase = getClinicalCaseRandomSampleGenerator();
+        Recommendation recommendationBack = getRecommendationRandomSampleGenerator();
+
+        clinicalCase.addRecommendation(recommendationBack);
+        assertThat(clinicalCase.getRecommendations()).containsOnly(recommendationBack);
+
+        clinicalCase.removeRecommendation(recommendationBack);
+        assertThat(clinicalCase.getRecommendations()).doesNotContain(recommendationBack);
+
+        clinicalCase.recommendations(new HashSet<>(Set.of(recommendationBack)));
+        assertThat(clinicalCase.getRecommendations()).containsOnly(recommendationBack);
+
+        clinicalCase.setRecommendations(new HashSet<>());
+        assertThat(clinicalCase.getRecommendations()).doesNotContain(recommendationBack);
     }
 }

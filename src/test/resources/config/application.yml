@@ -52,8 +52,12 @@ spring:
           content-type: text/plain
           group: hc-patient-service
   jackson:
-    serialization:
-      write-durations-as-timestamps: false
+    # Jackson 3 moved this off SerializationFeature onto DateTimeFeature, so Spring Boot 4 binds it
+    # under spring.jackson.datatype.datetime.*. Left on the old key it does not merely stop working:
+    # binding JacksonProperties fails outright, which takes the whole application context down.
+    datatype:
+      datetime:
+        write-durations-as-timestamps: false
   mail:
     host: localhost
   main:

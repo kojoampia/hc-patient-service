@@ -1,7 +1,6 @@
 package net.jojoaddison.service;
 
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import org.slf4j.Logger;
@@ -16,7 +15,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ClinicalCaseService {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ClinicalCaseService.class);
+    private final Logger log = LoggerFactory.getLogger(ClinicalCaseService.class);
 
     private final ClinicalCaseRepository clinicalCaseRepository;
 
@@ -31,7 +30,7 @@ public class ClinicalCaseService {
      * @return the persisted entity.
      */
     public ClinicalCase save(ClinicalCase clinicalCase) {
-        LOG.debug("Request to save ClinicalCase : {}", clinicalCase);
+        log.debug("Request to save ClinicalCase : {}", clinicalCase);
         return clinicalCaseRepository.save(clinicalCase);
     }
 
@@ -42,7 +41,7 @@ public class ClinicalCaseService {
      * @return the persisted entity.
      */
     public ClinicalCase update(ClinicalCase clinicalCase) {
-        LOG.debug("Request to update ClinicalCase : {}", clinicalCase);
+        log.debug("Request to update ClinicalCase : {}", clinicalCase);
         return clinicalCaseRepository.save(clinicalCase);
     }
 
@@ -53,22 +52,44 @@ public class ClinicalCaseService {
      * @return the persisted entity.
      */
     public Optional<ClinicalCase> partialUpdate(ClinicalCase clinicalCase) {
-        LOG.debug("Request to partially update ClinicalCase : {}", clinicalCase);
+        log.debug("Request to partially update ClinicalCase : {}", clinicalCase);
 
         return clinicalCaseRepository
             .findById(clinicalCase.getId())
             .map(existingClinicalCase -> {
-                updateIfPresent(existingClinicalCase::setPatientId, clinicalCase.getPatientId());
-                updateIfPresent(existingClinicalCase::setOpenedAt, clinicalCase.getOpenedAt());
-                updateIfPresent(existingClinicalCase::setBrief, clinicalCase.getBrief());
-                updateIfPresent(existingClinicalCase::setStatus, clinicalCase.getStatus());
-                updateIfPresent(existingClinicalCase::setSymptoms, clinicalCase.getSymptoms());
-                updateIfPresent(existingClinicalCase::setDiagnosis, clinicalCase.getDiagnosis());
-                updateIfPresent(existingClinicalCase::setAssignedProfessionalId, clinicalCase.getAssignedProfessionalId());
-                updateIfPresent(existingClinicalCase::setAssignedRosterId, clinicalCase.getAssignedRosterId());
-                // `recommendations` is deliberately not merged here: it is a relationship, and an empty set on the
-                // incoming patch is indistinguishable from "not supplied". Use PUT, or a dedicated endpoint, to
-                // change which recommendations a case carries.
+                if (clinicalCase.getPatientId() != null) {
+                    existingClinicalCase.setPatientId(clinicalCase.getPatientId());
+                }
+                if (clinicalCase.getCaseNumber() != null) {
+                    existingClinicalCase.setCaseNumber(clinicalCase.getCaseNumber());
+                }
+                if (clinicalCase.getTitle() != null) {
+                    existingClinicalCase.setTitle(clinicalCase.getTitle());
+                }
+                if (clinicalCase.getOpenedAt() != null) {
+                    existingClinicalCase.setOpenedAt(clinicalCase.getOpenedAt());
+                }
+                if (clinicalCase.getClosedAt() != null) {
+                    existingClinicalCase.setClosedAt(clinicalCase.getClosedAt());
+                }
+                if (clinicalCase.getBrief() != null) {
+                    existingClinicalCase.setBrief(clinicalCase.getBrief());
+                }
+                if (clinicalCase.getStatus() != null) {
+                    existingClinicalCase.setStatus(clinicalCase.getStatus());
+                }
+                if (clinicalCase.getSymptoms() != null) {
+                    existingClinicalCase.setSymptoms(clinicalCase.getSymptoms());
+                }
+                if (clinicalCase.getDiagnosis() != null) {
+                    existingClinicalCase.setDiagnosis(clinicalCase.getDiagnosis());
+                }
+                if (clinicalCase.getAssignedProfessionalId() != null) {
+                    existingClinicalCase.setAssignedProfessionalId(clinicalCase.getAssignedProfessionalId());
+                }
+                if (clinicalCase.getAssignedRosterId() != null) {
+                    existingClinicalCase.setAssignedRosterId(clinicalCase.getAssignedRosterId());
+                }
 
                 return existingClinicalCase;
             })
@@ -82,8 +103,17 @@ public class ClinicalCaseService {
      * @return the list of entities.
      */
     public Page<ClinicalCase> findAll(Pageable pageable) {
-        LOG.debug("Request to get all ClinicalCases");
+        log.debug("Request to get all ClinicalCases");
         return clinicalCaseRepository.findAll(pageable);
+    }
+
+    /**
+     * Get all the clinicalCases with eager load of many-to-many relationships.
+     *
+     * @return the list of entities.
+     */
+    public Page<ClinicalCase> findAllWithEagerRelationships(Pageable pageable) {
+        return clinicalCaseRepository.findAllWithEagerRelationships(pageable);
     }
 
     /**
@@ -93,8 +123,8 @@ public class ClinicalCaseService {
      * @return the entity.
      */
     public Optional<ClinicalCase> findOne(String id) {
-        LOG.debug("Request to get ClinicalCase : {}", id);
-        return clinicalCaseRepository.findById(id);
+        log.debug("Request to get ClinicalCase : {}", id);
+        return clinicalCaseRepository.findOneWithEagerRelationships(id);
     }
 
     /**
@@ -103,13 +133,7 @@ public class ClinicalCaseService {
      * @param id the id of the entity.
      */
     public void delete(String id) {
-        LOG.debug("Request to delete ClinicalCase : {}", id);
+        log.debug("Request to delete ClinicalCase : {}", id);
         clinicalCaseRepository.deleteById(id);
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }

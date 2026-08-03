@@ -53,12 +53,12 @@ Statements below are split between **current** (true of the code today) and **ta
 
 ## Technology Stack
 
-- Java: compiled for 21 (`java.version` in `pom.xml`); Maven Enforcer allows JDK `[17,27)`, i.e. 17–26. Maven ≥ 3.2.5.
-- Spring Boot 3.4.5 with JHipster BOM (`jhipster-dependencies`) 8.11.0 — **Spring MVC, not reactive/WebFlux**.
+- Java: compiled for 25 (`java.version` + `maven.compiler.release` in `pom.xml`); Maven Enforcer allows JDK `[17,26)`, i.e. 17–25. Maven ≥ 3.2.5.
+- Spring Boot 4.0.6 / Spring Cloud 2025.1.1 with `jhipster-framework` 9.0.0 — **Spring MVC, not reactive/WebFlux**. Boot 4 means Jackson 3 (`tools.jackson.*`), Spring Security 7, and `spring.mongodb.*` rather than `spring.data.mongodb.*`.
 - Spring Web, Spring Data MongoDB, Spring Security (JWT resource server), Spring Cloud Stream Kafka binder.
 - Spring Cloud Consul for discovery and centralized config; Resilience4j for circuit breaking; MapStruct available (1.6.3) though no mappers exist yet.
 - Backend-only (`skipClient: true`) — no Angular code in this repo; the dashboard lives in `hc-patient-dashboard`.
-- Docker Compose for local dependencies (`mongo:7.0.4`, `bitnami/consul:1.17.0`, `confluentinc/cp-kafka:7.6.0`); images built with Jib on `eclipse-temurin:26-jre`.
+- Docker Compose for local dependencies (`mongo:7.0.4`, `bitnami/consul:1.17.0`, `confluentinc/cp-kafka:7.6.0`); images built with Jib on `eclipse-temurin:25-jre`.
 - JUnit 5, Mockito, ArchUnit 1.4.2, Testcontainers (embedded MongoDB + Kafka).
 - SLF4J + Logback.
 - Maven for build/dependencies; npm only for dev tooling (Prettier, Husky, docker/script shortcuts).

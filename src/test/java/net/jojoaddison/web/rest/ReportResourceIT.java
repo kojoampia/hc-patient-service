@@ -1,24 +1,21 @@
 package net.jojoaddison.web.rest;
 
-import static net.jojoaddison.domain.ReportAsserts.*;
-import static net.jojoaddison.web.rest.TestUtil.createUpdateProxyForBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,6 +34,9 @@ class ReportResourceIT {
     private static final String DEFAULT_DESCRIPTION = "AAAAAAAAAA";
     private static final String UPDATED_DESCRIPTION = "BBBBBBBBBB";
 
+    private static final String DEFAULT_SUMMARY = "AAAAAAAAAA";
+    private static final String UPDATED_SUMMARY = "BBBBBBBBBB";
+
     private static final String DEFAULT_NAME = "AAAAAAAAAA";
     private static final String UPDATED_NAME = "BBBBBBBBBB";
 
@@ -45,6 +45,15 @@ class ReportResourceIT {
 
     private static final String DEFAULT_PATIENT_ID = "AAAAAAAAAA";
     private static final String UPDATED_PATIENT_ID = "BBBBBBBBBB";
+
+    private static final String DEFAULT_CASE_ID = "AAAAAAAAAA";
+    private static final String UPDATED_CASE_ID = "BBBBBBBBBB";
+
+    private static final String DEFAULT_AUTHOR_ID = "AAAAAAAAAA";
+    private static final String UPDATED_AUTHOR_ID = "BBBBBBBBBB";
+
+    private static final LocalDate DEFAULT_REPORT_DATE = LocalDate.ofEpochDay(0L);
+    private static final LocalDate UPDATED_REPORT_DATE = LocalDate.now(ZoneId.systemDefault());
 
     private static final LocalDate DEFAULT_CREATED_DATE = LocalDate.ofEpochDay(0L);
     private static final LocalDate UPDATED_CREATED_DATE = LocalDate.now(ZoneId.systemDefault());
@@ -62,17 +71,12 @@ class ReportResourceIT {
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
 
     @Autowired
-    private ObjectMapper om;
-
-    @Autowired
     private ReportRepository reportRepository;
 
     @Autowired
     private MockMvc restReportMockMvc;
 
     private Report report;
-
-    private Report insertedReport;
 
     /**
      * Create an entity for this test.
@@ -81,16 +85,21 @@ class ReportResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Report createEntity() {
-        return new Report()
+        Report report = new Report()
             .category(DEFAULT_CATEGORY)
             .description(DEFAULT_DESCRIPTION)
+            .summary(DEFAULT_SUMMARY)
             .name(DEFAULT_NAME)
             .url(DEFAULT_URL)
             .patientId(DEFAULT_PATIENT_ID)
+            .caseId(DEFAULT_CASE_ID)
+            .authorId(DEFAULT_AUTHOR_ID)
+            .reportDate(DEFAULT_REPORT_DATE)
             .createdDate(DEFAULT_CREATED_DATE)
             .modifiedDate(DEFAULT_MODIFIED_DATE)
             .createdBy(DEFAULT_CREATED_BY)
             .modifiedBy(DEFAULT_MODIFIED_BY);
+        return report;
     }
 
     /**
@@ -100,50 +109,54 @@ class ReportResourceIT {
      * if they test an entity which requires the current entity.
      */
     public static Report createUpdatedEntity() {
-        return new Report()
+        Report report = new Report()
             .category(UPDATED_CATEGORY)
             .description(UPDATED_DESCRIPTION)
+            .summary(UPDATED_SUMMARY)
             .name(UPDATED_NAME)
             .url(UPDATED_URL)
             .patientId(UPDATED_PATIENT_ID)
+            .caseId(UPDATED_CASE_ID)
+            .authorId(UPDATED_AUTHOR_ID)
+            .reportDate(UPDATED_REPORT_DATE)
             .createdDate(UPDATED_CREATED_DATE)
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
             .modifiedBy(UPDATED_MODIFIED_BY);
+        return report;
     }
 
     @BeforeEach
-    void initTest() {
+    public void initTest() {
+        reportRepository.deleteAll();
         report = createEntity();
-    }
-
-    @AfterEach
-    void cleanup() {
-        if (insertedReport != null) {
-            reportRepository.delete(insertedReport);
-            insertedReport = null;
-        }
     }
 
     @Test
     void createReport() throws Exception {
-        long databaseSizeBeforeCreate = getRepositoryCount();
+        int databaseSizeBeforeCreate = reportRepository.findAll().size();
         // Create the Report
-        var returnedReport = om.readValue(
-            restReportMockMvc
-                .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(report)))
-                .andExpect(status().isCreated())
-                .andReturn()
-                .getResponse()
-                .getContentAsString(),
-            Report.class
-        );
+        restReportMockMvc
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(report)))
+            .andExpect(status().isCreated());
 
         // Validate the Report in the database
-        assertIncrementedRepositoryCount(databaseSizeBeforeCreate);
-        assertReportUpdatableFieldsEquals(returnedReport, getPersistedReport(returnedReport));
-
-        insertedReport = returnedReport;
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeCreate + 1);
+        Report testReport = reportList.get(reportList.size() - 1);
+        assertThat(testReport.getCategory()).isEqualTo(DEFAULT_CATEGORY);
+        assertThat(testReport.getDescription()).isEqualTo(DEFAULT_DESCRIPTION);
+        assertThat(testReport.getSummary()).isEqualTo(DEFAULT_SUMMARY);
+        assertThat(testReport.getName()).isEqualTo(DEFAULT_NAME);
+        assertThat(testReport.getUrl()).isEqualTo(DEFAULT_URL);
+        assertThat(testReport.getPatientId()).isEqualTo(DEFAULT_PATIENT_ID);
+        assertThat(testReport.getCaseId()).isEqualTo(DEFAULT_CASE_ID);
+        assertThat(testReport.getAuthorId()).isEqualTo(DEFAULT_AUTHOR_ID);
+        assertThat(testReport.getReportDate()).isEqualTo(DEFAULT_REPORT_DATE);
+        assertThat(testReport.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
+        assertThat(testReport.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testReport.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
+        assertThat(testReport.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
     }
 
     @Test
@@ -151,21 +164,22 @@ class ReportResourceIT {
         // Create the Report with an existing ID
         report.setId("existing_id");
 
-        long databaseSizeBeforeCreate = getRepositoryCount();
+        int databaseSizeBeforeCreate = reportRepository.findAll().size();
 
         // An entity with an existing ID cannot be created, so this API call must fail
         restReportMockMvc
-            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(report)))
+            .perform(post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(report)))
             .andExpect(status().isBadRequest());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeCreate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeCreate);
     }
 
     @Test
     void getAllReports() throws Exception {
         // Initialize the database
-        insertedReport = reportRepository.save(report);
+        reportRepository.save(report);
 
         // Get all the reportList
         restReportMockMvc
@@ -175,9 +189,13 @@ class ReportResourceIT {
             .andExpect(jsonPath("$.[*].id").value(hasItem(report.getId())))
             .andExpect(jsonPath("$.[*].category").value(hasItem(DEFAULT_CATEGORY)))
             .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
+            .andExpect(jsonPath("$.[*].summary").value(hasItem(DEFAULT_SUMMARY)))
             .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
             .andExpect(jsonPath("$.[*].url").value(hasItem(DEFAULT_URL)))
             .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
+            .andExpect(jsonPath("$.[*].caseId").value(hasItem(DEFAULT_CASE_ID)))
+            .andExpect(jsonPath("$.[*].authorId").value(hasItem(DEFAULT_AUTHOR_ID)))
+            .andExpect(jsonPath("$.[*].reportDate").value(hasItem(DEFAULT_REPORT_DATE.toString())))
             .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
             .andExpect(jsonPath("$.[*].modifiedDate").value(hasItem(DEFAULT_MODIFIED_DATE.toString())))
             .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)))
@@ -185,9 +203,29 @@ class ReportResourceIT {
     }
 
     @Test
+    void getAllReportsByPatientId() throws Exception {
+        // Initialize the database
+        reportRepository.save(report);
+
+        // The patient's own records come back
+        restReportMockMvc
+            .perform(get(ENTITY_API_URL + "?patientId=" + DEFAULT_PATIENT_ID + "&sort=id,desc"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
+            .andExpect(jsonPath("$.[*].id").value(hasItem(report.getId())));
+
+        // Another patient's id returns nothing rather than everything
+        restReportMockMvc
+            .perform(get(ENTITY_API_URL + "?patientId=" + UPDATED_PATIENT_ID + "&sort=id,desc"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON_VALUE))
+            .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
     void getReport() throws Exception {
         // Initialize the database
-        insertedReport = reportRepository.save(report);
+        reportRepository.save(report);
 
         // Get the report
         restReportMockMvc
@@ -197,9 +235,13 @@ class ReportResourceIT {
             .andExpect(jsonPath("$.id").value(report.getId()))
             .andExpect(jsonPath("$.category").value(DEFAULT_CATEGORY))
             .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
+            .andExpect(jsonPath("$.summary").value(DEFAULT_SUMMARY))
             .andExpect(jsonPath("$.name").value(DEFAULT_NAME))
             .andExpect(jsonPath("$.url").value(DEFAULT_URL))
             .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID))
+            .andExpect(jsonPath("$.caseId").value(DEFAULT_CASE_ID))
+            .andExpect(jsonPath("$.authorId").value(DEFAULT_AUTHOR_ID))
+            .andExpect(jsonPath("$.reportDate").value(DEFAULT_REPORT_DATE.toString()))
             .andExpect(jsonPath("$.createdDate").value(DEFAULT_CREATED_DATE.toString()))
             .andExpect(jsonPath("$.modifiedDate").value(DEFAULT_MODIFIED_DATE.toString()))
             .andExpect(jsonPath("$.createdBy").value(DEFAULT_CREATED_BY))
@@ -215,18 +257,22 @@ class ReportResourceIT {
     @Test
     void putExistingReport() throws Exception {
         // Initialize the database
-        insertedReport = reportRepository.save(report);
+        reportRepository.save(report);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
 
         // Update the report
         Report updatedReport = reportRepository.findById(report.getId()).orElseThrow();
         updatedReport
             .category(UPDATED_CATEGORY)
             .description(UPDATED_DESCRIPTION)
+            .summary(UPDATED_SUMMARY)
             .name(UPDATED_NAME)
             .url(UPDATED_URL)
             .patientId(UPDATED_PATIENT_ID)
+            .caseId(UPDATED_CASE_ID)
+            .authorId(UPDATED_AUTHOR_ID)
+            .reportDate(UPDATED_REPORT_DATE)
             .createdDate(UPDATED_CREATED_DATE)
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
@@ -236,32 +282,51 @@ class ReportResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, updatedReport.getId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(updatedReport))
+                    .content(TestUtil.convertObjectToJsonBytes(updatedReport))
             )
             .andExpect(status().isOk());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertPersistedReportToMatchAllProperties(updatedReport);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
+        Report testReport = reportList.get(reportList.size() - 1);
+        assertThat(testReport.getCategory()).isEqualTo(UPDATED_CATEGORY);
+        assertThat(testReport.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
+        assertThat(testReport.getSummary()).isEqualTo(UPDATED_SUMMARY);
+        assertThat(testReport.getName()).isEqualTo(UPDATED_NAME);
+        assertThat(testReport.getUrl()).isEqualTo(UPDATED_URL);
+        assertThat(testReport.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
+        assertThat(testReport.getCaseId()).isEqualTo(UPDATED_CASE_ID);
+        assertThat(testReport.getAuthorId()).isEqualTo(UPDATED_AUTHOR_ID);
+        assertThat(testReport.getReportDate()).isEqualTo(UPDATED_REPORT_DATE);
+        assertThat(testReport.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
+        assertThat(testReport.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
+        assertThat(testReport.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testReport.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
     }
 
     @Test
     void putNonExistingReport() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
         report.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restReportMockMvc
-            .perform(put(ENTITY_API_URL_ID, report.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(report)))
+            .perform(
+                put(ENTITY_API_URL_ID, report.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TestUtil.convertObjectToJsonBytes(report))
+            )
             .andExpect(status().isBadRequest());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithIdMismatchReport() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
         report.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -269,67 +334,81 @@ class ReportResourceIT {
             .perform(
                 put(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsBytes(report))
+                    .content(TestUtil.convertObjectToJsonBytes(report))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void putWithMissingIdPathParamReport() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
         report.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restReportMockMvc
-            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(report)))
+            .perform(put(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(report)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void partialUpdateReportWithPatch() throws Exception {
         // Initialize the database
-        insertedReport = reportRepository.save(report);
+        reportRepository.save(report);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
 
         // Update the report using partial update
         Report partialUpdatedReport = new Report();
         partialUpdatedReport.setId(report.getId());
 
         partialUpdatedReport
-            .category(UPDATED_CATEGORY)
             .description(UPDATED_DESCRIPTION)
-            .name(UPDATED_NAME)
+            .summary(UPDATED_SUMMARY)
             .url(UPDATED_URL)
-            .createdDate(UPDATED_CREATED_DATE)
-            .modifiedBy(UPDATED_MODIFIED_BY);
+            .patientId(UPDATED_PATIENT_ID)
+            .createdBy(UPDATED_CREATED_BY);
 
         restReportMockMvc
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedReport.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedReport))
+                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedReport))
             )
             .andExpect(status().isOk());
 
         // Validate the Report in the database
-
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertReportUpdatableFieldsEquals(createUpdateProxyForBean(partialUpdatedReport, report), getPersistedReport(report));
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
+        Report testReport = reportList.get(reportList.size() - 1);
+        assertThat(testReport.getCategory()).isEqualTo(DEFAULT_CATEGORY);
+        assertThat(testReport.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
+        assertThat(testReport.getSummary()).isEqualTo(UPDATED_SUMMARY);
+        assertThat(testReport.getName()).isEqualTo(DEFAULT_NAME);
+        assertThat(testReport.getUrl()).isEqualTo(UPDATED_URL);
+        assertThat(testReport.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
+        assertThat(testReport.getCaseId()).isEqualTo(DEFAULT_CASE_ID);
+        assertThat(testReport.getAuthorId()).isEqualTo(DEFAULT_AUTHOR_ID);
+        assertThat(testReport.getReportDate()).isEqualTo(DEFAULT_REPORT_DATE);
+        assertThat(testReport.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
+        assertThat(testReport.getModifiedDate()).isEqualTo(DEFAULT_MODIFIED_DATE);
+        assertThat(testReport.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testReport.getModifiedBy()).isEqualTo(DEFAULT_MODIFIED_BY);
     }
 
     @Test
     void fullUpdateReportWithPatch() throws Exception {
         // Initialize the database
-        insertedReport = reportRepository.save(report);
+        reportRepository.save(report);
 
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
 
         // Update the report using partial update
         Report partialUpdatedReport = new Report();
@@ -338,9 +417,13 @@ class ReportResourceIT {
         partialUpdatedReport
             .category(UPDATED_CATEGORY)
             .description(UPDATED_DESCRIPTION)
+            .summary(UPDATED_SUMMARY)
             .name(UPDATED_NAME)
             .url(UPDATED_URL)
             .patientId(UPDATED_PATIENT_ID)
+            .caseId(UPDATED_CASE_ID)
+            .authorId(UPDATED_AUTHOR_ID)
+            .reportDate(UPDATED_REPORT_DATE)
             .createdDate(UPDATED_CREATED_DATE)
             .modifiedDate(UPDATED_MODIFIED_DATE)
             .createdBy(UPDATED_CREATED_BY)
@@ -350,35 +433,51 @@ class ReportResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, partialUpdatedReport.getId())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(partialUpdatedReport))
+                    .content(TestUtil.convertObjectToJsonBytes(partialUpdatedReport))
             )
             .andExpect(status().isOk());
 
         // Validate the Report in the database
-
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
-        assertReportUpdatableFieldsEquals(partialUpdatedReport, getPersistedReport(partialUpdatedReport));
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
+        Report testReport = reportList.get(reportList.size() - 1);
+        assertThat(testReport.getCategory()).isEqualTo(UPDATED_CATEGORY);
+        assertThat(testReport.getDescription()).isEqualTo(UPDATED_DESCRIPTION);
+        assertThat(testReport.getSummary()).isEqualTo(UPDATED_SUMMARY);
+        assertThat(testReport.getName()).isEqualTo(UPDATED_NAME);
+        assertThat(testReport.getUrl()).isEqualTo(UPDATED_URL);
+        assertThat(testReport.getPatientId()).isEqualTo(UPDATED_PATIENT_ID);
+        assertThat(testReport.getCaseId()).isEqualTo(UPDATED_CASE_ID);
+        assertThat(testReport.getAuthorId()).isEqualTo(UPDATED_AUTHOR_ID);
+        assertThat(testReport.getReportDate()).isEqualTo(UPDATED_REPORT_DATE);
+        assertThat(testReport.getCreatedDate()).isEqualTo(UPDATED_CREATED_DATE);
+        assertThat(testReport.getModifiedDate()).isEqualTo(UPDATED_MODIFIED_DATE);
+        assertThat(testReport.getCreatedBy()).isEqualTo(UPDATED_CREATED_BY);
+        assertThat(testReport.getModifiedBy()).isEqualTo(UPDATED_MODIFIED_BY);
     }
 
     @Test
     void patchNonExistingReport() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
         report.setId(UUID.randomUUID().toString());
 
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restReportMockMvc
             .perform(
-                patch(ENTITY_API_URL_ID, report.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(report))
+                patch(ENTITY_API_URL_ID, report.getId())
+                    .contentType("application/merge-patch+json")
+                    .content(TestUtil.convertObjectToJsonBytes(report))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithIdMismatchReport() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
         report.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
@@ -386,34 +485,36 @@ class ReportResourceIT {
             .perform(
                 patch(ENTITY_API_URL_ID, UUID.randomUUID().toString())
                     .contentType("application/merge-patch+json")
-                    .content(om.writeValueAsBytes(report))
+                    .content(TestUtil.convertObjectToJsonBytes(report))
             )
             .andExpect(status().isBadRequest());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void patchWithMissingIdPathParamReport() throws Exception {
-        long databaseSizeBeforeUpdate = getRepositoryCount();
+        int databaseSizeBeforeUpdate = reportRepository.findAll().size();
         report.setId(UUID.randomUUID().toString());
 
         // If url ID doesn't match entity ID, it will throw BadRequestAlertException
         restReportMockMvc
-            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(om.writeValueAsBytes(report)))
+            .perform(patch(ENTITY_API_URL).contentType("application/merge-patch+json").content(TestUtil.convertObjectToJsonBytes(report)))
             .andExpect(status().isMethodNotAllowed());
 
         // Validate the Report in the database
-        assertSameRepositoryCount(databaseSizeBeforeUpdate);
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeUpdate);
     }
 
     @Test
     void deleteReport() throws Exception {
         // Initialize the database
-        insertedReport = reportRepository.save(report);
+        reportRepository.save(report);
 
-        long databaseSizeBeforeDelete = getRepositoryCount();
+        int databaseSizeBeforeDelete = reportRepository.findAll().size();
 
         // Delete the report
         restReportMockMvc
@@ -421,34 +522,7 @@ class ReportResourceIT {
             .andExpect(status().isNoContent());
 
         // Validate the database contains one less item
-        assertDecrementedRepositoryCount(databaseSizeBeforeDelete);
-    }
-
-    protected long getRepositoryCount() {
-        return reportRepository.count();
-    }
-
-    protected void assertIncrementedRepositoryCount(long countBefore) {
-        assertThat(countBefore + 1).isEqualTo(getRepositoryCount());
-    }
-
-    protected void assertDecrementedRepositoryCount(long countBefore) {
-        assertThat(countBefore - 1).isEqualTo(getRepositoryCount());
-    }
-
-    protected void assertSameRepositoryCount(long countBefore) {
-        assertThat(countBefore).isEqualTo(getRepositoryCount());
-    }
-
-    protected Report getPersistedReport(Report report) {
-        return reportRepository.findById(report.getId()).orElseThrow();
-    }
-
-    protected void assertPersistedReportToMatchAllProperties(Report expectedReport) {
-        assertReportAllPropertiesEquals(expectedReport, getPersistedReport(expectedReport));
-    }
-
-    protected void assertPersistedReportToMatchUpdatableProperties(Report expectedReport) {
-        assertReportAllUpdatablePropertiesEquals(expectedReport, getPersistedReport(expectedReport));
+        List<Report> reportList = reportRepository.findAll();
+        assertThat(reportList).hasSize(databaseSizeBeforeDelete - 1);
     }
 }

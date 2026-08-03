@@ -5,16 +5,20 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import net.jojoaddison.domain.Task;
 import net.jojoaddison.repository.TaskRepository;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
+import tech.jhipster.web.util.PaginationUtil;
 import tech.jhipster.web.util.ResponseUtil;
 
 /**
@@ -24,11 +28,11 @@ import tech.jhipster.web.util.ResponseUtil;
 @RequestMapping("/api/tasks")
 public class TaskResource {
 
-    private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
+    private final Logger log = LoggerFactory.getLogger(TaskResource.class);
 
     private static final String ENTITY_NAME = "patientMsTask";
 
-    @Value("${jhipster.clientApp.name:hcPatientService}")
+    @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
     private final TaskRepository taskRepository;
@@ -46,15 +50,15 @@ public class TaskResource {
      */
     @PostMapping("")
     public ResponseEntity<Task> createTask(@RequestBody Task task) throws URISyntaxException {
-        LOG.debug("REST request to save Task : {}", task);
+        log.debug("REST request to save Task : {}", task);
         if (task.getId() != null) {
             throw new BadRequestAlertException("A new task cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        task = taskRepository.save(task);
+        Task result = taskRepository.save(task);
         return ResponseEntity
-            .created(new URI("/api/tasks/" + task.getId()))
-            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, task.getId()))
-            .body(task);
+            .created(new URI("/api/tasks/" + result.getId()))
+            .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
+            .body(result);
     }
 
     /**
@@ -70,7 +74,7 @@ public class TaskResource {
     @PutMapping("/{id}")
     public ResponseEntity<Task> updateTask(@PathVariable(value = "id", required = false) final String id, @RequestBody Task task)
         throws URISyntaxException {
-        LOG.debug("REST request to update Task : {}, {}", id, task);
+        log.debug("REST request to update Task : {}, {}", id, task);
         if (task.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -82,11 +86,11 @@ public class TaskResource {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
         }
 
-        task = taskRepository.save(task);
+        Task result = taskRepository.save(task);
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, task.getId()))
-            .body(task);
+            .body(result);
     }
 
     /**
@@ -103,7 +107,7 @@ public class TaskResource {
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
     public ResponseEntity<Task> partialUpdateTask(@PathVariable(value = "id", required = false) final String id, @RequestBody Task task)
         throws URISyntaxException {
-        LOG.debug("REST request to partial update Task partially : {}, {}", id, task);
+        log.debug("REST request to partial update Task partially : {}, {}", id, task);
         if (task.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -118,18 +122,54 @@ public class TaskResource {
         Optional<Task> result = taskRepository
             .findById(task.getId())
             .map(existingTask -> {
-                updateIfPresent(existingTask::setName, task.getName());
-                updateIfPresent(existingTask::setDescription, task.getDescription());
-                updateIfPresent(existingTask::setSchedule, task.getSchedule());
-                updateIfPresent(existingTask::setDuration, task.getDuration());
-                updateIfPresent(existingTask::setAttendantId, task.getAttendantId());
-                updateIfPresent(existingTask::setTeamId, task.getTeamId());
-                updateIfPresent(existingTask::setPatientId, task.getPatientId());
-                updateIfPresent(existingTask::setAttendant, task.getAttendant());
-                updateIfPresent(existingTask::setCreatedDate, task.getCreatedDate());
-                updateIfPresent(existingTask::setModifiedDate, task.getModifiedDate());
-                updateIfPresent(existingTask::setCreatedBy, task.getCreatedBy());
-                updateIfPresent(existingTask::setModifiedBy, task.getModifiedBy());
+                if (task.getName() != null) {
+                    existingTask.setName(task.getName());
+                }
+                if (task.getDescription() != null) {
+                    existingTask.setDescription(task.getDescription());
+                }
+                if (task.getSchedule() != null) {
+                    existingTask.setSchedule(task.getSchedule());
+                }
+                if (task.getScheduledAt() != null) {
+                    existingTask.setScheduledAt(task.getScheduledAt());
+                }
+                if (task.getDuration() != null) {
+                    existingTask.setDuration(task.getDuration());
+                }
+                if (task.getStatus() != null) {
+                    existingTask.setStatus(task.getStatus());
+                }
+                if (task.getLocation() != null) {
+                    existingTask.setLocation(task.getLocation());
+                }
+                if (task.getCaseId() != null) {
+                    existingTask.setCaseId(task.getCaseId());
+                }
+                if (task.getAttendantId() != null) {
+                    existingTask.setAttendantId(task.getAttendantId());
+                }
+                if (task.getTeamId() != null) {
+                    existingTask.setTeamId(task.getTeamId());
+                }
+                if (task.getPatientId() != null) {
+                    existingTask.setPatientId(task.getPatientId());
+                }
+                if (task.getAttendant() != null) {
+                    existingTask.setAttendant(task.getAttendant());
+                }
+                if (task.getCreatedDate() != null) {
+                    existingTask.setCreatedDate(task.getCreatedDate());
+                }
+                if (task.getModifiedDate() != null) {
+                    existingTask.setModifiedDate(task.getModifiedDate());
+                }
+                if (task.getCreatedBy() != null) {
+                    existingTask.setCreatedBy(task.getCreatedBy());
+                }
+                if (task.getModifiedBy() != null) {
+                    existingTask.setModifiedBy(task.getModifiedBy());
+                }
 
                 return existingTask;
             })
@@ -139,14 +179,21 @@ public class TaskResource {
     }
 
     /**
-     * {@code GET  /tasks} : get all the Tasks.
+     * {@code GET  /tasks} : get all the tasks.
      *
-     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of Tasks in body.
+     * @param pageable the pagination information.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of tasks in body.
+     * @param patientId when present, restricts the result to that patient's records.
      */
     @GetMapping("")
-    public List<Task> getAllTasks() {
-        LOG.debug("REST request to get all Tasks");
-        return taskRepository.findAll();
+    public ResponseEntity<List<Task>> getAllTasks(
+        @RequestParam(required = false) String patientId,
+        @org.springdoc.core.annotations.ParameterObject Pageable pageable
+    ) {
+        log.debug("REST request to get a page of Tasks for patient {}", patientId);
+        Page<Task> page = patientId == null ? taskRepository.findAll(pageable) : taskRepository.findByPatientId(patientId, pageable);
+        HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
+        return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
 
     /**
@@ -157,7 +204,7 @@ public class TaskResource {
      */
     @GetMapping("/{id}")
     public ResponseEntity<Task> getTask(@PathVariable("id") String id) {
-        LOG.debug("REST request to get Task : {}", id);
+        log.debug("REST request to get Task : {}", id);
         Optional<Task> task = taskRepository.findById(id);
         return ResponseUtil.wrapOrNotFound(task);
     }
@@ -170,14 +217,8 @@ public class TaskResource {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTask(@PathVariable("id") String id) {
-        LOG.debug("REST request to delete Task : {}", id);
+        log.debug("REST request to delete Task : {}", id);
         taskRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
-    }
-
-    private <T> void updateIfPresent(Consumer<T> setter, T value) {
-        if (value != null) {
-            setter.accept(value);
-        }
     }
 }
