@@ -7,12 +7,15 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Professional;
 import net.jojoaddison.repository.ProfessionalRepository;
+import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.ProfessionalService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.ResponseUtil;
@@ -47,7 +50,11 @@ public class ProfessionalResource {
      * @return the {@link ResponseEntity} with status {@code 201 (Created)} and with body the new professional, or with status {@code 400 (Bad Request)} if the professional has already an ID.
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
+    // Reference data: readable by any authenticated caller, writable only by staff. Before 2026-08-05 any
+    // patient could rewrite the clinical staff directory, retitle a clinical recommendation or delete a
+    // care team outright, because the only rule anywhere was "is authenticated".
     @PostMapping("")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Professional> createProfessional(@RequestBody Professional professional) throws URISyntaxException {
         log.debug("REST request to save Professional : {}", professional);
         if (professional.getId() != null) {
@@ -71,6 +78,7 @@ public class ProfessionalResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Professional> updateProfessional(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Professional professional
@@ -106,6 +114,7 @@ public class ProfessionalResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Professional> partialUpdateProfessional(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Professional professional
@@ -138,7 +147,7 @@ public class ProfessionalResource {
     @GetMapping("")
     public List<Professional> getAllProfessionals() {
         log.debug("REST request to get all Professionals");
-        return professionalService.findAll();
+        return professionalService.findAll().stream().map(this::redactForNonStaff).toList();
     }
 
     /**
@@ -151,7 +160,7 @@ public class ProfessionalResource {
     public ResponseEntity<Professional> getProfessional(@PathVariable("id") String id) {
         log.debug("REST request to get Professional : {}", id);
         Optional<Professional> professional = professionalService.findOne(id);
-        return ResponseUtil.wrapOrNotFound(professional);
+        return ResponseUtil.wrapOrNotFound(professional.map(this::redactForNonStaff));
     }
 
     /**
@@ -161,9 +170,42 @@ public class ProfessionalResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Void> deleteProfessional(@PathVariable("id") String id) {
         log.debug("REST request to delete Professional : {}", id);
         professionalService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * Removes a clinician's direct contact details for callers who are not staff.
+     *
+     * <p>The patient dashboard's care-team panel renders name, role, initials and location — it never reads
+     * {@code email} or {@code phoneNumber}. Serving them anyway turned this endpoint into a staff directory
+     * complete with direct lines, available to anyone who registered, and registration is open to the internet.</p>
+     *
+     * <p>Redacting on the way out rather than with a projection query keeps one source of truth for the document and
+     * means a new field is visible by default and has to be considered here — the opposite failure mode to a
+     * projection that silently stops returning something.</p>
+     *
+     * <p>The instance is copied first. Mutating what the repository returned would be fine for a Mongo document
+     * today, but it is the kind of thing that becomes a cache-poisoning bug the moment anything caches.</p>
+     */
+    private Professional redactForNonStaff(Professional professional) {
+        if (SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN, AuthoritiesConstants.PROFESSIONAL)) {
+            return professional;
+        }
+        Professional redacted = new Professional();
+        redacted.setId(professional.getId());
+        redacted.setFirstName(professional.getFirstName());
+        redacted.setLastName(professional.getLastName());
+        redacted.setRole(professional.getRole());
+        redacted.setSpecialty(professional.getSpecialty());
+        redacted.setImageUrl(professional.getImageUrl());
+        redacted.setInitials(professional.getInitials());
+        redacted.setLocation(professional.getLocation());
+        redacted.setTeamId(professional.getTeamId());
+        // email and phoneNumber deliberately omitted.
+        return redacted;
     }
 }

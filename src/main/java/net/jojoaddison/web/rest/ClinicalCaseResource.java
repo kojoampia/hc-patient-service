@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.repository.ClinicalCaseRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.ClinicalCaseService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -40,9 +41,16 @@ public class ClinicalCaseResource {
 
     private final ClinicalCaseRepository clinicalCaseRepository;
 
-    public ClinicalCaseResource(ClinicalCaseService clinicalCaseService, ClinicalCaseRepository clinicalCaseRepository) {
+    private final PatientScope patientScope;
+
+    public ClinicalCaseResource(
+        ClinicalCaseService clinicalCaseService,
+        ClinicalCaseRepository clinicalCaseRepository,
+        PatientScope patientScope
+    ) {
         this.clinicalCaseService = clinicalCaseService;
         this.clinicalCaseRepository = clinicalCaseRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -58,6 +66,7 @@ public class ClinicalCaseResource {
         if (clinicalCase.getId() != null) {
             throw new BadRequestAlertException("A new clinicalCase cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        clinicalCase.setPatientId(patientScope.requirePatientIdForWrite(clinicalCase.getPatientId()));
         ClinicalCase result = clinicalCaseService.save(clinicalCase);
         return ResponseEntity
             .created(new URI("/api/clinical-cases/" + result.getId()))
@@ -88,9 +97,17 @@ public class ClinicalCaseResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!clinicalCaseRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        ClinicalCase existing = clinicalCaseRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        clinicalCase.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), clinicalCase.getPatientId()));
 
         ClinicalCase result = clinicalCaseService.update(clinicalCase);
         return ResponseEntity
@@ -123,9 +140,17 @@ public class ClinicalCaseResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!clinicalCaseRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        ClinicalCase existing = clinicalCaseRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        clinicalCase.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), clinicalCase.getPatientId()));
 
         Optional<ClinicalCase> result = clinicalCaseService.partialUpdate(clinicalCase);
 
@@ -149,16 +174,16 @@ public class ClinicalCaseResource {
         @RequestParam(name = "eagerload", required = false, defaultValue = "true") boolean eagerload
     ) {
         log.debug("REST request to get a page of ClinicalCases for patient {}", patientId);
-        Page<ClinicalCase> page;
-        if (patientId != null) {
-            // Recommendations are a DBRef, so a patient-scoped query cannot eager-load them the way
-            // findAllWithEagerRelationships does; the case list does not render them anyway.
-            page = clinicalCaseRepository.findByPatientId(patientId, pageable);
-        } else if (eagerload) {
-            page = clinicalCaseService.findAllWithEagerRelationships(pageable);
-        } else {
-            page = clinicalCaseService.findAll(pageable);
-        }
+        // The unscoped branch reaches the eager-loading query, so it is passed as the "findAll" arm and only an
+        // unrestricted caller can ever get there. A patient always lands on findByPatientId — Recommendations are a
+        // DBRef and a patient-scoped query cannot eager-load them the way findAllWithEagerRelationships does; the
+        // case list does not render them anyway.
+        Page<ClinicalCase> page = patientScope.findScopedPage(
+            patientId,
+            pageable,
+            requested -> eagerload ? clinicalCaseService.findAllWithEagerRelationships(requested) : clinicalCaseService.findAll(requested),
+            clinicalCaseRepository::findByPatientId
+        );
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -172,7 +197,9 @@ public class ClinicalCaseResource {
     @GetMapping("/{id}")
     public ResponseEntity<ClinicalCase> getClinicalCase(@PathVariable("id") String id) {
         log.debug("REST request to get ClinicalCase : {}", id);
-        Optional<ClinicalCase> clinicalCase = clinicalCaseService.findOne(id);
+        Optional<ClinicalCase> clinicalCase = clinicalCaseService
+            .findOne(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(clinicalCase);
     }
 
@@ -185,6 +212,9 @@ public class ClinicalCaseResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteClinicalCase(@PathVariable("id") String id) {
         log.debug("REST request to delete ClinicalCase : {}", id);
+        if (clinicalCaseRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         clinicalCaseService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

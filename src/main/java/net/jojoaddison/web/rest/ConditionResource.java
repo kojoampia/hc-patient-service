@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Condition;
 import net.jojoaddison.repository.ConditionRepository;
+import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +34,11 @@ public class ConditionResource {
 
     private final ConditionRepository conditionRepository;
 
-    public ConditionResource(ConditionRepository conditionRepository) {
+    private final PatientScope patientScope;
+
+    public ConditionResource(ConditionRepository conditionRepository, PatientScope patientScope) {
         this.conditionRepository = conditionRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -49,6 +54,13 @@ public class ConditionResource {
         if (condition.getId() != null) {
             throw new BadRequestAlertException("A new condition cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        condition.setPatientId(patientScope.requirePatientIdForWrite(condition.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        condition.setCreatedBy(AuditStamp.currentUser());
+        condition.setCreatedDate(AuditStamp.today());
+        condition.setModifiedBy(AuditStamp.currentUser());
+        condition.setModifiedDate(AuditStamp.today());
         Condition result = conditionRepository.save(condition);
         return ResponseEntity
             .created(new URI("/api/conditions/" + result.getId()))
@@ -79,9 +91,22 @@ public class ConditionResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!conditionRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Condition existing = conditionRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        condition.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), condition.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        condition.setCreatedBy(existing.getCreatedBy());
+        condition.setCreatedDate(existing.getCreatedDate());
+        condition.setModifiedBy(AuditStamp.currentUser());
+        condition.setModifiedDate(AuditStamp.today());
 
         Condition result = conditionRepository.save(condition);
         return ResponseEntity
@@ -114,9 +139,22 @@ public class ConditionResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!conditionRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Condition existing = conditionRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        condition.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), condition.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        condition.setCreatedBy(existing.getCreatedBy());
+        condition.setCreatedDate(existing.getCreatedDate());
+        condition.setModifiedBy(AuditStamp.currentUser());
+        condition.setModifiedDate(AuditStamp.today());
 
         Optional<Condition> result = conditionRepository
             .findById(condition.getId())
@@ -162,7 +200,7 @@ public class ConditionResource {
     @GetMapping("")
     public List<Condition> getAllConditions(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Conditions for patient {}", patientId);
-        return patientId == null ? conditionRepository.findAll() : conditionRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, conditionRepository::findAll, conditionRepository::findByPatientId);
     }
 
     /**
@@ -174,7 +212,7 @@ public class ConditionResource {
     @GetMapping("/{id}")
     public ResponseEntity<Condition> getCondition(@PathVariable("id") String id) {
         log.debug("REST request to get Condition : {}", id);
-        Optional<Condition> condition = conditionRepository.findById(id);
+        Optional<Condition> condition = conditionRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(condition);
     }
 
@@ -187,6 +225,9 @@ public class ConditionResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCondition(@PathVariable("id") String id) {
         log.debug("REST request to delete Condition : {}", id);
+        if (conditionRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         conditionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

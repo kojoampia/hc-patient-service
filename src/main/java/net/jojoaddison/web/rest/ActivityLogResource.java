@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.ActivityLog;
 import net.jojoaddison.repository.ActivityLogRepository;
+import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.ActivityLogService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -40,9 +42,16 @@ public class ActivityLogResource {
 
     private final ActivityLogRepository activityLogRepository;
 
-    public ActivityLogResource(ActivityLogService activityLogService, ActivityLogRepository activityLogRepository) {
+    private final PatientScope patientScope;
+
+    public ActivityLogResource(
+        ActivityLogService activityLogService,
+        ActivityLogRepository activityLogRepository,
+        PatientScope patientScope
+    ) {
         this.activityLogService = activityLogService;
         this.activityLogRepository = activityLogRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -58,6 +67,11 @@ public class ActivityLogResource {
         if (activityLog.getId() != null) {
             throw new BadRequestAlertException("A new activityLog cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        activityLog.setPatientId(patientScope.requirePatientIdForWrite(activityLog.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        activityLog.setCreatedBy(AuditStamp.currentUser());
+        activityLog.setCreatedDate(AuditStamp.today());
         ActivityLog result = activityLogService.save(activityLog);
         return ResponseEntity
             .created(new URI("/api/activity-logs/" + result.getId()))
@@ -88,9 +102,20 @@ public class ActivityLogResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!activityLogRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        ActivityLog existing = activityLogRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        activityLog.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), activityLog.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        activityLog.setCreatedBy(existing.getCreatedBy());
+        activityLog.setCreatedDate(existing.getCreatedDate());
 
         ActivityLog result = activityLogService.update(activityLog);
         return ResponseEntity
@@ -123,9 +148,20 @@ public class ActivityLogResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!activityLogRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        ActivityLog existing = activityLogRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        activityLog.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), activityLog.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        activityLog.setCreatedBy(existing.getCreatedBy());
+        activityLog.setCreatedDate(existing.getCreatedDate());
 
         Optional<ActivityLog> result = activityLogService.partialUpdate(activityLog);
 
@@ -148,9 +184,12 @@ public class ActivityLogResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of ActivityLogs for patient {}", patientId);
-        Page<ActivityLog> page = patientId == null
-            ? activityLogRepository.findAll(pageable)
-            : activityLogRepository.findByPatientId(patientId, pageable);
+        Page<ActivityLog> page = patientScope.findScopedPage(
+            patientId,
+            pageable,
+            activityLogRepository::findAll,
+            activityLogRepository::findByPatientId
+        );
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -164,7 +203,9 @@ public class ActivityLogResource {
     @GetMapping("/{id}")
     public ResponseEntity<ActivityLog> getActivityLog(@PathVariable("id") String id) {
         log.debug("REST request to get ActivityLog : {}", id);
-        Optional<ActivityLog> activityLog = activityLogService.findOne(id);
+        Optional<ActivityLog> activityLog = activityLogService
+            .findOne(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(activityLog);
     }
 
@@ -177,6 +218,9 @@ public class ActivityLogResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteActivityLog(@PathVariable("id") String id) {
         log.debug("REST request to delete ActivityLog : {}", id);
+        if (activityLogRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         activityLogService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

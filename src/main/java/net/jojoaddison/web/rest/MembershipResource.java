@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.repository.MembershipRepository;
+import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +34,11 @@ public class MembershipResource {
 
     private final MembershipRepository membershipRepository;
 
-    public MembershipResource(MembershipRepository membershipRepository) {
+    private final PatientScope patientScope;
+
+    public MembershipResource(MembershipRepository membershipRepository, PatientScope patientScope) {
         this.membershipRepository = membershipRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -49,6 +54,13 @@ public class MembershipResource {
         if (membership.getId() != null) {
             throw new BadRequestAlertException("A new membership cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        membership.setPatientId(patientScope.requirePatientIdForWrite(membership.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        membership.setCreatedBy(AuditStamp.currentUser());
+        membership.setCreatedDate(AuditStamp.today());
+        membership.setModifiedBy(AuditStamp.currentUser());
+        membership.setModifiedDate(AuditStamp.today());
         Membership result = membershipRepository.save(membership);
         return ResponseEntity
             .created(new URI("/api/memberships/" + result.getId()))
@@ -79,9 +91,22 @@ public class MembershipResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!membershipRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Membership existing = membershipRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        membership.setCreatedBy(existing.getCreatedBy());
+        membership.setCreatedDate(existing.getCreatedDate());
+        membership.setModifiedBy(AuditStamp.currentUser());
+        membership.setModifiedDate(AuditStamp.today());
 
         Membership result = membershipRepository.save(membership);
         return ResponseEntity
@@ -114,9 +139,22 @@ public class MembershipResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!membershipRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Membership existing = membershipRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        membership.setCreatedBy(existing.getCreatedBy());
+        membership.setCreatedDate(existing.getCreatedDate());
+        membership.setModifiedBy(AuditStamp.currentUser());
+        membership.setModifiedDate(AuditStamp.today());
 
         Optional<Membership> result = membershipRepository
             .findById(membership.getId())
@@ -177,7 +215,7 @@ public class MembershipResource {
     @GetMapping("")
     public List<Membership> getAllMemberships(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Memberships for patient {}", patientId);
-        return patientId == null ? membershipRepository.findAll() : membershipRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, membershipRepository::findAll, membershipRepository::findByPatientId);
     }
 
     /**
@@ -189,7 +227,9 @@ public class MembershipResource {
     @GetMapping("/{id}")
     public ResponseEntity<Membership> getMembership(@PathVariable("id") String id) {
         log.debug("REST request to get Membership : {}", id);
-        Optional<Membership> membership = membershipRepository.findById(id);
+        Optional<Membership> membership = membershipRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(membership);
     }
 
@@ -202,6 +242,9 @@ public class MembershipResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMembership(@PathVariable("id") String id) {
         log.debug("REST request to delete Membership : {}", id);
+        if (membershipRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         membershipRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

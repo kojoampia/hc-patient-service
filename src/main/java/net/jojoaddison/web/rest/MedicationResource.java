@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.repository.MedicationRepository;
+import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,8 +39,11 @@ public class MedicationResource {
 
     private final MedicationRepository medicationRepository;
 
-    public MedicationResource(MedicationRepository medicationRepository) {
+    private final PatientScope patientScope;
+
+    public MedicationResource(MedicationRepository medicationRepository, PatientScope patientScope) {
         this.medicationRepository = medicationRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -54,6 +59,13 @@ public class MedicationResource {
         if (medication.getId() != null) {
             throw new BadRequestAlertException("A new medication cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        medication.setPatientId(patientScope.requirePatientIdForWrite(medication.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        medication.setCreatedBy(AuditStamp.currentUser());
+        medication.setCreatedDate(AuditStamp.today());
+        medication.setModifiedBy(AuditStamp.currentUser());
+        medication.setModifiedDate(AuditStamp.today());
         Medication result = medicationRepository.save(medication);
         return ResponseEntity
             .created(new URI("/api/medications/" + result.getId()))
@@ -84,9 +96,22 @@ public class MedicationResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!medicationRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Medication existing = medicationRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        medication.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), medication.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        medication.setCreatedBy(existing.getCreatedBy());
+        medication.setCreatedDate(existing.getCreatedDate());
+        medication.setModifiedBy(AuditStamp.currentUser());
+        medication.setModifiedDate(AuditStamp.today());
 
         Medication result = medicationRepository.save(medication);
         return ResponseEntity
@@ -119,9 +144,22 @@ public class MedicationResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!medicationRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Medication existing = medicationRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        medication.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), medication.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        medication.setCreatedBy(existing.getCreatedBy());
+        medication.setCreatedDate(existing.getCreatedDate());
+        medication.setModifiedBy(AuditStamp.currentUser());
+        medication.setModifiedDate(AuditStamp.today());
 
         Optional<Medication> result = medicationRepository
             .findById(medication.getId())
@@ -189,9 +227,12 @@ public class MedicationResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Medications for patient {}", patientId);
-        Page<Medication> page = patientId == null
-            ? medicationRepository.findAll(pageable)
-            : medicationRepository.findByPatientId(patientId, pageable);
+        Page<Medication> page = patientScope.findScopedPage(
+            patientId,
+            pageable,
+            medicationRepository::findAll,
+            medicationRepository::findByPatientId
+        );
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -205,7 +246,9 @@ public class MedicationResource {
     @GetMapping("/{id}")
     public ResponseEntity<Medication> getMedication(@PathVariable("id") String id) {
         log.debug("REST request to get Medication : {}", id);
-        Optional<Medication> medication = medicationRepository.findById(id);
+        Optional<Medication> medication = medicationRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(medication);
     }
 
@@ -218,6 +261,9 @@ public class MedicationResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMedication(@PathVariable("id") String id) {
         log.debug("REST request to delete Medication : {}", id);
+        if (medicationRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         medicationRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

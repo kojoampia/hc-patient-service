@@ -38,7 +38,7 @@
     "feignClient": false,
     "gradleEnterpriseHost": null,
     "jhipsterVersion": "8.1.0",
-    "jwtSecretKey": "ZjJjMjE3YWJlOGFlZjBjODViMmRhZjE3ZGIzOGViMTIwNjBhZTdhMWEzOTA0YjM3ZDE5Njc5NTIwZjhjOWFlZTdjMjcyMzk1MDg1ZWIzY2FkYWI2N2M2YWZiYTkzN2EzYWZhNTczMjdmNzAxNzI3ODhkMDcwMzgwZjZkY2I3MGU=",
+    "jwtSecretKey": "",
     "lastLiquibaseTimestamp": 1784583637000,
     "messageBroker": "kafka",
     "nativeLanguage": "en",

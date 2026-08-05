@@ -25,7 +25,15 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @IntegrationTest
 @AutoConfigureMockMvc
-@WithMockUser
+/*
+ * Runs as ROLE_ADMIN. This entity is reference data since 2026-08-05: any authenticated caller may read it,
+ * but creating, updating and deleting requires ROLE_ADMIN or ROLE_PROFESSIONAL. A default @WithMockUser is a
+ * ROLE_USER and would now get 403 on every write here, which says nothing about the CRUD mechanics these
+ * tests exist to cover.
+ *
+ * The rule itself — that a patient can read but not write — is covered by ReferenceDataIT.
+ */
+@WithMockUser(authorities = { "ROLE_ADMIN" })
 class MetadataResourceIT {
 
     private static final String DEFAULT_CREATED_BY = "AAAAAAAAAA";

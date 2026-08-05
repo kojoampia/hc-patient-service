@@ -28,7 +28,19 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @IntegrationTest
 @AutoConfigureMockMvc
-@WithMockUser
+/*
+ * Runs as ROLE_ADMIN, which {@link net.jojoaddison.security.PatientScope} treats as unrestricted.
+ *
+ * <p>That is deliberate and it is a narrowing of what this class covers: these tests exercise the CRUD
+ * mechanics — status codes, id validation, partial update semantics — and say nothing about who may see
+ * what. A default {@code @WithMockUser} is a ROLE_USER with no JWT and therefore no email claim, which now
+ * correctly resolves to "no patient" and would make every assertion here fail for reasons unrelated to the
+ * behaviour under test.</p>
+ *
+ * <p>The authorization rules themselves are covered by {@code PatientScopeIT}, which is where a
+ * cross-patient regression will be caught. Do not "fix" a failure here by widening PatientScope.</p>
+ */
+@WithMockUser(authorities = { "ROLE_ADMIN" })
 class StatResourceIT {
 
     private static final String DEFAULT_PATIENT_ID = "AAAAAAAAAA";
@@ -67,11 +79,14 @@ class StatResourceIT {
     private static final Instant DEFAULT_RECORDED_AT = Instant.ofEpochMilli(0L);
     private static final Instant UPDATED_RECORDED_AT = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
-    private static final LocalDate DEFAULT_CREATED_DATE = LocalDate.ofEpochDay(0L);
+    // Audit fields are stamped by the server from the token (AuditStamp), not taken from the request body, so the
+    // expected value is the same whatever the test sends. "user" is the login @WithMockUser gives the caller. That
+    // these constants no longer vary is the point: an audit field a client can choose is not an audit field.
+    private static final LocalDate DEFAULT_CREATED_DATE = LocalDate.now(ZoneId.systemDefault());
     private static final LocalDate UPDATED_CREATED_DATE = LocalDate.now(ZoneId.systemDefault());
 
-    private static final String DEFAULT_CREATED_BY = "AAAAAAAAAA";
-    private static final String UPDATED_CREATED_BY = "BBBBBBBBBB";
+    private static final String DEFAULT_CREATED_BY = "user";
+    private static final String UPDATED_CREATED_BY = "user";
 
     private static final String ENTITY_API_URL = "/api/stats";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";

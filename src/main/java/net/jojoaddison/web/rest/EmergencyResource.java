@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Emergency;
 import net.jojoaddison.repository.EmergencyRepository;
+import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.EmergencyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -35,9 +37,12 @@ public class EmergencyResource {
 
     private final EmergencyRepository emergencyRepository;
 
-    public EmergencyResource(EmergencyService emergencyService, EmergencyRepository emergencyRepository) {
+    private final PatientScope patientScope;
+
+    public EmergencyResource(EmergencyService emergencyService, EmergencyRepository emergencyRepository, PatientScope patientScope) {
         this.emergencyService = emergencyService;
         this.emergencyRepository = emergencyRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -53,6 +58,13 @@ public class EmergencyResource {
         if (emergency.getId() != null) {
             throw new BadRequestAlertException("A new emergency cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        emergency.setPatientId(patientScope.requirePatientIdForWrite(emergency.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        emergency.setCreatedBy(AuditStamp.currentUser());
+        emergency.setCreatedDate(AuditStamp.today());
+        emergency.setModifiedBy(AuditStamp.currentUser());
+        emergency.setModifiedDate(AuditStamp.today());
         Emergency result = emergencyService.save(emergency);
         return ResponseEntity
             .created(new URI("/api/emergencies/" + result.getId()))
@@ -83,9 +95,22 @@ public class EmergencyResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!emergencyRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Emergency existing = emergencyRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        emergency.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), emergency.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        emergency.setCreatedBy(existing.getCreatedBy());
+        emergency.setCreatedDate(existing.getCreatedDate());
+        emergency.setModifiedBy(AuditStamp.currentUser());
+        emergency.setModifiedDate(AuditStamp.today());
 
         Emergency result = emergencyService.update(emergency);
         return ResponseEntity
@@ -118,9 +143,22 @@ public class EmergencyResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!emergencyRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Emergency existing = emergencyRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        emergency.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), emergency.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        emergency.setCreatedBy(existing.getCreatedBy());
+        emergency.setCreatedDate(existing.getCreatedDate());
+        emergency.setModifiedBy(AuditStamp.currentUser());
+        emergency.setModifiedDate(AuditStamp.today());
 
         Optional<Emergency> result = emergencyService.partialUpdate(emergency);
 
@@ -139,7 +177,7 @@ public class EmergencyResource {
     @GetMapping("")
     public List<Emergency> getAllEmergencies(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Emergencys for patient {}", patientId);
-        return patientId == null ? emergencyRepository.findAll() : emergencyRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, emergencyRepository::findAll, emergencyRepository::findByPatientId);
     }
 
     /**
@@ -151,7 +189,7 @@ public class EmergencyResource {
     @GetMapping("/{id}")
     public ResponseEntity<Emergency> getEmergency(@PathVariable("id") String id) {
         log.debug("REST request to get Emergency : {}", id);
-        Optional<Emergency> emergency = emergencyService.findOne(id);
+        Optional<Emergency> emergency = emergencyService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(emergency);
     }
 
@@ -164,6 +202,9 @@ public class EmergencyResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteEmergency(@PathVariable("id") String id) {
         log.debug("REST request to delete Emergency : {}", id);
+        if (emergencyRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         emergencyService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
