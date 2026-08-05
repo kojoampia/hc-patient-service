@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.CarePlanItem;
 import net.jojoaddison.repository.CarePlanItemRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.CarePlanItemService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -35,9 +36,16 @@ public class CarePlanItemResource {
 
     private final CarePlanItemRepository carePlanItemRepository;
 
-    public CarePlanItemResource(CarePlanItemService carePlanItemService, CarePlanItemRepository carePlanItemRepository) {
+    private final PatientScope patientScope;
+
+    public CarePlanItemResource(
+        CarePlanItemService carePlanItemService,
+        CarePlanItemRepository carePlanItemRepository,
+        PatientScope patientScope
+    ) {
         this.carePlanItemService = carePlanItemService;
         this.carePlanItemRepository = carePlanItemRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -53,6 +61,7 @@ public class CarePlanItemResource {
         if (carePlanItem.getId() != null) {
             throw new BadRequestAlertException("A new carePlanItem cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        carePlanItem.setPatientId(patientScope.requirePatientIdForWrite(carePlanItem.getPatientId()));
         CarePlanItem result = carePlanItemService.save(carePlanItem);
         return ResponseEntity
             .created(new URI("/api/care-plan-items/" + result.getId()))
@@ -83,9 +92,17 @@ public class CarePlanItemResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!carePlanItemRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        CarePlanItem existing = carePlanItemRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        carePlanItem.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), carePlanItem.getPatientId()));
 
         CarePlanItem result = carePlanItemService.update(carePlanItem);
         return ResponseEntity
@@ -118,9 +135,17 @@ public class CarePlanItemResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!carePlanItemRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        CarePlanItem existing = carePlanItemRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        carePlanItem.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), carePlanItem.getPatientId()));
 
         Optional<CarePlanItem> result = carePlanItemService.partialUpdate(carePlanItem);
 
@@ -139,7 +164,7 @@ public class CarePlanItemResource {
     @GetMapping("")
     public List<CarePlanItem> getAllCarePlanItems(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all CarePlanItems for patient {}", patientId);
-        return patientId == null ? carePlanItemRepository.findAll() : carePlanItemRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, carePlanItemRepository::findAll, carePlanItemRepository::findByPatientId);
     }
 
     /**
@@ -151,7 +176,9 @@ public class CarePlanItemResource {
     @GetMapping("/{id}")
     public ResponseEntity<CarePlanItem> getCarePlanItem(@PathVariable("id") String id) {
         log.debug("REST request to get CarePlanItem : {}", id);
-        Optional<CarePlanItem> carePlanItem = carePlanItemService.findOne(id);
+        Optional<CarePlanItem> carePlanItem = carePlanItemService
+            .findOne(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(carePlanItem);
     }
 
@@ -164,6 +191,9 @@ public class CarePlanItemResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCarePlanItem(@PathVariable("id") String id) {
         log.debug("REST request to delete CarePlanItem : {}", id);
+        if (carePlanItemRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         carePlanItemService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

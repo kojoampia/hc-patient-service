@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.repository.AllergyRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.AllergyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -35,9 +36,12 @@ public class AllergyResource {
 
     private final AllergyRepository allergyRepository;
 
-    public AllergyResource(AllergyService allergyService, AllergyRepository allergyRepository) {
+    private final PatientScope patientScope;
+
+    public AllergyResource(AllergyService allergyService, AllergyRepository allergyRepository, PatientScope patientScope) {
         this.allergyService = allergyService;
         this.allergyRepository = allergyRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -53,6 +57,7 @@ public class AllergyResource {
         if (allergy.getId() != null) {
             throw new BadRequestAlertException("A new allergy cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        allergy.setPatientId(patientScope.requirePatientIdForWrite(allergy.getPatientId()));
         Allergy result = allergyService.save(allergy);
         return ResponseEntity
             .created(new URI("/api/allergies/" + result.getId()))
@@ -83,9 +88,17 @@ public class AllergyResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!allergyRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Allergy existing = allergyRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        allergy.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), allergy.getPatientId()));
 
         Allergy result = allergyService.update(allergy);
         return ResponseEntity
@@ -118,9 +131,17 @@ public class AllergyResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!allergyRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Allergy existing = allergyRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        allergy.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), allergy.getPatientId()));
 
         Optional<Allergy> result = allergyService.partialUpdate(allergy);
 
@@ -139,7 +160,7 @@ public class AllergyResource {
     @GetMapping("")
     public List<Allergy> getAllAllergies(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Allergys for patient {}", patientId);
-        return patientId == null ? allergyRepository.findAll() : allergyRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, allergyRepository::findAll, allergyRepository::findByPatientId);
     }
 
     /**
@@ -151,7 +172,7 @@ public class AllergyResource {
     @GetMapping("/{id}")
     public ResponseEntity<Allergy> getAllergy(@PathVariable("id") String id) {
         log.debug("REST request to get Allergy : {}", id);
-        Optional<Allergy> allergy = allergyService.findOne(id);
+        Optional<Allergy> allergy = allergyService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(allergy);
     }
 
@@ -164,6 +185,9 @@ public class AllergyResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteAllergy(@PathVariable("id") String id) {
         log.debug("REST request to delete Allergy : {}", id);
+        if (allergyRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         allergyService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

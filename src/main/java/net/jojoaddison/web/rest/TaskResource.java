@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Task;
 import net.jojoaddison.repository.TaskRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,8 +38,11 @@ public class TaskResource {
 
     private final TaskRepository taskRepository;
 
-    public TaskResource(TaskRepository taskRepository) {
+    private final PatientScope patientScope;
+
+    public TaskResource(TaskRepository taskRepository, PatientScope patientScope) {
         this.taskRepository = taskRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -54,6 +58,7 @@ public class TaskResource {
         if (task.getId() != null) {
             throw new BadRequestAlertException("A new task cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        task.setPatientId(patientScope.requirePatientIdForWrite(task.getPatientId()));
         Task result = taskRepository.save(task);
         return ResponseEntity
             .created(new URI("/api/tasks/" + result.getId()))
@@ -82,9 +87,17 @@ public class TaskResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!taskRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Task existing = taskRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        task.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), task.getPatientId()));
 
         Task result = taskRepository.save(task);
         return ResponseEntity
@@ -115,9 +128,17 @@ public class TaskResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!taskRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Task existing = taskRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        task.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), task.getPatientId()));
 
         Optional<Task> result = taskRepository
             .findById(task.getId())
@@ -191,7 +212,7 @@ public class TaskResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Tasks for patient {}", patientId);
-        Page<Task> page = patientId == null ? taskRepository.findAll(pageable) : taskRepository.findByPatientId(patientId, pageable);
+        Page<Task> page = patientScope.findScopedPage(patientId, pageable, taskRepository::findAll, taskRepository::findByPatientId);
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -205,7 +226,7 @@ public class TaskResource {
     @GetMapping("/{id}")
     public ResponseEntity<Task> getTask(@PathVariable("id") String id) {
         log.debug("REST request to get Task : {}", id);
-        Optional<Task> task = taskRepository.findById(id);
+        Optional<Task> task = taskRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(task);
     }
 
@@ -218,6 +239,9 @@ public class TaskResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTask(@PathVariable("id") String id) {
         log.debug("REST request to delete Task : {}", id);
+        if (taskRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         taskRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

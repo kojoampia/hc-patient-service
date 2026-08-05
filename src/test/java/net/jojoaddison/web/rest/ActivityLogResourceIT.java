@@ -29,7 +29,19 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @IntegrationTest
 @AutoConfigureMockMvc
-@WithMockUser
+/*
+ * Runs as ROLE_ADMIN, which {@link net.jojoaddison.security.PatientScope} treats as unrestricted.
+ *
+ * <p>That is deliberate and it is a narrowing of what this class covers: these tests exercise the CRUD
+ * mechanics — status codes, id validation, partial update semantics — and say nothing about who may see
+ * what. A default {@code @WithMockUser} is a ROLE_USER with no JWT and therefore no email claim, which now
+ * correctly resolves to "no patient" and would make every assertion here fail for reasons unrelated to the
+ * behaviour under test.</p>
+ *
+ * <p>The authorization rules themselves are covered by {@code PatientScopeIT}, which is where a
+ * cross-patient regression will be caught. Do not "fix" a failure here by widening PatientScope.</p>
+ */
+@WithMockUser(authorities = { "ROLE_ADMIN" })
 class ActivityLogResourceIT {
 
     private static final String DEFAULT_PATIENT_ID = "AAAAAAAAAA";

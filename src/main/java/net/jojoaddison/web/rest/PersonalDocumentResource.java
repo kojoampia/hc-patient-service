@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.PersonalDocument;
 import net.jojoaddison.repository.PersonalDocumentRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +33,11 @@ public class PersonalDocumentResource {
 
     private final PersonalDocumentRepository personalDocumentRepository;
 
-    public PersonalDocumentResource(PersonalDocumentRepository personalDocumentRepository) {
+    private final PatientScope patientScope;
+
+    public PersonalDocumentResource(PersonalDocumentRepository personalDocumentRepository, PatientScope patientScope) {
         this.personalDocumentRepository = personalDocumentRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -50,6 +54,7 @@ public class PersonalDocumentResource {
         if (personalDocument.getId() != null) {
             throw new BadRequestAlertException("A new personalDocument cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        personalDocument.setPatientId(patientScope.requirePatientIdForWrite(personalDocument.getPatientId()));
         PersonalDocument result = personalDocumentRepository.save(personalDocument);
         return ResponseEntity
             .created(new URI("/api/personal-documents/" + result.getId()))
@@ -80,9 +85,17 @@ public class PersonalDocumentResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!personalDocumentRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        PersonalDocument existing = personalDocumentRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        personalDocument.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), personalDocument.getPatientId()));
 
         PersonalDocument result = personalDocumentRepository.save(personalDocument);
         return ResponseEntity
@@ -115,9 +128,17 @@ public class PersonalDocumentResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!personalDocumentRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        PersonalDocument existing = personalDocumentRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        personalDocument.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), personalDocument.getPatientId()));
 
         Optional<PersonalDocument> result = personalDocumentRepository
             .findById(personalDocument.getId())
@@ -160,7 +181,7 @@ public class PersonalDocumentResource {
     @GetMapping("")
     public List<PersonalDocument> getAllPersonalDocuments(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all PersonalDocuments for patient {}", patientId);
-        return patientId == null ? personalDocumentRepository.findAll() : personalDocumentRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, personalDocumentRepository::findAll, personalDocumentRepository::findByPatientId);
     }
 
     /**
@@ -172,7 +193,9 @@ public class PersonalDocumentResource {
     @GetMapping("/{id}")
     public ResponseEntity<PersonalDocument> getPersonalDocument(@PathVariable("id") String id) {
         log.debug("REST request to get PersonalDocument : {}", id);
-        Optional<PersonalDocument> personalDocument = personalDocumentRepository.findById(id);
+        Optional<PersonalDocument> personalDocument = personalDocumentRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(personalDocument);
     }
 
@@ -185,6 +208,9 @@ public class PersonalDocumentResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletePersonalDocument(@PathVariable("id") String id) {
         log.debug("REST request to delete PersonalDocument : {}", id);
+        if (personalDocumentRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         personalDocumentRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

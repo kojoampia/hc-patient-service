@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +33,11 @@ public class StatResource {
 
     private final StatRepository statRepository;
 
-    public StatResource(StatRepository statRepository) {
+    private final PatientScope patientScope;
+
+    public StatResource(StatRepository statRepository, PatientScope patientScope) {
         this.statRepository = statRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -49,6 +53,7 @@ public class StatResource {
         if (stat.getId() != null) {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        stat.setPatientId(patientScope.requirePatientIdForWrite(stat.getPatientId()));
         Stat result = statRepository.save(stat);
         return ResponseEntity
             .created(new URI("/api/stats/" + result.getId()))
@@ -77,9 +82,17 @@ public class StatResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!statRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Stat existing = statRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
 
         Stat result = statRepository.save(stat);
         return ResponseEntity
@@ -110,9 +123,17 @@ public class StatResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!statRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Stat existing = statRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
 
         Optional<Stat> result = statRepository
             .findById(stat.getId())
@@ -176,7 +197,7 @@ public class StatResource {
     @GetMapping("")
     public List<Stat> getAllStats(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Stats for patient {}", patientId);
-        return patientId == null ? statRepository.findAll() : statRepository.findByPatientId(patientId);
+        return patientScope.findScoped(patientId, statRepository::findAll, statRepository::findByPatientId);
     }
 
     /**
@@ -188,7 +209,7 @@ public class StatResource {
     @GetMapping("/{id}")
     public ResponseEntity<Stat> getStat(@PathVariable("id") String id) {
         log.debug("REST request to get Stat : {}", id);
-        Optional<Stat> stat = statRepository.findById(id);
+        Optional<Stat> stat = statRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(stat);
     }
 
@@ -201,6 +222,9 @@ public class StatResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteStat(@PathVariable("id") String id) {
         log.debug("REST request to delete Stat : {}", id);
+        if (statRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         statRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

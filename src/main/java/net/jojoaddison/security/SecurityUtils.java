@@ -20,7 +20,35 @@ public final class SecurityUtils {
 
     public static final String AUTHORITIES_KEY = "auth";
 
+    /**
+     * Claim carrying the account's email address, minted by the gateway.
+     *
+     * <p>This service has no user management of its own, so email is the only identifier it shares with the gateway.
+     * It is the root of the authorization chain: email -> Profile -> patientId -> every query. Must stay in step with
+     * {@code SecurityUtils.EMAIL_KEY} in the gateway.</p>
+     */
+    public static final String EMAIL_KEY = "email";
+
     private SecurityUtils() {}
+
+    /**
+     * The email address of the current user, as asserted by the gateway-issued token.
+     *
+     * <p>Empty when the request is unauthenticated, when the principal is not a JWT, or when the token predates this
+     * claim — all of which must be treated as "no patient records", never as "all of them".</p>
+     *
+     * @return the email of the current user.
+     */
+    public static Optional<String> getCurrentUserEmail() {
+        SecurityContext securityContext = SecurityContextHolder.getContext();
+        return Optional
+            .ofNullable(securityContext.getAuthentication())
+            .map(Authentication::getPrincipal)
+            .filter(Jwt.class::isInstance)
+            .map(Jwt.class::cast)
+            .map(jwt -> jwt.getClaimAsString(EMAIL_KEY))
+            .filter(email -> !email.isBlank());
+    }
 
     /**
      * Get the login of the current user.

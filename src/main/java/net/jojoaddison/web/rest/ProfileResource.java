@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.repository.ProfileRepository;
+import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.ProfileService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -40,9 +42,12 @@ public class ProfileResource {
 
     private final ProfileRepository profileRepository;
 
-    public ProfileResource(ProfileService profileService, ProfileRepository profileRepository) {
+    private final PatientScope patientScope;
+
+    public ProfileResource(ProfileService profileService, ProfileRepository profileRepository, PatientScope patientScope) {
         this.profileService = profileService;
         this.profileRepository = profileRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -58,6 +63,7 @@ public class ProfileResource {
         if (profile.getId() != null) {
             throw new BadRequestAlertException("A new profile cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        profile.setPatientId(patientScope.requirePatientIdForWrite(profile.getPatientId()));
         Profile result = profileService.save(profile);
         return ResponseEntity
             .created(new URI("/api/profiles/" + result.getId()))
@@ -88,9 +94,17 @@ public class ProfileResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!profileRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Profile existing = profileRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        profile.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), profile.getPatientId()));
 
         Profile result = profileService.update(profile);
         return ResponseEntity
@@ -123,9 +137,17 @@ public class ProfileResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!profileRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Profile existing = profileRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        profile.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), profile.getPatientId()));
 
         Optional<Profile> result = profileService.partialUpdate(profile);
 
@@ -148,9 +170,12 @@ public class ProfileResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Profiles for patient {}", patientId);
-        Page<Profile> page = patientId == null
-            ? profileRepository.findAll(pageable)
-            : profileRepository.findByPatientId(patientId, pageable);
+        Page<Profile> page = patientScope.findScopedPage(
+            patientId,
+            pageable,
+            profileRepository::findAll,
+            profileRepository::findByPatientId
+        );
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -168,6 +193,15 @@ public class ProfileResource {
     @GetMapping("/email/{email}")
     public ResponseEntity<Profile> getProfileByEmail(@PathVariable("email") String email) {
         log.debug("REST request to get Profile by email : {}", email);
+        // A patient may look up their own record and nobody else's. Without this the endpoint is an
+        // email-address-to-full-medical-profile oracle for any authenticated caller — the single worst instance of
+        // the hole closed on 2026-08-05, because it needs no record id, just a guess at somebody's address.
+        //
+        // Checked on the token's email rather than on the resolved patientId: this endpoint is what *establishes*
+        // the patientId, so scoping it by the answer it returns would be circular.
+        if (!patientScope.isUnrestricted() && SecurityUtils.getCurrentUserEmail().filter(email::equalsIgnoreCase).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         return ResponseUtil.wrapOrNotFound(profileRepository.findOneByEmailIgnoreCase(email));
     }
 
@@ -180,7 +214,7 @@ public class ProfileResource {
     @GetMapping("/{id}")
     public ResponseEntity<Profile> getProfile(@PathVariable("id") String id) {
         log.debug("REST request to get Profile : {}", id);
-        Optional<Profile> profile = profileService.findOne(id);
+        Optional<Profile> profile = profileService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(profile);
     }
 
@@ -193,6 +227,9 @@ public class ProfileResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProfile(@PathVariable("id") String id) {
         log.debug("REST request to delete Profile : {}", id);
+        if (profileRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         profileService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

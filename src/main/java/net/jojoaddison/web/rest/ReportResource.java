@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,8 +38,11 @@ public class ReportResource {
 
     private final ReportRepository reportRepository;
 
-    public ReportResource(ReportRepository reportRepository) {
+    private final PatientScope patientScope;
+
+    public ReportResource(ReportRepository reportRepository, PatientScope patientScope) {
         this.reportRepository = reportRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -54,6 +58,7 @@ public class ReportResource {
         if (report.getId() != null) {
             throw new BadRequestAlertException("A new report cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        report.setPatientId(patientScope.requirePatientIdForWrite(report.getPatientId()));
         Report result = reportRepository.save(report);
         return ResponseEntity
             .created(new URI("/api/reports/" + result.getId()))
@@ -82,9 +87,17 @@ public class ReportResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!reportRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Report existing = reportRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        report.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), report.getPatientId()));
 
         Report result = reportRepository.save(report);
         return ResponseEntity
@@ -117,9 +130,17 @@ public class ReportResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!reportRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Report existing = reportRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        report.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), report.getPatientId()));
 
         Optional<Report> result = reportRepository
             .findById(report.getId())
@@ -184,7 +205,7 @@ public class ReportResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Reports for patient {}", patientId);
-        Page<Report> page = patientId == null ? reportRepository.findAll(pageable) : reportRepository.findByPatientId(patientId, pageable);
+        Page<Report> page = patientScope.findScopedPage(patientId, pageable, reportRepository::findAll, reportRepository::findByPatientId);
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -198,7 +219,7 @@ public class ReportResource {
     @GetMapping("/{id}")
     public ResponseEntity<Report> getReport(@PathVariable("id") String id) {
         log.debug("REST request to get Report : {}", id);
-        Optional<Report> report = reportRepository.findById(id);
+        Optional<Report> report = reportRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(report);
     }
 
@@ -211,6 +232,9 @@ public class ReportResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteReport(@PathVariable("id") String id) {
         log.debug("REST request to delete Report : {}", id);
+        if (reportRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         reportRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

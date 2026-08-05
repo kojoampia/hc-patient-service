@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Visitation;
 import net.jojoaddison.repository.VisitationRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.VisitationService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -40,9 +41,12 @@ public class VisitationResource {
 
     private final VisitationRepository visitationRepository;
 
-    public VisitationResource(VisitationService visitationService, VisitationRepository visitationRepository) {
+    private final PatientScope patientScope;
+
+    public VisitationResource(VisitationService visitationService, VisitationRepository visitationRepository, PatientScope patientScope) {
         this.visitationService = visitationService;
         this.visitationRepository = visitationRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -58,6 +62,7 @@ public class VisitationResource {
         if (visitation.getId() != null) {
             throw new BadRequestAlertException("A new visitation cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        visitation.setPatientId(patientScope.requirePatientIdForWrite(visitation.getPatientId()));
         Visitation result = visitationService.save(visitation);
         return ResponseEntity
             .created(new URI("/api/visitations/" + result.getId()))
@@ -88,9 +93,17 @@ public class VisitationResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!visitationRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Visitation existing = visitationRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        visitation.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), visitation.getPatientId()));
 
         Visitation result = visitationService.update(visitation);
         return ResponseEntity
@@ -123,9 +136,17 @@ public class VisitationResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!visitationRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Visitation existing = visitationRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload — not their own, not anybody's.
+        // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
+        visitation.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), visitation.getPatientId()));
 
         Optional<Visitation> result = visitationService.partialUpdate(visitation);
 
@@ -148,9 +169,12 @@ public class VisitationResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Visitations for patient {}", patientId);
-        Page<Visitation> page = patientId == null
-            ? visitationRepository.findAll(pageable)
-            : visitationRepository.findByPatientId(patientId, pageable);
+        Page<Visitation> page = patientScope.findScopedPage(
+            patientId,
+            pageable,
+            visitationRepository::findAll,
+            visitationRepository::findByPatientId
+        );
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
@@ -164,7 +188,7 @@ public class VisitationResource {
     @GetMapping("/{id}")
     public ResponseEntity<Visitation> getVisitation(@PathVariable("id") String id) {
         log.debug("REST request to get Visitation : {}", id);
-        Optional<Visitation> visitation = visitationService.findOne(id);
+        Optional<Visitation> visitation = visitationService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(visitation);
     }
 
@@ -177,6 +201,9 @@ public class VisitationResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteVisitation(@PathVariable("id") String id) {
         log.debug("REST request to delete Visitation : {}", id);
+        if (visitationRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         visitationService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }
