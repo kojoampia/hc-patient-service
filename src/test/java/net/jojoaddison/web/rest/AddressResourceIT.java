@@ -25,7 +25,14 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @IntegrationTest
 @AutoConfigureMockMvc
-@WithMockUser
+/*
+ * Runs as ROLE_ADMIN, which PatientScope treats as unrestricted. This entity became patient-scoped on
+ * 2026-08-05; a default @WithMockUser carries no JWT and so no email claim, which now correctly resolves to
+ * "no patient" and would make every assertion here fail for reasons unrelated to the behaviour under test.
+ *
+ * The scoping rules are covered by PatientScopeIT.
+ */
+@WithMockUser(authorities = { "ROLE_ADMIN" })
 class AddressResourceIT {
 
     private static final String DEFAULT_DIGITAL_ADDRESS = "AAAAAAAAAA";

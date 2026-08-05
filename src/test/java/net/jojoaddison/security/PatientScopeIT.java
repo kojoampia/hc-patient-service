@@ -78,6 +78,9 @@ class PatientScopeIT {
     @Autowired
     private ReportRepository reportRepository;
 
+    @Autowired
+    private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
+
     private Allergy aliceAllergy;
     private Allergy bobAllergy;
 
@@ -236,6 +239,59 @@ class PatientScopeIT {
             )
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.patientId").value(ALICE_PATIENT_ID));
+    }
+
+    @Test
+    void paymentOptionIsScopedOnItsUserIdField() throws Exception {
+        // PaymentOption predates the patientId convention and carries `userID` instead — stored as `user_id`,
+        // which is why these documents are written with that key and not the Java field name.
+        // PaymentOption predates the patientId convention and carries `userID` instead. It is scoped on that rather
+        // than gaining a second owner column — so this asserts the same boundary through a differently named field,
+        // which is exactly the case a copy-paste of the other tests would miss.
+        mongoTemplate.remove(new org.springframework.data.mongodb.core.query.Query(), "payment_option");
+        mongoTemplate.save(new org.bson.Document("_id", "bob-card").append("user_id", BOB_PATIENT_ID), "payment_option");
+        mongoTemplate.save(new org.bson.Document("_id", "alice-card").append("user_id", ALICE_PATIENT_ID), "payment_option");
+
+        restMockMvc
+            .perform(get("/api/payment-options").with(alice()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$.[0].id").value("alice-card"));
+
+        restMockMvc.perform(get("/api/payment-options/{id}", "bob-card").with(alice())).andExpect(status().isNotFound());
+
+        // ...and the write verbs honour the same field. A payment instrument is the one record here where a
+        // successful cross-patient write would be worth money to somebody.
+        restMockMvc
+            .perform(
+                put("/api/payment-options/{id}", "bob-card")
+                    .with(alice())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"id\":\"bob-card\",\"userID\":\"" + ALICE_PATIENT_ID + "\"}")
+            )
+            .andExpect(status().isBadRequest());
+
+        restMockMvc
+            .perform(
+                patch("/api/payment-options/{id}", "bob-card")
+                    .with(alice())
+                    .contentType("application/merge-patch+json")
+                    .content("{\"id\":\"bob-card\",\"userID\":\"" + ALICE_PATIENT_ID + "\"}")
+            )
+            .andExpect(status().isBadRequest());
+
+        restMockMvc.perform(delete("/api/payment-options/{id}", "bob-card").with(alice())).andExpect(status().isNotFound());
+
+        assertThat(mongoTemplate.findById("bob-card", org.bson.Document.class, "payment_option")).isNotNull();
+    }
+
+    @Test
+    void deletingSomethingThatDoesNotExistIs404ForAnyoneIncludingAnAdministrator() throws Exception {
+        // The guard reads the record before deleting it, so "absent" and "not yours" take the same exit. Worth
+        // pinning: it is a behaviour change from the generated code, which answered 204 for a missing id.
+        restMockMvc.perform(delete("/api/allergies/{id}", "no-such-record").with(admin())).andExpect(status().isNotFound());
+        restMockMvc.perform(delete("/api/allergies/{id}", "no-such-record").with(alice())).andExpect(status().isNotFound());
+        restMockMvc.perform(delete("/api/addresses/{id}", "no-such-record").with(admin())).andExpect(status().isNotFound());
     }
 
     // --- callers at the edges ---------------------------------------------------------------------------------

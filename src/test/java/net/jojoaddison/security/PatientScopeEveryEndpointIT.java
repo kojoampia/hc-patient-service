@@ -66,7 +66,9 @@ class PatientScopeEveryEndpointIT {
      * Every patient-owned collection, as {@code apiPath,mongoCollection}.
      *
      * <p>Profile is absent on purpose: Alice's own profile lives in that collection and is what resolves her
-     * identity, so it needs the tailored setup {@link PatientScopeIT} gives it rather than this generic one.</p>
+     * identity, so it needs the tailored setup {@link PatientScopeIT} gives it rather than this generic one.
+     * PaymentOption is absent too — it is scoped on {@code userID} rather than {@code patientId}, so the generic
+     * document this test inserts would not match; {@link PatientScopeIT} covers it explicitly.</p>
      */
     @ParameterizedTest(name = "{0} denies access to another patient''s record")
     @CsvSource(
@@ -84,6 +86,8 @@ class PatientScopeEveryEndpointIT {
             "/api/stats,              stat",
             "/api/tasks,              task",
             "/api/visitations,        visitation",
+            // Scoped on 2026-08-05 by the ownership decision: Address gained a patientId field.
+            "/api/addresses,          address",
         }
     )
     void anotherPatientsRecordIsInvisibleThroughEveryVerb(String apiPath, String collection) throws Exception {

@@ -191,7 +191,17 @@ public class PatientScope {
      * @throws AccessDeniedException if the caller cannot be resolved to a patient and is not unrestricted.
      */
     public String requirePatientIdForWrite(String requestedPatientId) {
-        return patientIdForWrite(requestedPatientId)
+        if (isUnrestricted()) {
+            // Whatever the payload says, INCLUDING NOTHING. An administrator or clinician creating a record with no
+            // owner is what these entities did before they were scoped, and refusing it breaks the reference-shaped
+            // ones — an Address filed against no particular patient — for no security gain, since an unrestricted
+            // caller could set any owner it liked anyway.
+            //
+            // Going through Optional here is what made this wrong at first: Optional.ofNullable(null) is empty, and
+            // "the admin supplied no owner" then became indistinguishable from "this caller may not write at all".
+            return requestedPatientId;
+        }
+        return currentPatientId()
             .orElseThrow(() -> new AccessDeniedException("No patient profile is associated with this account, so it cannot own records"));
     }
 
@@ -208,21 +218,5 @@ public class PatientScope {
         // A record with no owner is visible to no patient. Such documents exist (the field was added after some data
         // was written); making them universally readable would be a hole exactly the shape of the one being closed.
         return patientId != null && currentPatientId().filter(patientId::equals).isPresent();
-    }
-
-    /**
-     * The patientId that must be stamped on a record the caller is creating or updating.
-     *
-     * <p>Unrestricted callers may write on behalf of a patient and keep whatever the body carries. Everyone else has
-     * their own id forced in, so a client cannot assign a record to another patient by editing the payload.</p>
-     *
-     * @param requestedPatientId the value in the request body.
-     * @return the value to persist, or empty if the caller may not write at all.
-     */
-    public Optional<String> patientIdForWrite(String requestedPatientId) {
-        if (isUnrestricted()) {
-            return Optional.ofNullable(requestedPatientId);
-        }
-        return currentPatientId();
     }
 }

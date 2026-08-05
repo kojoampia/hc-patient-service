@@ -221,6 +221,16 @@ class PatientScopeUnitTest {
     }
 
     @Test
+    void unrestrictedCallerMayCreateARecordWithNoOwnerAtAll() {
+        // Regression: this used to throw. requirePatientIdForWrite went through an Optional, and
+        // Optional.ofNullable(null) made "the admin supplied no owner" indistinguishable from "this caller may not
+        // write at all" — which 403'd an administrator creating an Address filed against no particular patient.
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+
+        assertThat(patientScope.requirePatientIdForWrite(null)).isNull();
+    }
+
+    @Test
     void creatingIsRefusedWhenTheCallerIsNobody() {
         authenticateAs("stranger@example.com", AuthoritiesConstants.USER);
         when(profileRepository.findOneByEmailIgnoreCase("stranger@example.com")).thenReturn(Optional.empty());

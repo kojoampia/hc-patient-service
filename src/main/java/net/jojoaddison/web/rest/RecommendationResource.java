@@ -7,12 +7,14 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Recommendation;
 import net.jojoaddison.repository.RecommendationRepository;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.service.RecommendationService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.ResponseUtil;
@@ -47,7 +49,11 @@ public class RecommendationResource {
      * @return the {@link ResponseEntity} with status {@code 201 (Created)} and with body the new recommendation, or with status {@code 400 (Bad Request)} if the recommendation has already an ID.
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
+    // Reference data: readable by any authenticated caller, writable only by staff. Before 2026-08-05 any
+    // patient could rewrite the clinical staff directory, retitle a clinical recommendation or delete a
+    // care team outright, because the only rule anywhere was "is authenticated".
     @PostMapping("")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Recommendation> createRecommendation(@RequestBody Recommendation recommendation) throws URISyntaxException {
         log.debug("REST request to save Recommendation : {}", recommendation);
         if (recommendation.getId() != null) {
@@ -71,6 +77,7 @@ public class RecommendationResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Recommendation> updateRecommendation(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Recommendation recommendation
@@ -106,6 +113,7 @@ public class RecommendationResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Recommendation> partialUpdateRecommendation(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Recommendation recommendation
@@ -161,6 +169,7 @@ public class RecommendationResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Void> deleteRecommendation(@PathVariable("id") String id) {
         log.debug("REST request to delete Recommendation : {}", id);
         recommendationService.delete(id);

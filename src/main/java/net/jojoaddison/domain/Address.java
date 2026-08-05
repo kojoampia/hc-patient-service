@@ -18,6 +18,17 @@ public class Address implements Serializable {
     @Id
     private String id;
 
+    /**
+     * The patient this address belongs to.
+     *
+     * <p>Added 2026-08-05. This document had no owner at all, which meant {@code PatientScope} could not scope it and
+     * every authenticated caller could read and write every address. Existing documents have no value here and are
+     * therefore invisible to patients until backfilled — nothing reads them today, so that costs nothing now and has
+     * to be handled before anything does.</p>
+     */
+    @Field("patient_id")
+    private String patientId;
+
     @Field("digital_address")
     private String digitalAddress;
 
@@ -70,6 +81,19 @@ public class Address implements Serializable {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getPatientId() {
+        return this.patientId;
+    }
+
+    public Address patientId(String patientId) {
+        this.setPatientId(patientId);
+        return this;
+    }
+
+    public void setPatientId(String patientId) {
+        this.patientId = patientId;
     }
 
     public String getDigitalAddress() {

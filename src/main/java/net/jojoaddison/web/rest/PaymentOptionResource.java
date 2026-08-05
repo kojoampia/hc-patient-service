@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.repository.PaymentOptionRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +33,11 @@ public class PaymentOptionResource {
 
     private final PaymentOptionRepository paymentOptionRepository;
 
-    public PaymentOptionResource(PaymentOptionRepository paymentOptionRepository) {
+    private final PatientScope patientScope;
+
+    public PaymentOptionResource(PaymentOptionRepository paymentOptionRepository, PatientScope patientScope) {
         this.paymentOptionRepository = paymentOptionRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -49,6 +53,7 @@ public class PaymentOptionResource {
         if (paymentOption.getId() != null) {
             throw new BadRequestAlertException("A new paymentOption cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        paymentOption.setUserID(patientScope.requirePatientIdForWrite(paymentOption.getUserID()));
         PaymentOption result = paymentOptionRepository.save(paymentOption);
         return ResponseEntity
             .created(new URI("/api/payment-options/" + result.getId()))
@@ -79,9 +84,16 @@ public class PaymentOptionResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!paymentOptionRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        PaymentOption existing = paymentOptionRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getUserID()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload.
+        paymentOption.setUserID(patientScope.patientIdForUpdate(existing.getUserID(), paymentOption.getUserID()));
 
         PaymentOption result = paymentOptionRepository.save(paymentOption);
         return ResponseEntity
@@ -114,9 +126,16 @@ public class PaymentOptionResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!paymentOptionRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        PaymentOption existing = paymentOptionRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getUserID()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload.
+        paymentOption.setUserID(patientScope.patientIdForUpdate(existing.getUserID(), paymentOption.getUserID()));
 
         Optional<PaymentOption> result = paymentOptionRepository
             .findById(paymentOption.getId())
@@ -147,9 +166,9 @@ public class PaymentOptionResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of paymentOptions in body.
      */
     @GetMapping("")
-    public List<PaymentOption> getAllPaymentOptions() {
+    public List<PaymentOption> getAllPaymentOptions(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all PaymentOptions");
-        return paymentOptionRepository.findAll();
+        return patientScope.findScoped(patientId, paymentOptionRepository::findAll, paymentOptionRepository::findByUserID);
     }
 
     /**
@@ -161,7 +180,9 @@ public class PaymentOptionResource {
     @GetMapping("/{id}")
     public ResponseEntity<PaymentOption> getPaymentOption(@PathVariable("id") String id) {
         log.debug("REST request to get PaymentOption : {}", id);
-        Optional<PaymentOption> paymentOption = paymentOptionRepository.findById(id);
+        Optional<PaymentOption> paymentOption = paymentOptionRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getUserID()));
         return ResponseUtil.wrapOrNotFound(paymentOption);
     }
 
@@ -174,6 +195,9 @@ public class PaymentOptionResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletePaymentOption(@PathVariable("id") String id) {
         log.debug("REST request to delete PaymentOption : {}", id);
+        if (paymentOptionRepository.findById(id).filter(current -> patientScope.isVisible(current.getUserID())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         paymentOptionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

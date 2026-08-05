@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Address;
 import net.jojoaddison.repository.AddressRepository;
+import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +33,11 @@ public class AddressResource {
 
     private final AddressRepository addressRepository;
 
-    public AddressResource(AddressRepository addressRepository) {
+    private final PatientScope patientScope;
+
+    public AddressResource(AddressRepository addressRepository, PatientScope patientScope) {
         this.addressRepository = addressRepository;
+        this.patientScope = patientScope;
     }
 
     /**
@@ -49,6 +53,7 @@ public class AddressResource {
         if (address.getId() != null) {
             throw new BadRequestAlertException("A new address cannot already have an ID", ENTITY_NAME, "idexists");
         }
+        address.setPatientId(patientScope.requirePatientIdForWrite(address.getPatientId()));
         Address result = addressRepository.save(address);
         return ResponseEntity
             .created(new URI("/api/addresses/" + result.getId()))
@@ -79,9 +84,16 @@ public class AddressResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!addressRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Address existing = addressRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload.
+        address.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), address.getPatientId()));
 
         Address result = addressRepository.save(address);
         return ResponseEntity
@@ -114,9 +126,16 @@ public class AddressResource {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
 
-        if (!addressRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
+        // Deliberately not existsById: the stored record has to be read to find out who owns it. "Not
+        // yours" and "does not exist" raise the identical error, so this cannot be used to probe for
+        // other patients' record ids.
+        Address existing = addressRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+
+        // A patient can never reassign a record by editing the payload.
+        address.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), address.getPatientId()));
 
         Optional<Address> result = addressRepository
             .findById(address.getId())
@@ -177,9 +196,9 @@ public class AddressResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of addresses in body.
      */
     @GetMapping("")
-    public List<Address> getAllAddresses() {
+    public List<Address> getAllAddresses(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Addresses");
-        return addressRepository.findAll();
+        return patientScope.findScoped(patientId, addressRepository::findAll, addressRepository::findByPatientId);
     }
 
     /**
@@ -191,7 +210,7 @@ public class AddressResource {
     @GetMapping("/{id}")
     public ResponseEntity<Address> getAddress(@PathVariable("id") String id) {
         log.debug("REST request to get Address : {}", id);
-        Optional<Address> address = addressRepository.findById(id);
+        Optional<Address> address = addressRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(address);
     }
 
@@ -204,6 +223,9 @@ public class AddressResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteAddress(@PathVariable("id") String id) {
         log.debug("REST request to delete Address : {}", id);
+        if (addressRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
         addressRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
     }

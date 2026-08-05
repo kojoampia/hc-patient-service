@@ -7,11 +7,13 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Team;
 import net.jojoaddison.repository.TeamRepository;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.ResponseUtil;
@@ -43,7 +45,11 @@ public class TeamResource {
      * @return the {@link ResponseEntity} with status {@code 201 (Created)} and with body the new team, or with status {@code 400 (Bad Request)} if the team has already an ID.
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
+    // Reference data: readable by any authenticated caller, writable only by staff. Before 2026-08-05 any
+    // patient could rewrite the clinical staff directory, retitle a clinical recommendation or delete a
+    // care team outright, because the only rule anywhere was "is authenticated".
     @PostMapping("")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Team> createTeam(@RequestBody Team team) throws URISyntaxException {
         log.debug("REST request to save Team : {}", team);
         if (team.getId() != null) {
@@ -67,6 +73,7 @@ public class TeamResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Team> updateTeam(@PathVariable(value = "id", required = false) final String id, @RequestBody Team team)
         throws URISyntaxException {
         log.debug("REST request to update Team : {}, {}", id, team);
@@ -100,6 +107,7 @@ public class TeamResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Team> partialUpdateTeam(@PathVariable(value = "id", required = false) final String id, @RequestBody Team team)
         throws URISyntaxException {
         log.debug("REST request to partial update Team partially : {}, {}", id, team);
@@ -165,6 +173,7 @@ public class TeamResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
     public ResponseEntity<Void> deleteTeam(@PathVariable("id") String id) {
         log.debug("REST request to delete Team : {}", id);
         teamRepository.deleteById(id);
