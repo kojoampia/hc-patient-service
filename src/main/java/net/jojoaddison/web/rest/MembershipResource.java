@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.repository.MembershipRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -54,6 +55,12 @@ public class MembershipResource {
             throw new BadRequestAlertException("A new membership cannot already have an ID", ENTITY_NAME, "idexists");
         }
         membership.setPatientId(patientScope.requirePatientIdForWrite(membership.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        membership.setCreatedBy(AuditStamp.currentUser());
+        membership.setCreatedDate(AuditStamp.today());
+        membership.setModifiedBy(AuditStamp.currentUser());
+        membership.setModifiedDate(AuditStamp.today());
         Membership result = membershipRepository.save(membership);
         return ResponseEntity
             .created(new URI("/api/memberships/" + result.getId()))
@@ -95,6 +102,11 @@ public class MembershipResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        membership.setCreatedBy(existing.getCreatedBy());
+        membership.setCreatedDate(existing.getCreatedDate());
+        membership.setModifiedBy(AuditStamp.currentUser());
+        membership.setModifiedDate(AuditStamp.today());
 
         Membership result = membershipRepository.save(membership);
         return ResponseEntity
@@ -138,6 +150,11 @@ public class MembershipResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        membership.setCreatedBy(existing.getCreatedBy());
+        membership.setCreatedDate(existing.getCreatedDate());
+        membership.setModifiedBy(AuditStamp.currentUser());
+        membership.setModifiedDate(AuditStamp.today());
 
         Optional<Membership> result = membershipRepository
             .findById(membership.getId())

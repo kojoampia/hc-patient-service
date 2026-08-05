@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -59,6 +60,12 @@ public class ReportResource {
             throw new BadRequestAlertException("A new report cannot already have an ID", ENTITY_NAME, "idexists");
         }
         report.setPatientId(patientScope.requirePatientIdForWrite(report.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        report.setCreatedBy(AuditStamp.currentUser());
+        report.setCreatedDate(AuditStamp.today());
+        report.setModifiedBy(AuditStamp.currentUser());
+        report.setModifiedDate(AuditStamp.today());
         Report result = reportRepository.save(report);
         return ResponseEntity
             .created(new URI("/api/reports/" + result.getId()))
@@ -98,6 +105,11 @@ public class ReportResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         report.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), report.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        report.setCreatedBy(existing.getCreatedBy());
+        report.setCreatedDate(existing.getCreatedDate());
+        report.setModifiedBy(AuditStamp.currentUser());
+        report.setModifiedDate(AuditStamp.today());
 
         Report result = reportRepository.save(report);
         return ResponseEntity
@@ -141,6 +153,11 @@ public class ReportResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         report.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), report.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        report.setCreatedBy(existing.getCreatedBy());
+        report.setCreatedDate(existing.getCreatedDate());
+        report.setModifiedBy(AuditStamp.currentUser());
+        report.setModifiedDate(AuditStamp.today());
 
         Optional<Report> result = reportRepository
             .findById(report.getId())

@@ -79,11 +79,14 @@ class StatResourceIT {
     private static final Instant DEFAULT_RECORDED_AT = Instant.ofEpochMilli(0L);
     private static final Instant UPDATED_RECORDED_AT = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
-    private static final LocalDate DEFAULT_CREATED_DATE = LocalDate.ofEpochDay(0L);
+    // Audit fields are stamped by the server from the token (AuditStamp), not taken from the request body, so the
+    // expected value is the same whatever the test sends. "user" is the login @WithMockUser gives the caller. That
+    // these constants no longer vary is the point: an audit field a client can choose is not an audit field.
+    private static final LocalDate DEFAULT_CREATED_DATE = LocalDate.now(ZoneId.systemDefault());
     private static final LocalDate UPDATED_CREATED_DATE = LocalDate.now(ZoneId.systemDefault());
 
-    private static final String DEFAULT_CREATED_BY = "AAAAAAAAAA";
-    private static final String UPDATED_CREATED_BY = "BBBBBBBBBB";
+    private static final String DEFAULT_CREATED_BY = "user";
+    private static final String UPDATED_CREATED_BY = "user";
 
     private static final String ENTITY_API_URL = "/api/stats";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";

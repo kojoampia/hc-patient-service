@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.repository.AllergyRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.AllergyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -58,6 +59,12 @@ public class AllergyResource {
             throw new BadRequestAlertException("A new allergy cannot already have an ID", ENTITY_NAME, "idexists");
         }
         allergy.setPatientId(patientScope.requirePatientIdForWrite(allergy.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        allergy.setCreatedBy(AuditStamp.currentUser());
+        allergy.setCreatedDate(AuditStamp.today());
+        allergy.setModifiedBy(AuditStamp.currentUser());
+        allergy.setModifiedDate(AuditStamp.today());
         Allergy result = allergyService.save(allergy);
         return ResponseEntity
             .created(new URI("/api/allergies/" + result.getId()))
@@ -99,6 +106,11 @@ public class AllergyResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         allergy.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), allergy.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        allergy.setCreatedBy(existing.getCreatedBy());
+        allergy.setCreatedDate(existing.getCreatedDate());
+        allergy.setModifiedBy(AuditStamp.currentUser());
+        allergy.setModifiedDate(AuditStamp.today());
 
         Allergy result = allergyService.update(allergy);
         return ResponseEntity
@@ -142,6 +154,11 @@ public class AllergyResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         allergy.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), allergy.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        allergy.setCreatedBy(existing.getCreatedBy());
+        allergy.setCreatedDate(existing.getCreatedDate());
+        allergy.setModifiedBy(AuditStamp.currentUser());
+        allergy.setModifiedDate(AuditStamp.today());
 
         Optional<Allergy> result = allergyService.partialUpdate(allergy);
 

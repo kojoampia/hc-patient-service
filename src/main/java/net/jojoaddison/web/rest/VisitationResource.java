@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Visitation;
 import net.jojoaddison.repository.VisitationRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.VisitationService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -63,6 +64,12 @@ public class VisitationResource {
             throw new BadRequestAlertException("A new visitation cannot already have an ID", ENTITY_NAME, "idexists");
         }
         visitation.setPatientId(patientScope.requirePatientIdForWrite(visitation.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        visitation.setCreatedBy(AuditStamp.currentUser());
+        visitation.setCreatedDate(AuditStamp.today());
+        visitation.setModifiedBy(AuditStamp.currentUser());
+        visitation.setModifiedDate(AuditStamp.today());
         Visitation result = visitationService.save(visitation);
         return ResponseEntity
             .created(new URI("/api/visitations/" + result.getId()))
@@ -104,6 +111,11 @@ public class VisitationResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         visitation.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), visitation.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        visitation.setCreatedBy(existing.getCreatedBy());
+        visitation.setCreatedDate(existing.getCreatedDate());
+        visitation.setModifiedBy(AuditStamp.currentUser());
+        visitation.setModifiedDate(AuditStamp.today());
 
         Visitation result = visitationService.update(visitation);
         return ResponseEntity
@@ -147,6 +159,11 @@ public class VisitationResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         visitation.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), visitation.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        visitation.setCreatedBy(existing.getCreatedBy());
+        visitation.setCreatedDate(existing.getCreatedDate());
+        visitation.setModifiedBy(AuditStamp.currentUser());
+        visitation.setModifiedDate(AuditStamp.today());
 
         Optional<Visitation> result = visitationService.partialUpdate(visitation);
 

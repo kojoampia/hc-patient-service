@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Condition;
 import net.jojoaddison.repository.ConditionRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -54,6 +55,12 @@ public class ConditionResource {
             throw new BadRequestAlertException("A new condition cannot already have an ID", ENTITY_NAME, "idexists");
         }
         condition.setPatientId(patientScope.requirePatientIdForWrite(condition.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        condition.setCreatedBy(AuditStamp.currentUser());
+        condition.setCreatedDate(AuditStamp.today());
+        condition.setModifiedBy(AuditStamp.currentUser());
+        condition.setModifiedDate(AuditStamp.today());
         Condition result = conditionRepository.save(condition);
         return ResponseEntity
             .created(new URI("/api/conditions/" + result.getId()))
@@ -95,6 +102,11 @@ public class ConditionResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         condition.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), condition.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        condition.setCreatedBy(existing.getCreatedBy());
+        condition.setCreatedDate(existing.getCreatedDate());
+        condition.setModifiedBy(AuditStamp.currentUser());
+        condition.setModifiedDate(AuditStamp.today());
 
         Condition result = conditionRepository.save(condition);
         return ResponseEntity
@@ -138,6 +150,11 @@ public class ConditionResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         condition.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), condition.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        condition.setCreatedBy(existing.getCreatedBy());
+        condition.setCreatedDate(existing.getCreatedDate());
+        condition.setModifiedBy(AuditStamp.currentUser());
+        condition.setModifiedDate(AuditStamp.today());
 
         Optional<Condition> result = conditionRepository
             .findById(condition.getId())

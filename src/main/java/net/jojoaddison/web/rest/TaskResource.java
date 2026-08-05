@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Task;
 import net.jojoaddison.repository.TaskRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -59,6 +60,12 @@ public class TaskResource {
             throw new BadRequestAlertException("A new task cannot already have an ID", ENTITY_NAME, "idexists");
         }
         task.setPatientId(patientScope.requirePatientIdForWrite(task.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        task.setCreatedBy(AuditStamp.currentUser());
+        task.setCreatedDate(AuditStamp.today());
+        task.setModifiedBy(AuditStamp.currentUser());
+        task.setModifiedDate(AuditStamp.today());
         Task result = taskRepository.save(task);
         return ResponseEntity
             .created(new URI("/api/tasks/" + result.getId()))
@@ -98,6 +105,11 @@ public class TaskResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         task.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), task.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        task.setCreatedBy(existing.getCreatedBy());
+        task.setCreatedDate(existing.getCreatedDate());
+        task.setModifiedBy(AuditStamp.currentUser());
+        task.setModifiedDate(AuditStamp.today());
 
         Task result = taskRepository.save(task);
         return ResponseEntity
@@ -139,6 +151,11 @@ public class TaskResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         task.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), task.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        task.setCreatedBy(existing.getCreatedBy());
+        task.setCreatedDate(existing.getCreatedDate());
+        task.setModifiedBy(AuditStamp.currentUser());
+        task.setModifiedDate(AuditStamp.today());
 
         Optional<Task> result = taskRepository
             .findById(task.getId())

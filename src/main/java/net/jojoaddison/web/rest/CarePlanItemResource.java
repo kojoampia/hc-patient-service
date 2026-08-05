@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.CarePlanItem;
 import net.jojoaddison.repository.CarePlanItemRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.CarePlanItemService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -62,6 +63,12 @@ public class CarePlanItemResource {
             throw new BadRequestAlertException("A new carePlanItem cannot already have an ID", ENTITY_NAME, "idexists");
         }
         carePlanItem.setPatientId(patientScope.requirePatientIdForWrite(carePlanItem.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        carePlanItem.setCreatedBy(AuditStamp.currentUser());
+        carePlanItem.setCreatedDate(AuditStamp.today());
+        carePlanItem.setModifiedBy(AuditStamp.currentUser());
+        carePlanItem.setModifiedDate(AuditStamp.today());
         CarePlanItem result = carePlanItemService.save(carePlanItem);
         return ResponseEntity
             .created(new URI("/api/care-plan-items/" + result.getId()))
@@ -103,6 +110,11 @@ public class CarePlanItemResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         carePlanItem.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), carePlanItem.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        carePlanItem.setCreatedBy(existing.getCreatedBy());
+        carePlanItem.setCreatedDate(existing.getCreatedDate());
+        carePlanItem.setModifiedBy(AuditStamp.currentUser());
+        carePlanItem.setModifiedDate(AuditStamp.today());
 
         CarePlanItem result = carePlanItemService.update(carePlanItem);
         return ResponseEntity
@@ -146,6 +158,11 @@ public class CarePlanItemResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         carePlanItem.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), carePlanItem.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        carePlanItem.setCreatedBy(existing.getCreatedBy());
+        carePlanItem.setCreatedDate(existing.getCreatedDate());
+        carePlanItem.setModifiedBy(AuditStamp.currentUser());
+        carePlanItem.setModifiedDate(AuditStamp.today());
 
         Optional<CarePlanItem> result = carePlanItemService.partialUpdate(carePlanItem);
 

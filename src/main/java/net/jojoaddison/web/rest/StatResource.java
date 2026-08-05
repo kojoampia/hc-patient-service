@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -54,6 +55,10 @@ public class StatResource {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
         stat.setPatientId(patientScope.requirePatientIdForWrite(stat.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        stat.setCreatedBy(AuditStamp.currentUser());
+        stat.setCreatedDate(AuditStamp.today());
         Stat result = statRepository.save(stat);
         return ResponseEntity
             .created(new URI("/api/stats/" + result.getId()))
@@ -93,6 +98,9 @@ public class StatResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        stat.setCreatedBy(existing.getCreatedBy());
+        stat.setCreatedDate(existing.getCreatedDate());
 
         Stat result = statRepository.save(stat);
         return ResponseEntity
@@ -134,6 +142,9 @@ public class StatResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        stat.setCreatedBy(existing.getCreatedBy());
+        stat.setCreatedDate(existing.getCreatedDate());
 
         Optional<Stat> result = statRepository
             .findById(stat.getId())

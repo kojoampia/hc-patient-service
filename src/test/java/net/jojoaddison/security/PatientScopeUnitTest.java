@@ -244,6 +244,27 @@ class PatientScopeUnitTest {
         assertThat(patientScope.patientIdForUpdate("patient-1", null)).isEqualTo("patient-1");
     }
 
+    @Test
+    void anUnrestrictedCallerIsConfinedToNoPatient() {
+        // Empty here means "not confined", which is why currentPatientId() must never be read on its own — the same
+        // empty Optional means "nobody" for a patient with no profile.
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+
+        assertThat(patientScope.currentPatientId()).isEmpty();
+    }
+
+    @Test
+    void patientMayAskForItsOwnPatientIdExplicitly() {
+        // The dashboard does exactly this: it resolves its profile, then passes ?patientId= on every collection call.
+        // If the matching filter were rejected along with the mismatching one, the whole portal would render empty.
+        authenticateAs("alice@example.com", AuthoritiesConstants.USER);
+        whenProfileFor("alice@example.com", profile("patient-1", "profile-1"));
+
+        assertThat(patientScope.findScoped("patient-1", () -> List.of("all"), id -> List.of(id))).containsExactly("patient-1");
+        assertThat(patientScope.findScopedPage("patient-1", PAGE, p -> pageOf("all"), (id, p) -> pageOf(id)).getContent())
+            .containsExactly("patient-1");
+    }
+
     // --- helpers ---------------------------------------------------------------------------------------------
 
     private static void authenticateAs(String email, String authority) {

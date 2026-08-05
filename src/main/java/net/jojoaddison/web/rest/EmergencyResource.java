@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Emergency;
 import net.jojoaddison.repository.EmergencyRepository;
+import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.EmergencyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -58,6 +59,12 @@ public class EmergencyResource {
             throw new BadRequestAlertException("A new emergency cannot already have an ID", ENTITY_NAME, "idexists");
         }
         emergency.setPatientId(patientScope.requirePatientIdForWrite(emergency.getPatientId()));
+        // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
+        // able to attribute a record to somebody else or backdate it.
+        emergency.setCreatedBy(AuditStamp.currentUser());
+        emergency.setCreatedDate(AuditStamp.today());
+        emergency.setModifiedBy(AuditStamp.currentUser());
+        emergency.setModifiedDate(AuditStamp.today());
         Emergency result = emergencyService.save(emergency);
         return ResponseEntity
             .created(new URI("/api/emergencies/" + result.getId()))
@@ -99,6 +106,11 @@ public class EmergencyResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         emergency.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), emergency.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        emergency.setCreatedBy(existing.getCreatedBy());
+        emergency.setCreatedDate(existing.getCreatedDate());
+        emergency.setModifiedBy(AuditStamp.currentUser());
+        emergency.setModifiedDate(AuditStamp.today());
 
         Emergency result = emergencyService.update(emergency);
         return ResponseEntity
@@ -142,6 +154,11 @@ public class EmergencyResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         emergency.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), emergency.getPatientId()));
+        // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
+        emergency.setCreatedBy(existing.getCreatedBy());
+        emergency.setCreatedDate(existing.getCreatedDate());
+        emergency.setModifiedBy(AuditStamp.currentUser());
+        emergency.setModifiedDate(AuditStamp.today());
 
         Optional<Emergency> result = emergencyService.partialUpdate(emergency);
 
