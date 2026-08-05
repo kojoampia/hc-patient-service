@@ -13,6 +13,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 /**
  * Guards the startup check on the JWT signing key.
  *
+ * <p>Constructed with a default {@link ApplicationProperties}, which leaves origin validation off — this class is
+ * about the signing key, and {@code TokenOriginValidationEnabledIT} covers the other switch.</p>
+ *
  * <p>Until 2026-08-05 both backends shipped a committed 512-bit HMAC key in {@code application-prod.yml}. Removing it
  * is only half the fix: an environment that then forgets {@code JWT_BASE64_SECRET} must fail to start, not start with
  * a zero-length key and sign tokens anybody can forge. This asserts it fails, and that the message says what to
@@ -24,7 +27,7 @@ class SecurityJwtConfigurationUnitTest {
     @NullSource
     @ValueSource(strings = { "", "   " })
     void refusesToBuildAKeyWhenTheSecretIsMissing(String secret) {
-        SecurityJwtConfiguration configuration = new SecurityJwtConfiguration();
+        SecurityJwtConfiguration configuration = new SecurityJwtConfiguration(new ApplicationProperties());
         ReflectionTestUtils.setField(configuration, "jwtKey", secret);
 
         assertThatThrownBy(configuration::jwtEncoder)
@@ -35,7 +38,7 @@ class SecurityJwtConfigurationUnitTest {
 
     @Test
     void buildsAnEncoderWhenTheSecretIsPresent() {
-        SecurityJwtConfiguration configuration = new SecurityJwtConfiguration();
+        SecurityJwtConfiguration configuration = new SecurityJwtConfiguration(new ApplicationProperties());
         // 512 bits, which is what HS512 requires; a shorter key is rejected by Nimbus rather than by us.
         ReflectionTestUtils.setField(
             configuration,
