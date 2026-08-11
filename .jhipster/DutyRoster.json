@@ -1,0 +1,51 @@
+{
+  "annotations": {
+    "changelogDate": "20260811150000"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "documentation": "A named rota a professional can be on duty for — a ward, a clinic, a night shift.",
+  "dto": "no",
+  "entityTableName": "dutyroster",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "name",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "description",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "location",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "DutyRoster",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "no"
+}

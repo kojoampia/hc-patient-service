@@ -47,6 +47,8 @@ const NEW_CHANGELOG = {
   ActivityLog: '20260803090300',
   CarePlanItem: '20260803090400',
   Allergy: '20260803090500',
+  DutyRoster: '20260811150000',
+  Shift: '20260811150100',
 };
 
 const readExisting = (repo, name) => {

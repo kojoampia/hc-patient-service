@@ -1,0 +1,65 @@
+{
+  "annotations": {
+    "changelogDate": "20260811150100"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "documentation": "One professional's turn on a duty roster, between two instants.",
+  "dto": "no",
+  "entityTableName": "shift",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "rosterId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "professionalId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "startsAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "endsAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "status",
+      "fieldType": "ShiftStatus",
+      "fieldValues": "ACTIVE,UPCOMING,COMPLETED",
+      "fieldTypeDocumentation": "Where a shift sits relative to now: still to come, being worked, or over."
+    },
+    {
+      "fieldName": "notes",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "Shift",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "no"
+}

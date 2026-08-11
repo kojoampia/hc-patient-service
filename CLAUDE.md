@@ -105,7 +105,7 @@ Directory map (`src/main/java/net/jojoaddison/`):
 - `repository` — `Spring Data MongoRepository` interfaces only, one per entity, no query logic beyond what Spring Data derives.
 - `domain` — Mongo document classes (`@Document`) plus `AbstractAuditingEntity` and `domain/enumeration` for enums (`CaseCategory`, `CaseStatus`).
 - `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`).
-- `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.).
+- `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.), plus `config/dbmigrations/` — the package Mongock scans (`mongock.migration-scan-package`). It holds no change units today, only `DemoDataInitializer`, an `ApplicationRunner` gated to `dev`/`test` that seeds the professional-dashboard demo dataset from `src/main/resources/config/demo-data/`. Seeding belongs in a runner rather than a change unit because a change unit has no notion of a Spring profile and runs exactly once — the gateway shipped publicly known credentials to production by making that mistake.
 - `broker` — `KafkaConsumer`/`KafkaProducer`.
 - `management` — metrics/health support.
 - `aop/logging` — logging aspect.
@@ -132,18 +132,28 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 
 ### Entities
 
-Generated and present as `@Document` classes with repository + resource + `*ResourceIT`:
+Generated and present as `@Document` classes with repository + resource + `*ResourceIT` — twenty-two, all of them:
 
-`Address`, `ClinicalCase`, `Condition`, `Medication`, `Membership`, `Metadata`, `Profile`, `Recommendation`,
-`Report`, `Stat`, `Task`, `Team`.
+`ActivityLog`, `Address`, `Allergy`, `CarePlanItem`, `ClinicalCase`, `Condition`, `DutyRoster`, `Emergency`,
+`Medication`, `Membership`, `Metadata`, `PaymentOption`, `PersonalDocument`, `Professional`, `Profile`,
+`Recommendation`, `Report`, `Shift`, `Stat`, `Task`, `Team`, `Visitation`.
 
 `ClinicalCase` **replaced** `MedCase` (it is not a rename — different fields, collection `clinicalcase`, and a
 many-to-many to `Recommendation`); its contract comes from `hc-professional/web/.jhipster/ClinicalCase.json`.
 `Recommendation` is new, and exists because that relationship needs it. The `CaseCategory` enum was removed with
-`MedCase`; `CaseStatus` (URGENT/OPEN/CLOSED) remains. `ClinicalCase` and `Recommendation` are the only entities in
-this service with a relationship — everything else is standalone.
+`MedCase`; `CaseStatus` (URGENT/OPEN/TREATMENT/CLOSED) remains. `ClinicalCase` and `Recommendation` are the only
+entities in this service with a relationship — everything else is standalone, referencing by plain String id.
 
-Configured in `.jhipster/` but **not yet generated** (no domain/repository/resource/test): `PaymentOption`, `PersonalDocument` — renamed from the removed `HCPayOption` and `IDocument`. `HCCredential`, `HCPayOption`, `HCDocument`/`IDocument` no longer exist as code. Generating those two is Phase A in `patient-api.md`.
+`DutyRoster` and `Shift` are the newest (2026-08-11) and are what `ClinicalCase.assignedRosterId` points at; it
+named nothing until they existed. Both are **staff reference data**, so they follow `Team`/`Professional` rather than
+the patient entities: readable by any authenticated caller, writable only by `ROLE_ADMIN`/`ROLE_PROFESSIONAL`, no
+`patientId` and no `PatientScope`. `ShiftStatus` (ACTIVE/UPCOMING/COMPLETED) is deliberately not `ScheduleStatus`,
+which is an appointment's lifecycle. One caveat: `DutyRoster.subscribedProfessionalIds` is a `Set<String>` that
+**does not exist in `patient.jdl`** — JDL has no list-of-scalars type — so regenerating that entity drops it. The
+field carries a comment saying so.
+
+`PaymentOption` and `PersonalDocument` (renamed from the removed `HCPayOption` and `IDocument`) are generated too, so
+Phase A of `patient-api.md` is done. `HCCredential`, `HCPayOption`, `HCDocument`/`IDocument` no longer exist as code.
 
 The `entities` array in `.yo-rc.json` is stale (still lists the removed `HCCredential`/`HCPayOption`/`HCDocument` and omits the renames). Trust `.jhipster/*.json` + the `domain` package over it. Regenerating or modifying an entity should keep the `.jhipster` config, domain class, repository, resource, and `*ResourceIT` in sync.
 
