@@ -109,6 +109,15 @@ enum AllergySeverity {
   SEVERE
 }
 
+// New. Deliberately not ScheduleStatus, which is the lifecycle of a patient appointment
+// (confirmed/pending/attended/cancelled) and answers a different question about a different thing.
+/** Where a shift sits relative to now: still to come, being worked, or over. */
+enum ShiftStatus {
+  ACTIVE,
+  UPCOMING,
+  COMPLETED
+}
+
 // ===========================================================================
 // Existing entities — carried over, with additions marked
 // ===========================================================================
@@ -446,6 +455,43 @@ entity Allergy {
   reaction String
   notedOn LocalDate
   notedById String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// New. `ClinicalCase.assignedRosterId` has pointed at nothing since the portal refactor named it —
+// these two entities are what it points at.
+//
+// DutyRoster additionally carries `subscribedProfessionalIds`, a Mongo array of Professional ids,
+// which is NOT declared below because JDL has no list-of-scalars type. It is maintained by hand in
+// `domain/DutyRoster.java` and a regeneration of this entity will drop it — see the comment on the
+// field. The alternative, a @DBRef many-to-many to Professional, was rejected: it would be the second
+// relationship in a domain that holds every other cross-entity reference as a bare String id.
+/** A named rota a professional can be on duty for — a ward, a clinic, a night shift. */
+entity DutyRoster {
+  id String
+  name String
+  description String
+  location String
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
+// New. Subscription to a roster and being rostered on it are different facts: a professional
+// subscribed to a roster has no Shift until one is assigned, and a roster can exist with neither.
+/** One professional's turn on a duty roster, between two instants. */
+entity Shift {
+  id String
+  rosterId String
+  professionalId String
+  startsAt Instant
+  endsAt Instant
+  status ShiftStatus
+  notes String
   createdDate LocalDate
   modifiedDate LocalDate
   createdBy String

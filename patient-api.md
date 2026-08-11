@@ -10,6 +10,45 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 
 ## What changed since the last baseline
 
+### Duty rosters, shifts, and a seeded demo dataset (2026-08-11)
+
+`deploy/professional-dashboard-demo-data.json` was an untracked file describing one clinician, their
+duty roster, and seven patients with cases, visits, activity, medication and reports. It now seeds
+into MongoDB on startup, and the two things in it the domain could not express now exist.
+
+- **Two new entities: `DutyRoster` and `Shift`**, plus the `ShiftStatus` enum
+  (ACTIVE/UPCOMING/COMPLETED). `ClinicalCase.assignedRosterId` has named nothing since the portal
+  refactor introduced it; these are what it points at. Both are **staff reference data** and follow
+  `Team`/`Professional`: repository-direct resources, no `patientId`, no `PatientScope`, readable by
+  any authenticated caller and writable only by `ROLE_ADMIN`/`ROLE_PROFESSIONAL`. `ReferenceDataIT`
+  covers that rule for them alongside the four entities it already covered.
+- **`ShiftStatus` is not `ScheduleStatus`.** The latter is an appointment's lifecycle (confirmed,
+  pending, attended, cancelled) and answers a different question — a shift is not attended or
+  cancelled, it starts and it ends.
+- **`DemoDataInitializer`** (`config/dbmigrations/`) seeds ten collections from
+  `src/main/resources/config/demo-data/professional-dashboard-demo-data.json`, **under `dev` and
+  `test` only**. It is an `ApplicationRunner`, not a Mongock change unit, for the reason the gateway
+  learned the hard way: a change unit has no notion of a profile and runs exactly once. Seeding is
+  additive and idempotent — every record carries a fixed id and is written only when absent, so
+  records edited through the API survive a restart and a dropped collection is restored.
+- **The clinician joins to a real login.** The demo file identifies its professional by
+  `accountLogin: "doctor"`, which `Professional` has no field for; the gateway now seeds a matching
+  `doctor` account and the join is `doctor@localhost`. That account is the only holder of
+  `ROLE_PROFESSIONAL` anywhere — see `hc-patient-gateway/patient-gateway.md`.
+- **Verified:** `./mvnw verify` — 117 unit tests, 450 integration tests, coverage gates met.
+
+Open, and deliberately left so:
+
+- [ ] **`DutyRoster.subscribedProfessionalIds` is not in `patient.jdl`.** JDL has no list-of-scalars
+      type, so regenerating that entity silently drops the field. The alternative — a `@DBRef`
+      many-to-many to `Professional` — was rejected as the second relationship in a domain that
+      holds every other cross-entity reference as a bare String id. The field carries a comment
+      saying it must be re-added by hand; if the domain ever grows a second such field, revisit this
+      rather than repeat it.
+- [ ] **Two demo fields are not seeded.** A patient's `lastActivityAt` (`ActivityLog` is the real
+      source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
+      case with no `caseNumber` in the file is stored without one.
+
 ### Patient-context entities (branch `feature/patient-context-entities`, 2026-08-03)
 
 The dashboard's UI refactor needed domain objects that did not exist. Rather than invent them
@@ -105,7 +144,7 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 
 - `[x]` Generate `PaymentOption` from `.jhipster/PaymentOption.json`: document, repository, resource, `PaymentOptionResourceIT`. (2026-08-03)
 - `[~]` Generate `PersonalDocument` from `.jhipster/PersonalDocument.json` (same set) — generated 2026-08-03. Still open: whether document _content_ lives in Mongo or an object store. `url` is a placeholder for whichever is chosen.
-- `[x]` Refresh the stale `entities` array in `.yo-rc.json` — now lists all twenty entities. (2026-08-03)
+- `[x]` Refresh the stale `entities` array in `.yo-rc.json` — now lists all twenty-two entities, `DutyRoster` and `Shift` included. (2026-08-03, extended 2026-08-11)
 - `[ ]` Coordinate the rename with the dashboard: it still ships `hc-credential` and `hc-pay-option` CRUD screens. Track in `patient-web.md`.
 - `[x]` **`MedCase` replaced by `ClinicalCase`** — a different entity, not a rename. The shape is the one
   the professional dashboard generates against
