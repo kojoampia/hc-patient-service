@@ -1,0 +1,79 @@
+{
+  "dev": {
+    "users": [
+      {
+        "id": "user-demo-grace",
+        "login": "grace",
+        "authorities": ["ROLE_PROFESSIONAL", "ROLE_USER"]
+      }
+    ],
+    "professionals": [
+      {
+        "id": "professional-grace",
+        "firstName": "Grace",
+        "lastName": "Mensah",
+        "role": "General Practitioner",
+        "email": "grace@localhost"
+      }
+    ],
+    "dutyRosters": [{ "id": "clinic-osu-day", "name": "Osu Clinic — Day Shift", "subscribedProfessionalIds": ["professional-grace"] }],
+    "shifts": [
+      {
+        "id": "clinic-osu-active",
+        "rosterId": "clinic-osu-day",
+        "professionalId": "professional-grace",
+        "startsAt": "2026-07-20T08:00:00Z",
+        "endsAt": "2026-07-20T20:00:00Z",
+        "status": "ACTIVE"
+      }
+    ],
+    "recommendations": [{ "id": "recommendation-hba1c-blood-test", "label": "HbA1c blood test", "category": "diagnostic" }],
+    "profiles": [
+      {
+        "id": "patient-kojo",
+        "patientId": "patient-kojo",
+        "firstName": "Kojo",
+        "lastName": "Ampia-Addison",
+        "birthDate": "1976-04-19",
+        "sex": "Male"
+      }
+    ],
+    "stats": [
+      {
+        "id": "stat-sugar-2026-07-24",
+        "patientId": "patient-kojo",
+        "type": "blood-sugar",
+        "name": "Blood sugar",
+        "value": 9.0,
+        "unit": "mmol/L",
+        "referenceLow": 4.0,
+        "referenceHigh": 7.0,
+        "flag": "WARN",
+        "recordedAt": "2026-07-24T00:00:00Z"
+      }
+    ],
+    "clinicalCases": [
+      {
+        "id": "case-12",
+        "patientId": "patient-kojo",
+        "caseNumber": 12,
+        "title": "Rising fasting blood sugar",
+        "openedAt": "2026-07-12T00:00:00Z",
+        "status": "OPEN",
+        "assignedProfessionalId": "professional-grace",
+        "assignedRosterId": "clinic-osu-day",
+        "recommendations": [{ "id": "recommendation-hba1c-blood-test", "label": "HbA1c blood test", "category": "diagnostic" }]
+      }
+    ]
+  },
+  "test": {
+    "profiles": [
+      {
+        "id": "patient-test-only",
+        "patientId": "patient-test-only",
+        "firstName": "Test",
+        "lastName": "Only"
+      }
+    ]
+  }
+}
