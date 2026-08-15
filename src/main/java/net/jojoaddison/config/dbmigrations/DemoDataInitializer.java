@@ -29,6 +29,7 @@ import net.jojoaddison.repository.ShiftRepository;
 import net.jojoaddison.repository.VisitationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
@@ -71,6 +72,7 @@ public class DemoDataInitializer implements ApplicationRunner {
 
     private static final String DEMO_DATA = "config/demo-data/professional-dashboard-demo-data.json";
 
+    private final String externalSeedLocation;
     private final ObjectMapper objectMapper;
     private final ProfessionalRepository professionalRepository;
     private final DutyRosterRepository dutyRosterRepository;
@@ -84,6 +86,7 @@ public class DemoDataInitializer implements ApplicationRunner {
     private final ReportRepository reportRepository;
 
     public DemoDataInitializer(
+        @Value("${hc.seed.location:}") String externalSeedLocation,
         ObjectMapper objectMapper,
         ProfessionalRepository professionalRepository,
         DutyRosterRepository dutyRosterRepository,
@@ -96,6 +99,7 @@ public class DemoDataInitializer implements ApplicationRunner {
         MedicationRepository medicationRepository,
         ReportRepository reportRepository
     ) {
+        this.externalSeedLocation = externalSeedLocation;
         this.objectMapper = objectMapper;
         this.professionalRepository = professionalRepository;
         this.dutyRosterRepository = dutyRosterRepository;
@@ -111,6 +115,15 @@ public class DemoDataInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // A seed document supplied from outside the image replaces this one rather than joining it.
+        // {@link DevelopmentDataInitializer} reads that document, and the two datasets describe the same subsystem
+        // with different people in it: run both and the dashboard lists this file's seven invented patients
+        // alongside the record the other one seeds, which reads as a bug in the data rather than a choice about it.
+        if (externalSeedLocation != null && !externalSeedLocation.isBlank()) {
+            LOG.info("hc.seed.location is set, so the built-in demo dataset stands down in favour of it");
+            return;
+        }
+
         JsonNode root = read();
         if (root == null) {
             return;

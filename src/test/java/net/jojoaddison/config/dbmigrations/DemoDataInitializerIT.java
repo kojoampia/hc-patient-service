@@ -88,6 +88,9 @@ class DemoDataInitializerIT {
 
         initializer =
             new DemoDataInitializer(
+                // No external seed document: that is what the deployed dev loop looks like, and the case where this
+                // class stands down has its own test below.
+                "",
                 objectMapper,
                 professionalRepository,
                 dutyRosterRepository,
@@ -225,6 +228,33 @@ class DemoDataInitializerIT {
 
         assertThat(shiftRepository.count()).isEqualTo(3);
         assertThat(shiftRepository.findById("ward-3-active")).isPresent();
+    }
+
+    @Test
+    void standsDownWhenAnExternalSeedDocumentIsConfigured() {
+        // The quality stack mounts its own record and points hc.seed.location at it. Both datasets describe the same
+        // subsystem with different people in it, so seeding both would list this file's seven invented patients
+        // alongside that record — which reads as a bug in the data rather than a choice about it.
+        DemoDataInitializer standingDown = new DemoDataInitializer(
+            "file:/seed/patient-demo-seed.json",
+            objectMapper,
+            professionalRepository,
+            dutyRosterRepository,
+            shiftRepository,
+            recommendationRepository,
+            profileRepository,
+            clinicalCaseRepository,
+            visitationRepository,
+            activityLogRepository,
+            medicationRepository,
+            reportRepository
+        );
+
+        standingDown.run(null);
+
+        assertThat(professionalRepository.count()).isZero();
+        assertThat(profileRepository.count()).isZero();
+        assertThat(clinicalCaseRepository.count()).isZero();
     }
 
     @Test
