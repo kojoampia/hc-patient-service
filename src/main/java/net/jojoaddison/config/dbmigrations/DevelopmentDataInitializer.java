@@ -248,7 +248,7 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
      * @param <T> the entity type.
      */
     private <T> void save(String collection, MongoRepository<T, String> repository, List<T> records, Function<T, String> id) {
-        if (records.isEmpty()) {
+        if (records == null || records.isEmpty()) {
             return;
         }
         List<T> missing = new ArrayList<>();
