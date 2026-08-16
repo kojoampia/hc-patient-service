@@ -62,6 +62,9 @@ public class ProfessionalService {
                 if (professional.getLastName() != null) {
                     existingProfessional.setLastName(professional.getLastName());
                 }
+                if (professional.getHonorific() != null) {
+                    existingProfessional.setHonorific(professional.getHonorific());
+                }
                 if (professional.getRole() != null) {
                     existingProfessional.setRole(professional.getRole());
                 }

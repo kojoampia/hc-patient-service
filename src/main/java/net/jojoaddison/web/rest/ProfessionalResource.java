@@ -199,6 +199,9 @@ public class ProfessionalResource {
         redacted.setId(professional.getId());
         redacted.setFirstName(professional.getFirstName());
         redacted.setLastName(professional.getLastName());
+        // How a person is addressed is part of their name, not a contact detail: a patient reading their own record
+        // sees "Dr. Grace Mensah" for the same reason they see "Grace Mensah".
+        redacted.setHonorific(professional.getHonorific());
         redacted.setRole(professional.getRole());
         redacted.setSpecialty(professional.getSpecialty());
         redacted.setImageUrl(professional.getImageUrl());

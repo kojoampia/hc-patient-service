@@ -174,6 +174,56 @@ The blueprint asked for first/last name, mobile, email, **long-lat**, **digital 
 - `[ ]` Decide the address shape: one `address` string today versus the blueprint's separate street address, digital address (e.g. Ghana Post GPS), and long-lat. Geo coordinates in particular need a real field type if they are ever queried.
 - `[ ]` Reconcile the string references (`membership`, `team`, `contacts`, `address`) with the standalone `Membership`, `Team`, and `Address` documents — decide whether these are ids, denormalized labels, or should become relationships, and write the answer down. Do this before Phase B links `PatientSubscription` to `Profile`.
 
+## Phase E — what the portal is blocked on (2026-08-16)
+
+Three items on the dashboard's parity list (`web/patient-web.md`, E3/E4) cannot be finished in that
+repo: they need fields and an endpoint here. The dashboard shipped everything around them first, so
+this is the remainder, not the start.
+
+### Decisions taken 2026-08-16
+
+Asked and answered before building, because each changes what gets written:
+
+1. **Uploaded report files live in GridFS, in the MongoDB this service already uses.** No new
+   service, no new port, no credentials, and one backup covers both the documents and their files.
+   `spring-boot-starter-data-mongodb` is already on the classpath, so this is configuration rather
+   than a dependency. The alternatives were a host volume — which the architect would have to
+   provision on both machines, since [[the remote machines are not this workspace's]] — and an
+   object store, which is a service to run on a capacity-constrained host for a demo feature.
+2. **A report accepts PDF, JPEG, PNG and HEIC, up to 10 MB.** A photographed lab slip is what a
+   patient actually has; PDF-only means they do not upload it at all. The type is decided from the
+   _bytes_, not from the filename, and the filename is stored but never used as a path.
+3. **A reading records `source` beside `recordedById`**, exactly as `ActivityLog` already does —
+   `PATIENT`, `PROFESSIONAL` or `DEVICE`. A home glucose reading the patient took themselves then
+   reads "You" through the attribution rule the portal already has, instead of naming a clinician
+   who was not there.
+4. **This goes end to end**: fields here, values in `quality/patient-demo-seed.json`, rendering in
+   `web`. A field nobody can see is not a fix; D3 and D5 stay open on the parity list until the
+   portal shows them.
+
+### The work
+
+All six done 2026-08-16. Two things the tests caught that the change itself had missed, both worth
+keeping in mind for the next field added here: the generated **partial-update** copies fields one by
+one, so a new field is silently dropped by PATCH until it is named there; and `ProfessionalResource`
+**redacts by whitelist** for non-staff callers, so a new field is invisible to every patient until it
+is named there too. The redaction one is the dangerous direction — it fails closed, quietly, and only
+for the people the portal is for.
+
+- `[x]` **C10a · `Report` gains a file.** `POST /api/reports/{id}/file` (multipart) and
+  `GET /api/reports/{id}/file` (streams). Both go through `PatientScope` like every other endpoint
+  here, so a file is visible exactly when its report is; the upload sets `url` to the download path
+  so the portal's existing "Open file" button keeps working unchanged.
+- `[x]` **C10b · type and size enforced from the bytes**, per decision 2, with the rejection saying
+  which types are accepted rather than only that this one was not.
+- `[x]` **D3 · `Professional.honorific`**, nullable. The audit assumed the seed already held it; it
+  does not, and neither did the model. Deriving one from `role` would invent a title — a
+  physiotherapist and a nurse are not "Dr." — so it is a field with a value, or it is nothing.
+- `[x]` **D5 · `Stat.source` and `Stat.recordedById`**, per decision 3.
+- `[x]` **Seed values** for both in `quality/patient-demo-seed.json` (separate repo, separate PR).
+- `[x]` **Portal rendering** in `web` (separate repo, separate PR): the honorific wherever a
+  professional is named, "Recorded … by …" on a vital, and **Upload a report**, which closes C10.
+
 ## Phase B — subscription domain
 
 Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscription`, or related repository/resource in any repo.

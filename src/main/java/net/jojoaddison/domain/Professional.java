@@ -26,6 +26,14 @@ public class Professional implements Serializable {
     @Field("last_name")
     private String lastName;
 
+    /**
+     * How this person is addressed — "Dr.", "Prof.", "Sr.". Optional, and never derived from {@link #role}: a
+     * physiotherapist and a nurse are not doctors, and a title guessed onto a clinical record is a claim the record
+     * did not make.
+     */
+    @Field("honorific")
+    private String honorific;
+
     @Field("role")
     private String role;
 
@@ -101,6 +109,19 @@ public class Professional implements Serializable {
 
     public void setLastName(String lastName) {
         this.lastName = lastName;
+    }
+
+    public String getHonorific() {
+        return this.honorific;
+    }
+
+    public Professional honorific(String honorific) {
+        this.setHonorific(honorific);
+        return this;
+    }
+
+    public void setHonorific(String honorific) {
+        this.honorific = honorific;
     }
 
     public String getRole() {
@@ -285,6 +306,7 @@ public class Professional implements Serializable {
             "id=" + getId() +
             ", firstName='" + getFirstName() + "'" +
             ", lastName='" + getLastName() + "'" +
+            ", honorific='" + getHonorific() + "'" +
             ", role='" + getRole() + "'" +
             ", specialty='" + getSpecialty() + "'" +
             ", email='" + getEmail() + "'" +

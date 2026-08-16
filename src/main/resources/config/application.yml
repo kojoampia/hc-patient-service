@@ -162,6 +162,13 @@ spring:
         size: 2
   thymeleaf:
     mode: HTML
+  # A report is a clinic PDF or a photograph of a lab slip. Spring's defaults are 1 MB for a file and 10 MB for the
+  # request, which rejects an ordinary phone photograph; ReportFileService enforces the same 10 MB itself, so this
+  # only has to stop being the tighter of the two limits.
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
   output:
     ansi:
       console-available: true

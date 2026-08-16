@@ -185,6 +185,12 @@ public class StatResource {
                 if (stat.getRecordedAt() != null) {
                     existingStat.setRecordedAt(stat.getRecordedAt());
                 }
+                if (stat.getSource() != null) {
+                    existingStat.setSource(stat.getSource());
+                }
+                if (stat.getRecordedById() != null) {
+                    existingStat.setRecordedById(stat.getRecordedById());
+                }
                 if (stat.getCreatedDate() != null) {
                     existingStat.setCreatedDate(stat.getCreatedDate());
                 }

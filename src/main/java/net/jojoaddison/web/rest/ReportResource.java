@@ -1,5 +1,7 @@
 package net.jojoaddison.web.rest;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
@@ -9,15 +11,21 @@ import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.service.ReportFileService;
+import net.jojoaddison.service.UnsupportedReportFileException;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.PaginationUtil;
@@ -41,9 +49,12 @@ public class ReportResource {
 
     private final PatientScope patientScope;
 
-    public ReportResource(ReportRepository reportRepository, PatientScope patientScope) {
+    private final ReportFileService reportFiles;
+
+    public ReportResource(ReportRepository reportRepository, PatientScope patientScope, ReportFileService reportFiles) {
         this.reportRepository = reportRepository;
         this.patientScope = patientScope;
+        this.reportFiles = reportFiles;
     }
 
     /**
@@ -254,5 +265,103 @@ public class ReportResource {
         }
         reportRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * {@code POST  /reports/:id/file} : attach a file to the "id" report.
+     *
+     * <p>The report document is created first and the file is attached to it, rather than the two arriving together.
+     * That keeps this endpoint out of the business of building a Report from form fields, and it means an upload that
+     * fails leaves a report the patient can retry against instead of nothing at all.</p>
+     *
+     * <p>Scoped exactly like every other endpoint here: a file may be attached only to a report the caller can
+     * already see, so a patient cannot write into somebody else's record by guessing an id.</p>
+     *
+     * @param id the report to attach to.
+     * @param file the uploaded file — PDF, JPEG, PNG or HEIC, up to 10 MB, decided from its bytes.
+     * @return the updated report, whose {@code url} now points at the download endpoint.
+     */
+    @PostMapping("/{id}/file")
+    public ResponseEntity<Report> uploadReportFile(@PathVariable("id") String id, @RequestParam("file") MultipartFile file) {
+        log.debug("REST request to attach a file to Report : {}", id);
+        Report report = reportRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).orElse(null);
+        if (report == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        try {
+            reportFiles.store(report, file);
+        } catch (UnsupportedReportFileException e) {
+            throw new BadRequestAlertException(e.getMessage(), ENTITY_NAME, "filerejected");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        // Relative on purpose: the browser reaches this service through the gateway, and the gateway's own host is
+        // the only one that resolves for it. An absolute URL built from this container's request would point at a
+        // host nobody outside the compose network can reach.
+        report.setUrl("api/reports/" + report.getId() + "/file");
+        Report saved = reportRepository.save(report);
+        return ResponseEntity
+            .ok()
+            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, saved.getId()))
+            .body(saved);
+    }
+
+    /**
+     * {@code GET  /reports/:id/file} : download the file attached to the "id" report.
+     *
+     * @param id the report to read.
+     * @return the file, with the content type it was recognised as when it was stored — never one the uploader chose.
+     */
+    @GetMapping("/{id}/file")
+    public ResponseEntity<Resource> downloadReportFile(@PathVariable("id") String id) {
+        log.debug("REST request to download the file of Report : {}", id);
+        return reportRepository
+            .findById(id)
+            .filter(current -> patientScope.isVisible(current.getPatientId()))
+            .flatMap(reportFiles::load)
+            .map(ReportResource::asDownload)
+            .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * {@code DELETE  /reports/:id/file} : remove the file attached to the "id" report, keeping the report itself.
+     *
+     * @param id the report to clear.
+     * @return {@code 204 (NO_CONTENT)}, or {@code 404} when there is no such report in the caller's scope.
+     */
+    @DeleteMapping("/{id}/file")
+    public ResponseEntity<Void> deleteReportFile(@PathVariable("id") String id) {
+        log.debug("REST request to remove the file of Report : {}", id);
+        Report report = reportRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).orElse(null);
+        if (report == null) {
+            return ResponseEntity.notFound().build();
+        }
+        reportFiles.deleteFor(report);
+        report.setUrl(null);
+        reportRepository.save(report);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Wraps a stored file as a download.
+     *
+     * <p>{@code Content-Disposition: inline} so a PDF or an image opens in the browser rather than landing in the
+     * downloads folder — the patient is looking at their own report, not collecting a file. The filename is quoted
+     * and was stripped of separators and quotes before it was ever stored.</p>
+     */
+    private static ResponseEntity<Resource> asDownload(GridFsResource stored) {
+        MediaType type;
+        try {
+            type = MediaType.parseMediaType(stored.getContentType());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            type = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        return ResponseEntity
+            .ok()
+            .contentType(type)
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + stored.getFilename() + "\"")
+            .body(stored);
     }
 }

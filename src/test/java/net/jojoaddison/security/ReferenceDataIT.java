@@ -59,6 +59,7 @@ class ReferenceDataIT {
                 new Professional()
                     .firstName("Grace")
                     .lastName("Mensah")
+                    .honorific("Dr.")
                     .role("Cardiologist")
                     .email("grace.mensah@example.com")
                     .phoneNumber("+233200000000")
@@ -110,7 +111,10 @@ class ReferenceDataIT {
             .andExpect(jsonPath("$.[0].role").value("Cardiologist"))
             .andExpect(jsonPath("$.[0].location").value("Accra"))
             .andExpect(jsonPath("$.[0].email").doesNotExist())
-            .andExpect(jsonPath("$.[0].phoneNumber").doesNotExist());
+            .andExpect(jsonPath("$.[0].phoneNumber").doesNotExist())
+            // Redaction is a whitelist, so anything added to Professional is invisible to a patient until it is
+            // named there. How a clinician is addressed is part of their name, not a contact detail.
+            .andExpect(jsonPath("$.[0].honorific").value("Dr."));
 
         restMockMvc
             .perform(get("/api/professionals/{id}", professional.getId()).with(patient()))

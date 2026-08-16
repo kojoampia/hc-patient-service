@@ -5,6 +5,7 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDate;
 import net.jojoaddison.domain.enumeration.StatFlag;
+import net.jojoaddison.domain.enumeration.StatSource;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
@@ -59,6 +60,18 @@ public class Stat implements Serializable {
 
     @Field("recorded_at")
     private Instant recordedAt;
+
+    /**
+     * Who took this reading. A patient's own home measurement is attributed to them, not to a clinician.
+     */
+    @Field("source")
+    private StatSource source;
+
+    /**
+     * The professional who took it, when a professional did. Null for a self-measured or device reading.
+     */
+    @Field("recorded_by_id")
+    private String recordedById;
 
     @Field("created_date")
     private LocalDate createdDate;
@@ -233,6 +246,32 @@ public class Stat implements Serializable {
         return this;
     }
 
+    public StatSource getSource() {
+        return this.source;
+    }
+
+    public Stat source(StatSource source) {
+        this.setSource(source);
+        return this;
+    }
+
+    public void setSource(StatSource source) {
+        this.source = source;
+    }
+
+    public String getRecordedById() {
+        return this.recordedById;
+    }
+
+    public Stat recordedById(String recordedById) {
+        this.setRecordedById(recordedById);
+        return this;
+    }
+
+    public void setRecordedById(String recordedById) {
+        this.recordedById = recordedById;
+    }
+
     public void setRecordedAt(Instant recordedAt) {
         this.recordedAt = recordedAt;
     }
@@ -299,6 +338,8 @@ public class Stat implements Serializable {
             ", flag='" + getFlag() + "'" +
             ", note='" + getNote() + "'" +
             ", recordedAt='" + getRecordedAt() + "'" +
+            ", source='" + getSource() + "'" +
+            ", recordedById='" + getRecordedById() + "'" +
             ", createdDate='" + getCreatedDate() + "'" +
             ", createdBy='" + getCreatedBy() + "'" +
             "}";

@@ -52,6 +52,8 @@ public class StatAsserts {
             .satisfies(a -> assertThat(a.getDescription()).as("check description").isEqualTo(expected.getDescription()))
             .satisfies(a -> assertThat(a.getValue()).as("check value").isEqualTo(expected.getValue()))
             .satisfies(a -> assertThat(a.getNote()).as("check note").isEqualTo(expected.getNote()))
+            .satisfies(a -> assertThat(a.getSource()).as("check source").isEqualTo(expected.getSource()))
+            .satisfies(a -> assertThat(a.getRecordedById()).as("check recordedById").isEqualTo(expected.getRecordedById()))
             .satisfies(a -> assertThat(a.getPatientId()).as("check patientId").isEqualTo(expected.getPatientId()))
             .satisfies(a -> assertThat(a.getCreatedDate()).as("check createdDate").isEqualTo(expected.getCreatedDate()))
             .satisfies(a -> assertThat(a.getCreatedBy()).as("check createdBy").isEqualTo(expected.getCreatedBy()));

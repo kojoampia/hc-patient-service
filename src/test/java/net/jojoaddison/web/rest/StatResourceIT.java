@@ -14,6 +14,7 @@ import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.domain.enumeration.StatFlag;
+import net.jojoaddison.domain.enumeration.StatSource;
 import net.jojoaddison.repository.StatRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,12 @@ class StatResourceIT {
     private static final Double DEFAULT_REFERENCE_HIGH = 1D;
     private static final Double UPDATED_REFERENCE_HIGH = 2D;
 
+    private static final StatSource DEFAULT_SOURCE = StatSource.PROFESSIONAL;
+    private static final StatSource UPDATED_SOURCE = StatSource.PATIENT;
+
+    private static final String DEFAULT_RECORDED_BY_ID = "professional-grace";
+    private static final String UPDATED_RECORDED_BY_ID = "professional-ophelia";
+
     private static final StatFlag DEFAULT_FLAG = StatFlag.OK;
     private static final StatFlag UPDATED_FLAG = StatFlag.WARN;
 
@@ -119,6 +126,8 @@ class StatResourceIT {
             .flag(DEFAULT_FLAG)
             .note(DEFAULT_NOTE)
             .recordedAt(DEFAULT_RECORDED_AT)
+            .source(DEFAULT_SOURCE)
+            .recordedById(DEFAULT_RECORDED_BY_ID)
             .createdDate(DEFAULT_CREATED_DATE)
             .createdBy(DEFAULT_CREATED_BY);
         return stat;
@@ -144,6 +153,8 @@ class StatResourceIT {
             .flag(UPDATED_FLAG)
             .note(UPDATED_NOTE)
             .recordedAt(UPDATED_RECORDED_AT)
+            .source(UPDATED_SOURCE)
+            .recordedById(UPDATED_RECORDED_BY_ID)
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY);
         return stat;
@@ -179,6 +190,8 @@ class StatResourceIT {
         assertThat(testStat.getFlag()).isEqualTo(DEFAULT_FLAG);
         assertThat(testStat.getNote()).isEqualTo(DEFAULT_NOTE);
         assertThat(testStat.getRecordedAt()).isEqualTo(DEFAULT_RECORDED_AT);
+        assertThat(testStat.getSource()).isEqualTo(DEFAULT_SOURCE);
+        assertThat(testStat.getRecordedById()).isEqualTo(DEFAULT_RECORDED_BY_ID);
         assertThat(testStat.getCreatedDate()).isEqualTo(DEFAULT_CREATED_DATE);
         assertThat(testStat.getCreatedBy()).isEqualTo(DEFAULT_CREATED_BY);
     }
@@ -223,6 +236,8 @@ class StatResourceIT {
             .andExpect(jsonPath("$.[*].flag").value(hasItem(DEFAULT_FLAG.toString())))
             .andExpect(jsonPath("$.[*].note").value(hasItem(DEFAULT_NOTE)))
             .andExpect(jsonPath("$.[*].recordedAt").value(hasItem(DEFAULT_RECORDED_AT.toString())))
+            .andExpect(jsonPath("$.[*].source").value(hasItem(DEFAULT_SOURCE.toString())))
+            .andExpect(jsonPath("$.[*].recordedById").value(hasItem(DEFAULT_RECORDED_BY_ID)))
             .andExpect(jsonPath("$.[*].createdDate").value(hasItem(DEFAULT_CREATED_DATE.toString())))
             .andExpect(jsonPath("$.[*].createdBy").value(hasItem(DEFAULT_CREATED_BY)));
     }
@@ -270,6 +285,8 @@ class StatResourceIT {
             .andExpect(jsonPath("$.flag").value(DEFAULT_FLAG.toString()))
             .andExpect(jsonPath("$.note").value(DEFAULT_NOTE))
             .andExpect(jsonPath("$.recordedAt").value(DEFAULT_RECORDED_AT.toString()))
+            .andExpect(jsonPath("$.source").value(DEFAULT_SOURCE.toString()))
+            .andExpect(jsonPath("$.recordedById").value(DEFAULT_RECORDED_BY_ID))
             .andExpect(jsonPath("$.createdDate").value(DEFAULT_CREATED_DATE.toString()))
             .andExpect(jsonPath("$.createdBy").value(DEFAULT_CREATED_BY));
     }
@@ -302,6 +319,8 @@ class StatResourceIT {
             .flag(UPDATED_FLAG)
             .note(UPDATED_NOTE)
             .recordedAt(UPDATED_RECORDED_AT)
+            .source(UPDATED_SOURCE)
+            .recordedById(UPDATED_RECORDED_BY_ID)
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY);
 
@@ -407,7 +426,9 @@ class StatResourceIT {
             .referenceHigh(UPDATED_REFERENCE_HIGH)
             .flag(UPDATED_FLAG)
             .note(UPDATED_NOTE)
-            .recordedAt(UPDATED_RECORDED_AT);
+            .recordedAt(UPDATED_RECORDED_AT)
+            .source(UPDATED_SOURCE)
+            .recordedById(UPDATED_RECORDED_BY_ID);
 
         restStatMockMvc
             .perform(
@@ -461,6 +482,8 @@ class StatResourceIT {
             .flag(UPDATED_FLAG)
             .note(UPDATED_NOTE)
             .recordedAt(UPDATED_RECORDED_AT)
+            .source(UPDATED_SOURCE)
+            .recordedById(UPDATED_RECORDED_BY_ID)
             .createdDate(UPDATED_CREATED_DATE)
             .createdBy(UPDATED_CREATED_BY);
 

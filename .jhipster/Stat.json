@@ -5,7 +5,7 @@
   "changelogDate": "20240206215832",
   "clientRootFolder": "patientMS",
   "databaseType": "mongodb",
-  "documentation": "A single recorded measurement — this is where vitals live. Blood pressure uses `value` for the systolic reading and `secondaryValue` for the diastolic; every other vital uses `value` alone. referenceLow/referenceHigh carry the normal band the reading is judged against.",
+  "documentation": "A single recorded measurement \u2014 this is where vitals live. Blood pressure uses `value` for the systolic reading and `secondaryValue` for the diastolic; every other vital uses `value` alone. referenceLow/referenceHigh carry the normal band the reading is judged against.",
   "dto": "no",
   "entityTableName": "stat",
   "fields": [
@@ -62,6 +62,17 @@
     {
       "fieldName": "recordedAt",
       "fieldType": "Instant"
+    },
+    {
+      "fieldName": "source",
+      "fieldType": "StatSource",
+      "fieldTypeDocumentation": "Who took this reading \u2014 the patient themselves, a professional, or a device.",
+      "fieldValues": "PATIENT,PROFESSIONAL,DEVICE"
+    },
+    {
+      "fieldName": "recordedById",
+      "fieldType": "String",
+      "fieldTypeDocumentation": "The professional who took it, when a professional did."
     },
     {
       "fieldName": "createdDate",

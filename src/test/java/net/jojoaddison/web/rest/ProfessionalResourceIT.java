@@ -42,6 +42,9 @@ class ProfessionalResourceIT {
     private static final String DEFAULT_LAST_NAME = "AAAAAAAAAA";
     private static final String UPDATED_LAST_NAME = "BBBBBBBBBB";
 
+    private static final String DEFAULT_HONORIFIC = "Dr.";
+    private static final String UPDATED_HONORIFIC = "Prof.";
+
     private static final String DEFAULT_ROLE = "AAAAAAAAAA";
     private static final String UPDATED_ROLE = "BBBBBBBBBB";
 
@@ -99,6 +102,7 @@ class ProfessionalResourceIT {
         Professional professional = new Professional()
             .firstName(DEFAULT_FIRST_NAME)
             .lastName(DEFAULT_LAST_NAME)
+            .honorific(DEFAULT_HONORIFIC)
             .role(DEFAULT_ROLE)
             .specialty(DEFAULT_SPECIALTY)
             .email(DEFAULT_EMAIL)
@@ -124,6 +128,7 @@ class ProfessionalResourceIT {
         Professional professional = new Professional()
             .firstName(UPDATED_FIRST_NAME)
             .lastName(UPDATED_LAST_NAME)
+            .honorific(UPDATED_HONORIFIC)
             .role(UPDATED_ROLE)
             .specialty(UPDATED_SPECIALTY)
             .email(UPDATED_EMAIL)
@@ -159,6 +164,7 @@ class ProfessionalResourceIT {
         Professional testProfessional = professionalList.get(professionalList.size() - 1);
         assertThat(testProfessional.getFirstName()).isEqualTo(DEFAULT_FIRST_NAME);
         assertThat(testProfessional.getLastName()).isEqualTo(DEFAULT_LAST_NAME);
+        assertThat(testProfessional.getHonorific()).isEqualTo(DEFAULT_HONORIFIC);
         assertThat(testProfessional.getRole()).isEqualTo(DEFAULT_ROLE);
         assertThat(testProfessional.getSpecialty()).isEqualTo(DEFAULT_SPECIALTY);
         assertThat(testProfessional.getEmail()).isEqualTo(DEFAULT_EMAIL);
@@ -203,6 +209,7 @@ class ProfessionalResourceIT {
             .andExpect(jsonPath("$.[*].id").value(hasItem(professional.getId())))
             .andExpect(jsonPath("$.[*].firstName").value(hasItem(DEFAULT_FIRST_NAME)))
             .andExpect(jsonPath("$.[*].lastName").value(hasItem(DEFAULT_LAST_NAME)))
+            .andExpect(jsonPath("$.[*].honorific").value(hasItem(DEFAULT_HONORIFIC)))
             .andExpect(jsonPath("$.[*].role").value(hasItem(DEFAULT_ROLE)))
             .andExpect(jsonPath("$.[*].specialty").value(hasItem(DEFAULT_SPECIALTY)))
             .andExpect(jsonPath("$.[*].email").value(hasItem(DEFAULT_EMAIL)))
@@ -230,6 +237,7 @@ class ProfessionalResourceIT {
             .andExpect(jsonPath("$.id").value(professional.getId()))
             .andExpect(jsonPath("$.firstName").value(DEFAULT_FIRST_NAME))
             .andExpect(jsonPath("$.lastName").value(DEFAULT_LAST_NAME))
+            .andExpect(jsonPath("$.honorific").value(DEFAULT_HONORIFIC))
             .andExpect(jsonPath("$.role").value(DEFAULT_ROLE))
             .andExpect(jsonPath("$.specialty").value(DEFAULT_SPECIALTY))
             .andExpect(jsonPath("$.email").value(DEFAULT_EMAIL))
@@ -262,6 +270,7 @@ class ProfessionalResourceIT {
         updatedProfessional
             .firstName(UPDATED_FIRST_NAME)
             .lastName(UPDATED_LAST_NAME)
+            .honorific(UPDATED_HONORIFIC)
             .role(UPDATED_ROLE)
             .specialty(UPDATED_SPECIALTY)
             .email(UPDATED_EMAIL)
@@ -289,6 +298,7 @@ class ProfessionalResourceIT {
         Professional testProfessional = professionalList.get(professionalList.size() - 1);
         assertThat(testProfessional.getFirstName()).isEqualTo(UPDATED_FIRST_NAME);
         assertThat(testProfessional.getLastName()).isEqualTo(UPDATED_LAST_NAME);
+        assertThat(testProfessional.getHonorific()).isEqualTo(UPDATED_HONORIFIC);
         assertThat(testProfessional.getRole()).isEqualTo(UPDATED_ROLE);
         assertThat(testProfessional.getSpecialty()).isEqualTo(UPDATED_SPECIALTY);
         assertThat(testProfessional.getEmail()).isEqualTo(UPDATED_EMAIL);
@@ -390,6 +400,7 @@ class ProfessionalResourceIT {
         Professional testProfessional = professionalList.get(professionalList.size() - 1);
         assertThat(testProfessional.getFirstName()).isEqualTo(DEFAULT_FIRST_NAME);
         assertThat(testProfessional.getLastName()).isEqualTo(UPDATED_LAST_NAME);
+        assertThat(testProfessional.getHonorific()).isEqualTo(DEFAULT_HONORIFIC);
         assertThat(testProfessional.getRole()).isEqualTo(DEFAULT_ROLE);
         assertThat(testProfessional.getSpecialty()).isEqualTo(DEFAULT_SPECIALTY);
         assertThat(testProfessional.getEmail()).isEqualTo(UPDATED_EMAIL);
@@ -418,6 +429,7 @@ class ProfessionalResourceIT {
         partialUpdatedProfessional
             .firstName(UPDATED_FIRST_NAME)
             .lastName(UPDATED_LAST_NAME)
+            .honorific(UPDATED_HONORIFIC)
             .role(UPDATED_ROLE)
             .specialty(UPDATED_SPECIALTY)
             .email(UPDATED_EMAIL)
@@ -445,6 +457,7 @@ class ProfessionalResourceIT {
         Professional testProfessional = professionalList.get(professionalList.size() - 1);
         assertThat(testProfessional.getFirstName()).isEqualTo(UPDATED_FIRST_NAME);
         assertThat(testProfessional.getLastName()).isEqualTo(UPDATED_LAST_NAME);
+        assertThat(testProfessional.getHonorific()).isEqualTo(UPDATED_HONORIFIC);
         assertThat(testProfessional.getRole()).isEqualTo(UPDATED_ROLE);
         assertThat(testProfessional.getSpecialty()).isEqualTo(UPDATED_SPECIALTY);
         assertThat(testProfessional.getEmail()).isEqualTo(UPDATED_EMAIL);
