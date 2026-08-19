@@ -16,7 +16,13 @@
         "email": "grace@localhost"
       }
     ],
-    "dutyRosters": [{ "id": "clinic-osu-day", "name": "Osu Clinic — Day Shift", "subscribedProfessionalIds": ["professional-grace"] }],
+    "dutyRosters": [
+      {
+        "id": "clinic-osu-day",
+        "name": "Osu Clinic — Day Shift",
+        "subscribedProfessionalIds": ["professional-grace"]
+      }
+    ],
     "shifts": [
       {
         "id": "clinic-osu-active",
@@ -27,7 +33,13 @@
         "status": "ACTIVE"
       }
     ],
-    "recommendations": [{ "id": "recommendation-hba1c-blood-test", "label": "HbA1c blood test", "category": "diagnostic" }],
+    "recommendations": [
+      {
+        "id": "recommendation-hba1c-blood-test",
+        "label": "HbA1c blood test",
+        "category": "diagnostic"
+      }
+    ],
     "profiles": [
       {
         "id": "patient-kojo",
@@ -36,6 +48,15 @@
         "lastName": "Ampia-Addison",
         "birthDate": "1976-04-19",
         "sex": "Male"
+      },
+      {
+        "id": "profile-contact-only",
+        "patientId": "profile-contact-only",
+        "firstName": "Adjoa",
+        "lastName": "Contact",
+        "email": "adjoa.contact@localhost",
+        "careAngelName": "Somebody Named",
+        "careAngelPhone": "0200000000"
       }
     ],
     "stats": [
@@ -62,7 +83,22 @@
         "status": "OPEN",
         "assignedProfessionalId": "professional-grace",
         "assignedRosterId": "clinic-osu-day",
-        "recommendations": [{ "id": "recommendation-hba1c-blood-test", "label": "HbA1c blood test", "category": "diagnostic" }]
+        "recommendations": [
+          {
+            "id": "recommendation-hba1c-blood-test",
+            "label": "HbA1c blood test",
+            "category": "diagnostic"
+          }
+        ]
+      }
+    ],
+    "careDelegations": [
+      {
+        "id": "delegation-active-demo",
+        "patientId": "profile-contact-only",
+        "angelEmail": "angel.demo@localhost",
+        "angelName": "Angel Demo",
+        "status": "ACTIVE"
       }
     ]
   },

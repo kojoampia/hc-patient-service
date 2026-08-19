@@ -3,15 +3,18 @@ package net.jojoaddison.config.dbmigrations;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import net.jojoaddison.IntegrationTest;
+import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.domain.enumeration.CaseStatus;
+import net.jojoaddison.domain.enumeration.DelegationStatus;
 import net.jojoaddison.domain.enumeration.ShiftStatus;
 import net.jojoaddison.domain.enumeration.StatFlag;
 import net.jojoaddison.repository.ActivityLogRepository;
 import net.jojoaddison.repository.AddressRepository;
 import net.jojoaddison.repository.AllergyRepository;
+import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.CarePlanItemRepository;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import net.jojoaddison.repository.ConditionRepository;
@@ -107,6 +110,9 @@ class DevelopmentDataInitializerIT {
     @Autowired
     private TaskRepository taskRepository;
 
+    @Autowired
+    private CareDelegationRepository careDelegationRepository;
+
     @BeforeEach
     void setUp() {
         professionalRepository.deleteAll();
@@ -116,6 +122,7 @@ class DevelopmentDataInitializerIT {
         profileRepository.deleteAll();
         statRepository.deleteAll();
         clinicalCaseRepository.deleteAll();
+        careDelegationRepository.deleteAll();
     }
 
     private DevelopmentDataInitializer initializer(String location, String... activeProfiles) {
@@ -137,6 +144,7 @@ class DevelopmentDataInitializerIT {
             profileRepository,
             addressRepository,
             membershipRepository,
+            careDelegationRepository,
             conditionRepository,
             allergyRepository,
             carePlanItemRepository,
@@ -156,7 +164,7 @@ class DevelopmentDataInitializerIT {
         initializer(FIXTURE, JHipsterConstants.SPRING_PROFILE_DEVELOPMENT).run(null);
 
         assertThat(professionalRepository.findAll()).hasSize(1);
-        assertThat(profileRepository.findAll()).hasSize(1);
+        assertThat(profileRepository.findAll()).hasSize(2);
 
         // Every kind of field the document has to carry across: an enum, a date, an instant, a number.
         Profile patient = profileRepository.findById("patient-kojo").orElseThrow();
@@ -211,7 +219,7 @@ class DevelopmentDataInitializerIT {
 
         initializer.run(null);
 
-        assertThat(profileRepository.count()).isEqualTo(1);
+        assertThat(profileRepository.count()).isEqualTo(2);
         assertThat(profileRepository.findById("patient-kojo").orElseThrow().getSex()).isEqualTo("Female");
     }
 
@@ -256,5 +264,39 @@ class DevelopmentDataInitializerIT {
         assertThat(gate).isNotNull();
         assertThat(gate.value())
             .containsExactlyInAnyOrder(JHipsterConstants.SPRING_PROFILE_DEVELOPMENT, JHipsterConstants.SPRING_PROFILE_TEST);
+    }
+
+    @Test
+    void seedsCareDelegations() {
+        initializer(FIXTURE, JHipsterConstants.SPRING_PROFILE_DEVELOPMENT).run(null);
+
+        CareDelegation delegation = careDelegationRepository.findById("delegation-active-demo").orElseThrow();
+        assertThat(delegation.getStatus()).isEqualTo(DelegationStatus.ACTIVE);
+        assertThat(delegation.getAngelEmail()).isEqualTo("angel.demo@localhost");
+    }
+
+    @Test
+    void aSeededCareAngelContactIsNeverTurnedIntoADelegation() {
+        // The real seed has carried careAngelName and careAngelPhone since long before delegation existed. They are a
+        // contact — somebody to ring — and converting them would hand a named person standing access to a medical
+        // record that nobody consented to. Access is only ever an explicit CareDelegation row.
+        initializer(FIXTURE, JHipsterConstants.SPRING_PROFILE_DEVELOPMENT).run(null);
+
+        Profile contactOnly = profileRepository.findById("profile-contact-only").orElseThrow();
+        assertThat(contactOnly.getCareAngelName()).isEqualTo("Somebody Named");
+        assertThat(contactOnly.getCareAngelEmail()).as("a contact is not an identity to authorize against").isNull();
+
+        assertThat(careDelegationRepository.findAll())
+            .as("only the delegation the document states, never one inferred from a contact")
+            .hasSize(1);
+    }
+
+    @Test
+    void seededProfilesReadAsOnboarded() {
+        // Null onboardingStatus means COMPLETE. If that ever inverts, every seeded account lands in the wizard and
+        // the quality stack shows an onboarding form instead of the demo data it exists to demonstrate.
+        initializer(FIXTURE, JHipsterConstants.SPRING_PROFILE_DEVELOPMENT).run(null);
+
+        assertThat(profileRepository.findAll()).allSatisfy(profile -> assertThat(profile.getOnboardingStatus()).isNull());
     }
 }
