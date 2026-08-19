@@ -10,6 +10,7 @@ import java.util.Optional;
 import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
 import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.ReportFileService;
 import net.jojoaddison.service.UnsupportedReportFileException;
@@ -24,6 +25,7 @@ import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
@@ -254,9 +256,14 @@ public class ReportResource {
     /**
      * {@code DELETE  /reports/:id} : delete the "id" report.
      *
+     * <p><strong>{@code ROLE_ADMIN} only.</strong> Patient data is never deleted — see
+     * {@link net.jojoaddison.security.PatientScope} for why a patient may not delete even their own
+     * records, and what is meant to replace it.</p>
+     *
      * @param id the id of the report to delete.
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteReport(@PathVariable("id") String id) {
         log.debug("REST request to delete Report : {}", id);

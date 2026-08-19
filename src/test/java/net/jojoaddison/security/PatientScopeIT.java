@@ -204,9 +204,21 @@ class PatientScopeIT {
 
     @Test
     void patientCannotDeleteAnotherPatientsRecord() throws Exception {
-        restMockMvc.perform(delete("/api/allergies/{id}", bobAllergy.getId()).with(alice())).andExpect(status().isNotFound());
+        // 403 rather than 404 since patient data became undeletable: DELETE is refused for every non-administrator
+        // before ownership is consulted at all, so this answer no longer depends on whose record it is.
+        restMockMvc.perform(delete("/api/allergies/{id}", bobAllergy.getId()).with(alice())).andExpect(status().isForbidden());
 
         assertThat(allergyRepository.existsById(bobAllergy.getId())).isTrue();
+    }
+
+    @Test
+    void patientCannotDeleteTheirOwnRecordEither() throws Exception {
+        // The companion to the test above, and the one that actually changed policy. Alice may read and edit every
+        // field of her own allergy; she may not make it stop existing. A record removed by the person it is about is
+        // gone for the clinicians who relied on it too.
+        restMockMvc.perform(delete("/api/allergies/{id}", aliceAllergy.getId()).with(alice())).andExpect(status().isForbidden());
+
+        assertThat(allergyRepository.existsById(aliceAllergy.getId())).as("own record survived").isTrue();
     }
 
     @Test
@@ -280,18 +292,22 @@ class PatientScopeIT {
             )
             .andExpect(status().isBadRequest());
 
-        restMockMvc.perform(delete("/api/payment-options/{id}", "bob-card").with(alice())).andExpect(status().isNotFound());
+        restMockMvc.perform(delete("/api/payment-options/{id}", "bob-card").with(alice())).andExpect(status().isForbidden());
 
         assertThat(mongoTemplate.findById("bob-card", org.bson.Document.class, "payment_option")).isNotNull();
     }
 
     @Test
     void deletingSomethingThatDoesNotExistIs404ForAnyoneIncludingAnAdministrator() throws Exception {
-        // The guard reads the record before deleting it, so "absent" and "not yours" take the same exit. Worth
-        // pinning: it is a behaviour change from the generated code, which answered 204 for a missing id.
+        // The guard reads the record before deleting it, so for an administrator "absent" and "not yours" take the
+        // same exit. Worth pinning: it is a behaviour change from the generated code, which answered 204 for a
+        // missing id.
         restMockMvc.perform(delete("/api/allergies/{id}", "no-such-record").with(admin())).andExpect(status().isNotFound());
-        restMockMvc.perform(delete("/api/allergies/{id}", "no-such-record").with(alice())).andExpect(status().isNotFound());
         restMockMvc.perform(delete("/api/addresses/{id}", "no-such-record").with(admin())).andExpect(status().isNotFound());
+
+        // A patient does not get that far. They are refused the verb itself, so a missing id and a real one are
+        // indistinguishable to them — which is the point.
+        restMockMvc.perform(delete("/api/allergies/{id}", "no-such-record").with(alice())).andExpect(status().isForbidden());
     }
 
     // --- callers at the edges ---------------------------------------------------------------------------------

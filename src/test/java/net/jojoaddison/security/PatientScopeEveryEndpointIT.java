@@ -136,7 +136,12 @@ class PatientScopeEveryEndpointIT {
             )
             .andExpect(status().isBadRequest());
 
-        restMockMvc.perform(delete(apiPath + "/{id}", BOB_RECORD_ID).with(alice())).andExpect(status().isNotFound());
+        // 403 rather than the 404 the other verbs give, and deliberately so. Since patient data became undeletable,
+        // DELETE is refused for every non-administrator before ownership is ever consulted — so Alice gets the same
+        // answer here as she would for her own record, or for an id that does not exist. That is a stronger
+        // anti-probing property than the matched-404 the read verbs rely on, not a weaker one: there is no longer any
+        // response DELETE can give that distinguishes one case from another.
+        restMockMvc.perform(delete(apiPath + "/{id}", BOB_RECORD_ID).with(alice())).andExpect(status().isForbidden());
 
         // And it is still there, still Bob's.
         Document stored = mongoTemplate.findById(BOB_RECORD_ID, Document.class, collection);
@@ -199,9 +204,16 @@ class PatientScopeEveryEndpointIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.patientId").value(ALICE_PATIENT_ID));
 
-        // Finally deletable by its owner.
-        restMockMvc.perform(delete(apiPath + "/{id}", ALICE_RECORD_ID).with(alice())).andExpect(status().isNoContent());
-        assertThat(mongoTemplate.findById(ALICE_RECORD_ID, Document.class, collection)).isNull();
+        // But NOT deletable, even by its owner, and even though she can read and write every field of it.
+        //
+        // This assertion was inverted when patient data became undeletable. A record the patient removes is gone for
+        // everyone, including the clinicians who relied on it being there, and a medical record that can be edited to
+        // say anything is still a better one than a medical record that can vanish. Retiring a record is a
+        // professional's archive operation; until that exists, nothing here removes anything.
+        restMockMvc.perform(delete(apiPath + "/{id}", ALICE_RECORD_ID).with(alice())).andExpect(status().isForbidden());
+        assertThat(mongoTemplate.findById(ALICE_RECORD_ID, Document.class, collection))
+            .as("%s record survived its own owner's delete", collection)
+            .isNotNull();
     }
 
     /**
