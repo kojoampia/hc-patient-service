@@ -40,6 +40,15 @@ spring:
         binder:
           replicationFactor: 1
           auto-create-topics: true
+        bindings:
+          patientEvents-out-0:
+            producer:
+              # messageKeyExpression yields a String, and the binder's default key serializer is ByteArraySerializer —
+              # which fails at send time with a ClassCastException, not at startup. In a service that swallows publish
+              # failures by design that is silent: every event is lost and every test still passes.
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+              messageKeyExpression: headers['patientKey']
       bindings:
         binding-out-0:
           content-type: text/plain
@@ -51,6 +60,12 @@ spring:
         kafkaProducer-out-0:
           content-type: text/plain
           group: hc-patient-service
+        # Mirrors the main config. This block replaces rather than merges with it, so a binding that exists only there
+        # is a binding the tests never exercise — StreamBridge would quietly invent a destination instead, and the
+        # events would go somewhere nobody is looking. PatientEventBindingIT is what noticed.
+        patientEvents-out-0:
+          destination: patient-events
+          content-type: application/json
   jackson:
     # Jackson 3 moved this off SerializationFeature onto DateTimeFeature, so Spring Boot 4 binds it
     # under spring.jackson.datatype.datetime.*. Left on the old key it does not merely stop working:

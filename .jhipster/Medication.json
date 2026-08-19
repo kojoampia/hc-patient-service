@@ -40,8 +40,8 @@
     {
       "fieldName": "status",
       "fieldType": "MedicationStatus",
-      "fieldTypeDocumentation": "Whether a prescription is still being taken. WITHHELD records a drug deliberately not given — the patient record has to be able to show \"Amoxicillin — not given, penicillin allergy\".",
-      "fieldValues": "ACTIVE,COMPLETED,WITHHELD"
+      "fieldValues": "ACTIVE,COMPLETED,WITHHELD",
+      "fieldTypeDocumentation": "Whether a prescription is still being taken. WITHHELD records a drug deliberately not given — the patient record has to be able to show \"Amoxicillin — not given, penicillin allergy\"."
     },
     {
       "fieldName": "startedOn",
@@ -50,6 +50,12 @@
     {
       "fieldName": "prescribedById",
       "fieldType": "String"
+    },
+    {
+      "fieldName": "source",
+      "fieldType": "ActivitySource",
+      "fieldValues": "PATIENT,PROFESSIONAL,ANGEL,SYSTEM",
+      "fieldTypeDocumentation": "Who put an entry on the activity timeline."
     },
     {
       "fieldName": "createdDate",

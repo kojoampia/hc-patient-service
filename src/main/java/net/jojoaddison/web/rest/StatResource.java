@@ -8,12 +8,14 @@ import java.util.Optional;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
 import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.ResponseUtil;
@@ -55,6 +57,9 @@ public class StatResource {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
         stat.setPatientId(patientScope.requirePatientIdForWrite(stat.getPatientId()));
+        // Provenance comes from the caller, never from the body — otherwise anyone could post a record
+        // marked PROFESSIONAL and have it read as clinician-attested ever after.
+        stat.setSource(patientScope.currentStatSource());
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         stat.setCreatedBy(AuditStamp.currentUser());
@@ -98,6 +103,9 @@ public class StatResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        stat.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         stat.setCreatedBy(existing.getCreatedBy());
         stat.setCreatedDate(existing.getCreatedDate());
@@ -142,6 +150,9 @@ public class StatResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        stat.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         stat.setCreatedBy(existing.getCreatedBy());
         stat.setCreatedDate(existing.getCreatedDate());
@@ -233,9 +244,14 @@ public class StatResource {
     /**
      * {@code DELETE  /stats/:id} : delete the "id" stat.
      *
+     * <p><strong>{@code ROLE_ADMIN} only.</strong> Patient data is never deleted — see
+     * {@link net.jojoaddison.security.PatientScope} for why a patient may not delete even their own
+     * records, and what is meant to replace it.</p>
+     *
      * @param id the id of the stat to delete.
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteStat(@PathVariable("id") String id) {
         log.debug("REST request to delete Stat : {}", id);

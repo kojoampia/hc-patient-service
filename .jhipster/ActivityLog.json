@@ -35,14 +35,14 @@
     {
       "fieldName": "kind",
       "fieldType": "ActivityKind",
-      "fieldTypeDocumentation": "What kind of event an activity entry describes — drives the timeline icon and colour.",
-      "fieldValues": "CASE,VITAL,RECOMMENDATION,REPORT,VISIT,MEDICATION,NOTE"
+      "fieldValues": "CASE,VITAL,RECOMMENDATION,REPORT,VISIT,MEDICATION,NOTE",
+      "fieldTypeDocumentation": "What kind of event an activity entry describes — drives the timeline icon and colour."
     },
     {
       "fieldName": "source",
       "fieldType": "ActivitySource",
-      "fieldTypeDocumentation": "Who put an entry on the activity timeline.",
-      "fieldValues": "PATIENT,PROFESSIONAL,SYSTEM"
+      "fieldValues": "PATIENT,PROFESSIONAL,ANGEL,SYSTEM",
+      "fieldTypeDocumentation": "Who put an entry on the activity timeline."
     },
     {
       "fieldName": "authorId",

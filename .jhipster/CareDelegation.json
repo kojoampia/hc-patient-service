@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "changelogDate": "20260819100000"
+  },
+  "clientRootFolder": "hcPatientService",
+  "databaseType": "mongodb",
+  "documentation": "One person's authority to act for one patient. A patient nominates an angel (PENDING) who accepts (ACTIVE). Separately, a patient may name a STANDBY nominee and consent in advance that clinicians may activate them — which takes two different professionals, and still ends in the nominee accepting. Nothing here is ever deleted; ending a delegation records who ended it and when.",
+  "dto": "no",
+  "entityTableName": "care_delegation",
+  "fields": [
+    {
+      "fieldName": "id",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "patientId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "angelEmail",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "angelLogin",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "angelName",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "angelPhone",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "status",
+      "fieldType": "DelegationStatus",
+      "fieldValues": "STANDBY,AWAITING_COUNTERSIGNATURE,PENDING,ACTIVE,DECLINED,REVOKED",
+      "fieldTypeDocumentation": "A care delegation's lifecycle. STANDBY is a dormant nomination the patient consented to in advance; it reaches PENDING only when two different professionals declare and countersign an incapacity, and ACTIVE only when the nominee themselves accepts."
+    },
+    {
+      "fieldName": "grantedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "acceptedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "revokedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "revokedBy",
+      "fieldType": "DelegationParty",
+      "fieldValues": "PATIENT,ANGEL",
+      "fieldTypeDocumentation": "Which side ended a delegation — the patient withdrawing access, or the angel stepping down."
+    },
+    {
+      "fieldName": "advanceConsent",
+      "fieldType": "Boolean"
+    },
+    {
+      "fieldName": "activationRequestedById",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "activationRequestedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "activationReason",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "countersignedById",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "countersignedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "createdDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "modifiedDate",
+      "fieldType": "LocalDate"
+    },
+    {
+      "fieldName": "createdBy",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "modifiedBy",
+      "fieldType": "String"
+    }
+  ],
+  "microserviceName": "hcPatientService",
+  "name": "CareDelegation",
+  "pagination": "no",
+  "readOnly": false,
+  "relationships": [],
+  "searchEngine": "no",
+  "service": "serviceClass"
+}

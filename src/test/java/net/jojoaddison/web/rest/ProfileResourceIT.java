@@ -10,7 +10,9 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
+import net.jojoaddison.domain.Address;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.repository.AddressRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,8 +84,10 @@ class ProfileResourceIT {
     private static final String DEFAULT_CONTACTS = "AAAAAAAAAA";
     private static final String UPDATED_CONTACTS = "BBBBBBBBBB";
 
-    private static final String DEFAULT_ADDRESS = "AAAAAAAAAA";
-    private static final String UPDATED_ADDRESS = "BBBBBBBBBB";
+    // Address is a @DBRef since care onboarding, so these are documents rather than strings, and both have to be
+    // saved before a Profile can reference them — a DBRef to an id that was never written reads back as null.
+    private static final Address DEFAULT_ADDRESS = new Address().id("addr-default").streetAddress("AAAAAAAAAA");
+    private static final Address UPDATED_ADDRESS = new Address().id("addr-updated").streetAddress("BBBBBBBBBB");
 
     private static final String DEFAULT_TEAM = "AAAAAAAAAA";
     private static final String UPDATED_TEAM = "BBBBBBBBBB";
@@ -108,6 +112,9 @@ class ProfileResourceIT {
 
     @Autowired
     private ProfileRepository profileRepository;
+
+    @Autowired
+    private AddressRepository addressRepository;
 
     @Autowired
     private MockMvc restProfileMockMvc;
@@ -181,6 +188,10 @@ class ProfileResourceIT {
     @BeforeEach
     public void initTest() {
         profileRepository.deleteAll();
+        addressRepository.deleteAll();
+        // The referenced documents must exist for the @DBRef to resolve on read-back.
+        addressRepository.save(DEFAULT_ADDRESS);
+        addressRepository.save(UPDATED_ADDRESS);
         profile = createEntity();
     }
 
@@ -261,7 +272,7 @@ class ProfileResourceIT {
             .andExpect(jsonPath("$.[*].cardType").value(hasItem(DEFAULT_CARD_TYPE)))
             .andExpect(jsonPath("$.[*].cardNumber").value(hasItem(DEFAULT_CARD_NUMBER)))
             .andExpect(jsonPath("$.[*].contacts").value(hasItem(DEFAULT_CONTACTS)))
-            .andExpect(jsonPath("$.[*].address").value(hasItem(DEFAULT_ADDRESS)))
+            .andExpect(jsonPath("$.[*].address.streetAddress").value(hasItem(DEFAULT_ADDRESS.getStreetAddress())))
             .andExpect(jsonPath("$.[*].team").value(hasItem(DEFAULT_TEAM)))
             .andExpect(jsonPath("$.[*].imageUrl").value(hasItem(DEFAULT_IMAGE_URL)))
             .andExpect(jsonPath("$.[*].about").value(hasItem(DEFAULT_ABOUT)))
@@ -348,7 +359,7 @@ class ProfileResourceIT {
             .andExpect(jsonPath("$.cardType").value(DEFAULT_CARD_TYPE))
             .andExpect(jsonPath("$.cardNumber").value(DEFAULT_CARD_NUMBER))
             .andExpect(jsonPath("$.contacts").value(DEFAULT_CONTACTS))
-            .andExpect(jsonPath("$.address").value(DEFAULT_ADDRESS))
+            .andExpect(jsonPath("$.address.streetAddress").value(DEFAULT_ADDRESS.getStreetAddress()))
             .andExpect(jsonPath("$.team").value(DEFAULT_TEAM))
             .andExpect(jsonPath("$.imageUrl").value(DEFAULT_IMAGE_URL))
             .andExpect(jsonPath("$.about").value(DEFAULT_ABOUT))
@@ -675,5 +686,29 @@ class ProfileResourceIT {
         // Validate the database contains one less item
         List<Profile> profileList = profileRepository.findAll();
         assertThat(profileList).hasSize(databaseSizeBeforeDelete - 1);
+    }
+
+    @Test
+    void aProfileCreatedByAClinicianStillHasToBeOnboarded() throws Exception {
+        // Created by somebody other than its patient — a walk-in registered at a desk. That patient has nominated no
+        // care angel, given no advance consent and supplied no identification, and the wizard is where all three are
+        // collected, so the record has to say it is unfinished.
+        restProfileMockMvc
+            .perform(
+                post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(createEntity()))
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.onboardingStatus").value("IN_PROGRESS"))
+            .andExpect(jsonPath("$.onboardingStep").value(0));
+    }
+
+    @Test
+    void aProfileWrittenBeforeOnboardingExistedCountsAsFinished() {
+        // Null is COMPLETE, and has to be: every production record, the development seed and the quality dataset all
+        // read null, and treating them as unfinished would put an onboarding form in front of the demo data the
+        // quality stack exists to show.
+        Profile legacy = profileRepository.save(createEntity().onboardingStatus(null));
+
+        assertThat(profileRepository.findById(legacy.getId()).orElseThrow().getOnboardingStatus()).isNull();
     }
 }

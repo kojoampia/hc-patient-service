@@ -10,6 +10,46 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 
 ## What changed since the last baseline
 
+### Patient onboarding, care delegation and the first domain events (2026-08-19)
+
+The largest change this service has taken. `docs/onboarding.md` is the plan of record and its §16 is
+the contract; this is what landed here.
+
+**Onboarding.** `POST /api/onboarding` is the one path that may run before a `Profile` exists —
+because `PatientScope.requirePatientIdForWrite` refuses every clinical write to a caller it cannot
+resolve to a patient, a newly registered person could not create the record that would grant them the
+right to create it. It acts only on the token's email, ignores `email`/`patientId`/`id` in the
+payload, and 409s once a record exists, so it succeeds exactly once per account. Steps 2–5 are named
+endpoints (`/care-angel`, `/baseline`, `/current-state`, `/identification`) with a DTO each — the one
+place this service has a DTO layer, and deliberately, because the payload must not be a `Profile`.
+
+**Care delegation.** `CareDelegation` is the record an angel's access rests on, and `PatientScope`
+reads it — never `Profile.careAngelEmail`, which is a display cache. `ROLE_ANGEL` grants nothing.
+Which patient an angel is acting for arrives in an `X-Acting-As` header re-checked per request, so a
+revocation bites on the next one rather than when a token expires. Reaching a patient's record from a
+dormant `STANDBY` nomination takes three gates: the patient's advance consent, two _different_
+professionals, and the nominee's own acceptance.
+
+**Nothing patient-owned is deleted.** Sixteen resources had a `DELETE` guarded only by `isVisible`,
+which is true for a patient's own records — so a patient could permanently remove their own profile,
+conditions, allergies, medications and reports. All sixteen now require `ROLE_ADMIN`.
+
+**Provenance is stated, not inferred.** `Condition`, `Allergy`, `Medication` and `Stat` carry
+`source`, stamped from the caller on create and preserved on update. Nothing set it before, so a
+client could post an allergy marked `PROFESSIONAL` and have it read as clinician-attested forever.
+
+**`Profile.address` is a `@DBRef` to `Address`,** with `AddressAsDocumentMigration` — the first
+Mongock change unit in this service — reshaping existing free-text values. `LenientAddressDeserializer`
+keeps the old string form readable, which matters more than it sounds: `DevelopmentDataInitializer`
+answers a failed read by loading _nothing at all_, so one stale address would have emptied the whole
+seeded dataset.
+
+**The first real domain events.** The journey publishes to `patient-events` (§8 of the plan), keyed
+by lowercased email. No event carries clinical content and `PatientEventPublisher` throws if a
+payload would. Publishing is best-effort and never fails the operation — which is also how a Kafka
+key-serializer mismatch silently dropped every event while the suite stayed green, until
+`PatientEventRoundTripIT` published and read one back.
+
 ### Duty rosters, shifts, and a seeded demo dataset (2026-08-11)
 
 `deploy/professional-dashboard-demo-data.json` was an untracked file describing one clinician, their
@@ -125,10 +165,10 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 
 ## Open decisions that block work below
 
-1. **Subscription plan prices.** The blueprint says Pear 1000 / Melon 2000 / Pawpaw 5000; the checklist said Pear 3000 / Pawpaw 4000 / Melon 5000. Nothing can be seeded until one set is chosen. Owner: product.
+1. ~~**Subscription plan prices.**~~ Settled 2026-08-19, by removing the question. This subsystem states no price: the dashboard renders Abofonsa's pre-formatted `priceAmount` through a gateway proxy at `/api/plans`, and choosing a tier writes a `Membership` carrying the plan code and nothing about money. Two products quoting different numbers for one tier stays fixed by never restating one.
 2. **Telemetry datastore.** The blueprint calls for a TimescaleDB `telemetry_db` alongside MongoDB. This service is Mongo-only today — no TimescaleDB image, dependency, or config exists anywhere in the workspace. Adding it means a second datastore plus a JPA/JDBC stack in a service that has neither. Alternative: keep vitals in MongoDB (time-series collections) and revisit if query load demands it.
 3. ~~**Spring Boot 4 / Java 25 upgrade.**~~ Settled 2026-08-04: this service followed the gateway onto Spring Boot 4.0.6 and Java 25. Both now target the same Boot major and the same JDK — worth keeping that way, since the two share a JWT contract and the Jackson/Mongo breakages above all came from the halves drifting apart.
-4. **Patient/angel roles.** The blueprint expects a `PATIENT` (or `ANGEL`) role. Only `ROLE_ADMIN`, `ROLE_USER`, `ROLE_ANONYMOUS` exist in `AuthoritiesConstants`, and roles are minted by the gateway — so this is a joint change with `hc-patient-gateway`.
+4. ~~**Patient/angel roles.**~~ Settled 2026-08-19. The gateway grants `ROLE_USER` + `ROLE_PATIENT` at registration and `ROLE_ANGEL` to a nominated care angel's account. What the answer turned out to be is worth keeping: **neither role authorizes anything here.** A patient's access comes from `PatientScope` resolving their email to a `Profile`; an angel's comes from an `ACTIVE` `CareDelegation` re-read on every request. Authorizing on the role would mean a revoked angel kept access for as long as their token lived.
 
 ## Baseline — already in place
 
@@ -234,7 +274,12 @@ Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscri
 - `[ ]` Seed the default plans — blocked on decision 1.
 - `[ ]` Introduce a migration mechanism. This service has none (the gateway uses Mongock); pick Mongock or a documented startup seeder before writing seed logic.
 - `[ ]` REST surface for plan lookup and subscribe/change-plan, following the resource conventions in `.github/instructions/rest-patterns.instructions.md`.
-- `[ ]` A unified onboarding endpoint that accepts the mobile app's basic-info + identification + plan-selection DTO in one call (blueprint prompt 3.2 has no backend counterpart today).
+- `[x]` ~~A unified onboarding endpoint~~ — built 2026-08-19, but **not** as one call. Five named
+  endpoints with a DTO each, because the steps carry genuinely different payloads and one handler
+  taking five shapes could only be typed as a map. There is no transaction to make a single call
+  atomic anyway (standalone Mongo), so the journey is built to be resumable instead. Plan selection
+  is deliberately _not_ part of it: it is a portal surface fed by Abofonsa, so a patient is never
+  blocked mid-onboarding by another product being down. See `docs/onboarding.md` §16.
 
 ## Phase C — telemetry ingestion
 

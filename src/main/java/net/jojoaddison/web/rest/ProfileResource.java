@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.domain.enumeration.OnboardingStatus;
 import net.jojoaddison.repository.ProfileRepository;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.ProfileService;
@@ -18,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
@@ -64,6 +67,19 @@ public class ProfileResource {
             throw new BadRequestAlertException("A new profile cannot already have an ID", ENTITY_NAME, "idexists");
         }
         profile.setPatientId(patientScope.requirePatientIdForWrite(profile.getPatientId()));
+
+        // A profile created here was created by somebody other than its patient — a clinician registering a walk-in,
+        // or an administrator. That patient has not nominated a care angel, given the advance consent a standby
+        // activation depends on, or supplied identification, and the wizard is the only place any of those are
+        // collected. Marking the record IN_PROGRESS is what makes them see it on their first sign-in.
+        //
+        // Null keeps meaning COMPLETE, so nothing already in the database is dragged backwards; this only applies to
+        // records written from now on. See OnboardingStatus.
+        if (profile.getOnboardingStatus() == null) {
+            profile.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
+            profile.setOnboardingStep(0);
+        }
+
         Profile result = profileService.save(profile);
         return ResponseEntity
             .created(new URI("/api/profiles/" + result.getId()))
@@ -221,9 +237,14 @@ public class ProfileResource {
     /**
      * {@code DELETE  /profiles/:id} : delete the "id" profile.
      *
+     * <p><strong>{@code ROLE_ADMIN} only.</strong> Patient data is never deleted — see
+     * {@link net.jojoaddison.security.PatientScope} for why a patient may not delete even their own
+     * records, and what is meant to replace it.</p>
+     *
      * @param id the id of the profile to delete.
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProfile(@PathVariable("id") String id) {
         log.debug("REST request to delete Profile : {}", id);

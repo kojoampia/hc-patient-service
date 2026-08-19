@@ -43,6 +43,12 @@
       "fieldType": "String"
     },
     {
+      "fieldName": "source",
+      "fieldType": "ActivitySource",
+      "fieldValues": "PATIENT,PROFESSIONAL,ANGEL,SYSTEM",
+      "fieldTypeDocumentation": "Who put an entry on the activity timeline."
+    },
+    {
       "fieldName": "createdDate",
       "fieldType": "LocalDate"
     },

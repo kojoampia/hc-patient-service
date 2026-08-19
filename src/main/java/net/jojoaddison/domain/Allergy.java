@@ -3,6 +3,7 @@ package net.jojoaddison.domain;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.LocalDate;
+import net.jojoaddison.domain.enumeration.ActivitySource;
 import net.jojoaddison.domain.enumeration.AllergyCategory;
 import net.jojoaddison.domain.enumeration.AllergySeverity;
 import org.springframework.data.annotation.Id;
@@ -42,6 +43,19 @@ public class Allergy implements Serializable {
 
     @Field("noted_by_id")
     private String notedById;
+
+    /**
+     * Who reported this.
+     *
+     * <p>Set by the server from the authenticated caller and <strong>never from the payload</strong> — a value the
+     * client can choose is a claim, not a record. A self-reported allergy and a clinician-attested one are clinically
+     * different facts that would otherwise be the same document.</p>
+     *
+     * <p>Null on documents written before this field existed. Rendered as unattributed rather than backfilled with a
+     * guess: inventing provenance for records whose origin nobody knows would be worse than admitting it is unknown.</p>
+     */
+    @Field("source")
+    private ActivitySource source;
 
     @Field("created_date")
     private LocalDate createdDate;
@@ -213,6 +227,19 @@ public class Allergy implements Serializable {
         this.modifiedBy = modifiedBy;
     }
 
+    public ActivitySource getSource() {
+        return this.source;
+    }
+
+    public Allergy source(ActivitySource source) {
+        this.setSource(source);
+        return this;
+    }
+
+    public void setSource(ActivitySource source) {
+        this.source = source;
+    }
+
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here
 
     @Override
@@ -248,6 +275,7 @@ public class Allergy implements Serializable {
             ", modifiedDate='" + getModifiedDate() + "'" +
             ", createdBy='" + getCreatedBy() + "'" +
             ", modifiedBy='" + getModifiedBy() + "'" +
+            ", source='" + getSource() + "'" +
             "}";
     }
 }

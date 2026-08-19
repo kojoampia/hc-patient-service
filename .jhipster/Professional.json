@@ -4,7 +4,7 @@
   },
   "clientRootFolder": "hcPatientService",
   "databaseType": "mongodb",
-  "documentation": "A member of the patient's care team \u2014 who they are, what they do and where they practise.",
+  "documentation": "A member of the patient's care team — who they are, what they do and where they practise.",
   "dto": "no",
   "entityTableName": "professional",
   "fields": [
@@ -19,11 +19,6 @@
     {
       "fieldName": "lastName",
       "fieldType": "String"
-    },
-    {
-      "fieldName": "honorific",
-      "fieldType": "String",
-      "fieldTypeDocumentation": "How this person is addressed \u2014 \"Dr.\", \"Prof.\", \"Sr.\". Never derived from the role."
     },
     {
       "fieldName": "role",
@@ -55,6 +50,10 @@
     },
     {
       "fieldName": "teamId",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "honorific",
       "fieldType": "String"
     },
     {

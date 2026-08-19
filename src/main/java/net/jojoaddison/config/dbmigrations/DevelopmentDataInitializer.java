@@ -9,6 +9,7 @@ import java.util.function.Function;
 import net.jojoaddison.domain.ActivityLog;
 import net.jojoaddison.domain.Address;
 import net.jojoaddison.domain.Allergy;
+import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.CarePlanItem;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.domain.Condition;
@@ -26,6 +27,7 @@ import net.jojoaddison.domain.Visitation;
 import net.jojoaddison.repository.ActivityLogRepository;
 import net.jojoaddison.repository.AddressRepository;
 import net.jojoaddison.repository.AllergyRepository;
+import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.CarePlanItemRepository;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import net.jojoaddison.repository.ConditionRepository;
@@ -106,6 +108,7 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
     private final ProfileRepository profileRepository;
     private final AddressRepository addressRepository;
     private final MembershipRepository membershipRepository;
+    private final CareDelegationRepository careDelegationRepository;
     private final ConditionRepository conditionRepository;
     private final AllergyRepository allergyRepository;
     private final CarePlanItemRepository carePlanItemRepository;
@@ -130,6 +133,7 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         ProfileRepository profileRepository,
         AddressRepository addressRepository,
         MembershipRepository membershipRepository,
+        CareDelegationRepository careDelegationRepository,
         ConditionRepository conditionRepository,
         AllergyRepository allergyRepository,
         CarePlanItemRepository carePlanItemRepository,
@@ -153,6 +157,7 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         this.profileRepository = profileRepository;
         this.addressRepository = addressRepository;
         this.membershipRepository = membershipRepository;
+        this.careDelegationRepository = careDelegationRepository;
         this.conditionRepository = conditionRepository;
         this.allergyRepository = allergyRepository;
         this.carePlanItemRepository = carePlanItemRepository;
@@ -225,6 +230,13 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         save("profiles", profileRepository, data.profiles, net.jojoaddison.domain.Profile::getId);
         save("addresses", addressRepository, data.addresses, Address::getId);
         save("memberships", membershipRepository, data.memberships, Membership::getId);
+        // Delegations after profiles: a delegation names a patientId, and seeding one for a patient who is not there
+        // yet would leave a row that grants access to nothing.
+        //
+        // Note what is NOT done here: a profile's careAngelName/careAngelPhone are a *contact*, and are never turned
+        // into a delegation. Converting them would grant somebody standing access to a medical record that nobody
+        // consented to — the seed has carried such a contact since long before delegation existed.
+        save("careDelegations", careDelegationRepository, data.careDelegations, CareDelegation::getId);
         save("conditions", conditionRepository, data.conditions, Condition::getId);
         save("allergies", allergyRepository, data.allergies, Allergy::getId);
         save("carePlanItems", carePlanItemRepository, data.carePlanItems, CarePlanItem::getId);
@@ -298,6 +310,7 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         public List<net.jojoaddison.domain.Profile> profiles = new ArrayList<>();
         public List<Address> addresses = new ArrayList<>();
         public List<Membership> memberships = new ArrayList<>();
+        public List<CareDelegation> careDelegations = new ArrayList<>();
         public List<Condition> conditions = new ArrayList<>();
         public List<Allergy> allergies = new ArrayList<>();
         public List<CarePlanItem> carePlanItems = new ArrayList<>();

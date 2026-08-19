@@ -8,6 +8,7 @@ import java.util.Optional;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.security.AuditStamp;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
@@ -60,6 +62,9 @@ public class MedicationResource {
             throw new BadRequestAlertException("A new medication cannot already have an ID", ENTITY_NAME, "idexists");
         }
         medication.setPatientId(patientScope.requirePatientIdForWrite(medication.getPatientId()));
+        // Provenance comes from the caller, never from the body — otherwise anyone could post a record
+        // marked PROFESSIONAL and have it read as clinician-attested ever after.
+        medication.setSource(patientScope.currentActivitySource());
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         medication.setCreatedBy(AuditStamp.currentUser());
@@ -107,6 +112,9 @@ public class MedicationResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         medication.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), medication.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        medication.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         medication.setCreatedBy(existing.getCreatedBy());
         medication.setCreatedDate(existing.getCreatedDate());
@@ -155,6 +163,9 @@ public class MedicationResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         medication.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), medication.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        medication.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         medication.setCreatedBy(existing.getCreatedBy());
         medication.setCreatedDate(existing.getCreatedDate());
@@ -255,9 +266,14 @@ public class MedicationResource {
     /**
      * {@code DELETE  /medications/:id} : delete the "id" medication.
      *
+     * <p><strong>{@code ROLE_ADMIN} only.</strong> Patient data is never deleted — see
+     * {@link net.jojoaddison.security.PatientScope} for why a patient may not delete even their own
+     * records, and what is meant to replace it.</p>
+     *
      * @param id the id of the medication to delete.
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMedication(@PathVariable("id") String id) {
         log.debug("REST request to delete Medication : {}", id);

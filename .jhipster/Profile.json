@@ -70,10 +70,6 @@
       "fieldType": "String"
     },
     {
-      "fieldName": "address",
-      "fieldType": "String"
-    },
-    {
       "fieldName": "team",
       "fieldType": "String"
     },
@@ -96,13 +92,42 @@
     {
       "fieldName": "careAngelPhone",
       "fieldType": "String"
+    },
+    {
+      "fieldName": "careAngelEmail",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "careAngelLogin",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "onboardingStatus",
+      "fieldType": "OnboardingStatus",
+      "fieldValues": "IN_PROGRESS,COMPLETE",
+      "fieldTypeDocumentation": "Where a patient is in the onboarding journey. There is deliberately no NOT_STARTED: that is the absence of a Profile, and a null value means COMPLETE so records written before onboarding existed are not dragged back through it."
+    },
+    {
+      "fieldName": "onboardingStep",
+      "fieldType": "Integer"
+    },
+    {
+      "fieldName": "onboardingCompletedAt",
+      "fieldType": "Instant"
     }
   ],
   "microserviceName": "patientService",
   "name": "Profile",
   "pagination": "pagination",
   "readOnly": false,
-  "relationships": [],
+  "relationships": [
+    {
+      "otherEntityName": "address",
+      "relationshipName": "address",
+      "relationshipSide": "left",
+      "relationshipType": "one-to-one"
+    }
+  ],
   "searchEngine": "no",
   "service": "serviceClass"
 }

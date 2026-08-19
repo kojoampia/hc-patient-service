@@ -7,12 +7,14 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.repository.PaymentOptionRepository;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.ResponseUtil;
@@ -189,9 +191,14 @@ public class PaymentOptionResource {
     /**
      * {@code DELETE  /payment-options/:id} : delete the "id" paymentOption.
      *
+     * <p><strong>{@code ROLE_ADMIN} only.</strong> Patient data is never deleted — see
+     * {@link net.jojoaddison.security.PatientScope} for why a patient may not delete even their own
+     * records, and what is meant to replace it.</p>
+     *
      * @param id the id of the paymentOption to delete.
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletePaymentOption(@PathVariable("id") String id) {
         log.debug("REST request to delete PaymentOption : {}", id);

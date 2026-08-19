@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.repository.ClinicalCaseRepository;
+import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.ClinicalCaseService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
@@ -206,9 +208,14 @@ public class ClinicalCaseResource {
     /**
      * {@code DELETE  /clinical-cases/:id} : delete the "id" clinicalCase.
      *
+     * <p><strong>{@code ROLE_ADMIN} only.</strong> Patient data is never deleted — see
+     * {@link net.jojoaddison.security.PatientScope} for why a patient may not delete even their own
+     * records, and what is meant to replace it.</p>
+     *
      * @param id the id of the clinicalCase to delete.
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteClinicalCase(@PathVariable("id") String id) {
         log.debug("REST request to delete ClinicalCase : {}", id);

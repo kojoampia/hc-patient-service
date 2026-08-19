@@ -2,10 +2,14 @@ package net.jojoaddison.domain;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
+import java.time.Instant;
 import java.time.LocalDate;
+import net.jojoaddison.domain.enumeration.OnboardingStatus;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.DBRef;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * The patient's own details, as shown on the record header and the profile screen.
@@ -62,8 +66,18 @@ public class Profile implements Serializable {
     @Field("contacts")
     private String contacts;
 
+    /**
+     * Where the patient lives.
+     *
+     * <p>A {@code @DBRef} rather than the free-text String this was until care onboarding, because a digital address,
+     * a town and a region cannot be recovered from "5 Ankobra River Street" once someone has typed it that way. The
+     * referenced document carries its own {@code patientId} and {@code AddressResource} scopes on it, so it is
+     * protected by the same rules as everything else the patient owns — set both when writing one.</p>
+     */
+    @DBRef
     @Field("address")
-    private String address;
+    @JsonDeserialize(using = LenientAddressDeserializer.class)
+    private Address address;
 
     @Field("team")
     private String team;
@@ -82,6 +96,36 @@ public class Profile implements Serializable {
 
     @Field("care_angel_phone")
     private String careAngelPhone;
+
+    /**
+     * The email of the care angel currently acting for this patient.
+     *
+     * <p><strong>This is a display cache, not the source of truth, and must never be what an authorization check
+     * reads.</strong> {@link CareDelegation} is authoritative: it knows whether the delegation is active, pending,
+     * dormant or revoked, and this field knows none of that. Resolving an angel from here would keep granting access
+     * after a revocation for exactly as long as the two disagreed — which is what makes the distinction worth a
+     * comment rather than a convention.</p>
+     *
+     * <p>It exists so the profile screen can name the angel without a second query.</p>
+     */
+    @Field("care_angel_email")
+    private String careAngelEmail;
+
+    @Field("care_angel_login")
+    private String careAngelLogin;
+
+    /**
+     * Where this patient is in onboarding. Null means COMPLETE — see {@link OnboardingStatus}.
+     */
+    @Field("onboarding_status")
+    private OnboardingStatus onboardingStatus;
+
+    /** The highest step answered, so a returning patient resumes where they stopped. */
+    @Field("onboarding_step")
+    private Integer onboardingStep;
+
+    @Field("onboarding_completed_at")
+    private Instant onboardingCompletedAt;
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -280,16 +324,16 @@ public class Profile implements Serializable {
         this.contacts = contacts;
     }
 
-    public String getAddress() {
+    public Address getAddress() {
         return this.address;
     }
 
-    public Profile address(String address) {
+    public Profile address(Address address) {
         this.setAddress(address);
         return this;
     }
 
-    public void setAddress(String address) {
+    public void setAddress(Address address) {
         this.address = address;
     }
 
@@ -371,6 +415,71 @@ public class Profile implements Serializable {
         this.careAngelPhone = careAngelPhone;
     }
 
+    public String getCareAngelEmail() {
+        return this.careAngelEmail;
+    }
+
+    public Profile careAngelEmail(String careAngelEmail) {
+        this.setCareAngelEmail(careAngelEmail);
+        return this;
+    }
+
+    public void setCareAngelEmail(String careAngelEmail) {
+        this.careAngelEmail = careAngelEmail;
+    }
+
+    public String getCareAngelLogin() {
+        return this.careAngelLogin;
+    }
+
+    public Profile careAngelLogin(String careAngelLogin) {
+        this.setCareAngelLogin(careAngelLogin);
+        return this;
+    }
+
+    public void setCareAngelLogin(String careAngelLogin) {
+        this.careAngelLogin = careAngelLogin;
+    }
+
+    public OnboardingStatus getOnboardingStatus() {
+        return this.onboardingStatus;
+    }
+
+    public Profile onboardingStatus(OnboardingStatus onboardingStatus) {
+        this.setOnboardingStatus(onboardingStatus);
+        return this;
+    }
+
+    public void setOnboardingStatus(OnboardingStatus onboardingStatus) {
+        this.onboardingStatus = onboardingStatus;
+    }
+
+    public Integer getOnboardingStep() {
+        return this.onboardingStep;
+    }
+
+    public Profile onboardingStep(Integer onboardingStep) {
+        this.setOnboardingStep(onboardingStep);
+        return this;
+    }
+
+    public void setOnboardingStep(Integer onboardingStep) {
+        this.onboardingStep = onboardingStep;
+    }
+
+    public Instant getOnboardingCompletedAt() {
+        return this.onboardingCompletedAt;
+    }
+
+    public Profile onboardingCompletedAt(Instant onboardingCompletedAt) {
+        this.setOnboardingCompletedAt(onboardingCompletedAt);
+        return this;
+    }
+
+    public void setOnboardingCompletedAt(Instant onboardingCompletedAt) {
+        this.onboardingCompletedAt = onboardingCompletedAt;
+    }
+
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here
 
     @Override
@@ -416,6 +525,11 @@ public class Profile implements Serializable {
             ", socialHandle='" + getSocialHandle() + "'" +
             ", careAngelName='" + getCareAngelName() + "'" +
             ", careAngelPhone='" + getCareAngelPhone() + "'" +
+            ", careAngelEmail='" + getCareAngelEmail() + "'" +
+            ", careAngelLogin='" + getCareAngelLogin() + "'" +
+            ", onboardingStatus='" + getOnboardingStatus() + "'" +
+            ", onboardingStep=" + getOnboardingStep() +
+            ", onboardingCompletedAt='" + getOnboardingCompletedAt() + "'" +
             "}";
     }
 }
