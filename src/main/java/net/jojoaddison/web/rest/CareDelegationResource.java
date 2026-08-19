@@ -1,5 +1,6 @@
 package net.jojoaddison.web.rest;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,6 +71,22 @@ public class CareDelegationResource {
         Optional<Profile> own = profileRepository.findOneByEmailIgnoreCase(email);
         List<CareDelegation> delegations = careDelegationService.delegationsWhereAngel(email);
 
+        // Each delegation carries the angel's name, not the patient's — so on its own it cannot tell somebody whose
+        // record they would be opening. A picker labelled with opaque ids is precisely the confusion the acting-as
+        // banner exists to prevent, so the patient's name is resolved here.
+        List<Map<String, Object>> described = delegations
+            .stream()
+            .map(delegation -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", delegation.getId());
+                row.put("patientId", String.valueOf(delegation.getPatientId()));
+                row.put("status", String.valueOf(delegation.getStatus()));
+                row.put("angelEmail", String.valueOf(delegation.getAngelEmail()));
+                row.put("patientName", patientNameOf(delegation.getPatientId()));
+                return row;
+            })
+            .toList();
+
         return ResponseEntity.ok(
             Map.of(
                 "email",
@@ -90,7 +107,7 @@ public class CareDelegationResource {
                     )
                     .orElse(Map.of()),
                 "delegations",
-                delegations
+                described
             )
         );
     }
@@ -166,6 +183,31 @@ public class CareDelegationResource {
     public ResponseEntity<CareDelegation> countersign(@PathVariable("id") String id) {
         log.debug("REST request to countersign CareDelegation : {}", id);
         return ResponseEntity.ok(careDelegationService.countersign(id, professionalId()));
+    }
+
+    /**
+     * A patient's display name, for a picker that must never label a medical record with an opaque id.
+     *
+     * <p>Falls back to the id when there is no profile to read — a delegation can only exist once that patient
+     * onboarded, so this should not happen, and showing the id is better than showing nothing.</p>
+     */
+    private String patientNameOf(String patientId) {
+        return profileRepository
+            .findByPatientId(patientId)
+            .stream()
+            .findFirst()
+            .or(() -> profileRepository.findById(patientId))
+            .map(profile ->
+                String
+                    .join(
+                        " ",
+                        Optional.ofNullable(profile.getFirstName()).orElse(""),
+                        Optional.ofNullable(profile.getLastName()).orElse("")
+                    )
+                    .trim()
+            )
+            .filter(name -> !name.isBlank())
+            .orElse(patientId);
     }
 
     private String callerEmail() {
