@@ -40,7 +40,14 @@ For entity resources in `web/rest`:
   - use service partial update and `ResponseUtil.wrapOrNotFound(...)`
 - GET all: return `List<Entity>`
 - GET by id: `ResponseUtil.wrapOrNotFound(...)`
-- DELETE: return 204 + deletion alert header
+- DELETE: return 204 + deletion alert header — **and, on any patient-scoped entity, annotate it
+  `@PreAuthorize("hasAuthority('" + AuthoritiesConstants.ADMIN + "')")`.** Patient data is never
+  deleted: a record removed by the person it is about is gone for the clinicians who relied on it
+  too. Sixteen resources already carry this. Staff reference data (`Team`, `Professional`,
+  `DutyRoster`, `Shift`) is the exception and stays admin-or-professional.
+- A new entity that is patient-scoped also needs `source` stamped from the caller on create and
+  preserved on update, if it records something a patient can report. Never read `source` from the
+  payload — a value the client chooses is a claim, not a record.
 
 ## Service Implementation Pattern
 

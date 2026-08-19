@@ -43,8 +43,18 @@ Implemented as `@Document` classes with a repository, REST resource, and `*Resou
   `assignedProfessionalId`, `assignedRosterId`), a short `brief`, `status`, `symptoms`, `diagnosis`, `openedAt`,
   and a many-to-many to **Recommendation**. REST path `/api/clinical-cases`, collection `clinicalcase`
 - **Recommendation** – labelled, categorised recommendations attached to clinical cases (`/api/recommendations`)
+- **CareDelegation** – one person's authority to act for one patient (2026-08-19). The exception to the
+  pattern above: **no generated CRUD resource and no `DELETE`.** Its endpoints are one per state
+  transition (`/accept`, `/decline`, `/revoke`, `/activate`, `/countersign`), because a generic `PATCH`
+  would let a care angel set their own status to `ACTIVE`, and the record of who could act for a
+  patient — and between which dates — is the point of keeping it.
 
 Configured in `.jhipster/` but not yet generated as Java code: **PaymentOption** and **PersonalDocument** (renamed from `HCPayOption` and `IDocument`).
+
+`Profile.address` is a `@DBRef` to **Address** since 2026-08-19, not a free-text string; existing values
+were reshaped by `AddressAsDocumentMigration`. `Condition`, `Allergy`, `Medication` and `Stat` carry a
+`source`, stamped by the server from the authenticated caller and never taken from the payload — a
+self-reported allergy and a clinician-attested one are different clinical facts.
 
 `MedCase` was **replaced** by `ClinicalCase` — not renamed. The two share only `symptoms` and `status`:
 `ClinicalCase` adds `patientId`, `openedAt`, `brief`, `assignedProfessionalId` and `assignedRosterId`, renames
@@ -53,6 +63,40 @@ entity, and drops `closeDate`, `category` and the audit fields. The `CaseCategor
 defined by `hc-professional/web/.jhipster/ClinicalCase.json`, which the professional dashboard generates against.
 
 `HCCredential`, `HCPayOption`, and `HCDocument`/`IDocument` have been removed from this service. The `entities` array in `.yo-rc.json` still lists the old names and is stale — treat `.jhipster/*.json` plus the `domain` package as the source of truth.
+
+## Onboarding and care delegation
+
+Added 2026-08-19. See `docs/onboarding.md` (§16 is the contract) for the full design.
+
+```
+GET   /api/onboarding/status                    where this patient is; answers for somebody with no record
+POST  /api/onboarding                           step 1 — the only write that may run before a Profile exists
+PATCH /api/onboarding/care-angel                step 2 — nominates; does not wait for acceptance
+PATCH /api/onboarding/baseline                  step 3
+PATCH /api/onboarding/current-state             step 4
+PATCH /api/onboarding/identification            step 5 — required, no "none"
+POST  /api/onboarding/complete
+
+GET   /api/care-delegations/mine                who you are and who you may act for
+GET   /api/care-delegations                     the delegations over your own record
+POST  /api/care-delegations/{id}/accept         angel only; the only transition that grants anything
+POST  /api/care-delegations/{id}/decline        angel only
+POST  /api/care-delegations/{id}/revoke         either party
+POST  /api/care-delegations/{id}/activate       ROLE_PROFESSIONAL — declares an incapacity
+POST  /api/care-delegations/{id}/countersign    a *different* ROLE_PROFESSIONAL
+```
+
+Three rules that constrain anything added near them:
+
+- **`PatientScope` fails closed**, and `POST /api/onboarding` is the single narrow path that may run
+  before a `Profile` exists. It acts only on the token's email and succeeds exactly once per account.
+- **A care angel's authority is an `ACTIVE` `CareDelegation`, never `ROLE_ANGEL`.** Which patient they
+  are acting for arrives in an `X-Acting-As` header, re-checked on every request — so a revocation takes
+  effect on the next one rather than when a token expires.
+- **Patient data is never deleted.** Sixteen resources require `ROLE_ADMIN` for `DELETE`.
+
+The journey publishes to the `patient-events` Kafka topic, keyed by the account's lowercased email. No
+event carries clinical content.
 
 ## Project Structure
 

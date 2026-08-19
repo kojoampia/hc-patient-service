@@ -39,6 +39,18 @@
   - `npm run backend:nohttp:test`
   - `./mvnw -Pprod clean verify sonar:sonar -Dsonar.login=admin -Dsonar.password=admin`
 
+## Onboarding and delegation (2026-08-19)
+
+- `PatientScope` is the authorization model and fails closed. `POST /api/onboarding` is the single
+  narrow path that may run before a `Profile` exists — do not add a second.
+- A care angel's authority is an `ACTIVE` `CareDelegation`, never `ROLE_ANGEL`. Which patient they act
+  for arrives in an `X-Acting-As` header, re-checked per request. `PatientScope` reads the delegation,
+  never `Profile.careAngelEmail`, which is a display cache.
+- Patient data is never deleted: `DELETE` on the sixteen patient-scoped resources requires `ROLE_ADMIN`.
+- `source` on clinical entities is stamped from the caller, never from the payload.
+- No `patient-events` payload may carry clinical content; `PatientEventPublisher` throws if one would.
+- `CareDelegation` has no generated CRUD and no `DELETE` — one endpoint per state transition.
+
 ## Conventions
 
 - The build targets Java 25 (`java.version`, pinned via `maven.compiler.release`); the Maven Enforcer accepts JDK 17-25 (`[17,26)`). Maven must be >= 3.2.5.

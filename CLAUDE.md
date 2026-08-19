@@ -101,11 +101,11 @@ config → web → service (optional) → security → repository (optional) →
 Directory map (`src/main/java/net/jojoaddison/`):
 
 - `web/rest` — `@RestController`s, one per entity (`ProfileResource`, `ClinicalCaseResource`, etc.) plus `web/rest/errors` for the RFC-7807-style exception translation (`ExceptionTranslator`, `BadRequestAlertException`).
-- `service` — business/persistence orchestration. Only `ProfileService` and `ClinicalCaseService` exist; simpler entities call their repository directly from the resource. There is no DTO/mapper layer — domain documents are returned directly.
+- `service` — business/persistence orchestration; `service/dto` and `service/event` beneath it. There is **no general DTO/mapper layer** — domain documents are returned directly — with one deliberate exception: `service/dto` holds the onboarding step payloads, because those must _not_ be a `Profile`. A request body carrying `email`, `patientId` or `id` is how onboarding would become an account-takeover endpoint. `service/event` holds the `patient-events` publisher.
 - `repository` — `Spring Data MongoRepository` interfaces only, one per entity, no query logic beyond what Spring Data derives.
 - `domain` — Mongo document classes (`@Document`) plus `AbstractAuditingEntity` and `domain/enumeration` for enums (`CaseCategory`, `CaseStatus`).
 - `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`).
-- `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.), plus `config/dbmigrations/` — the package Mongock scans (`mongock.migration-scan-package`). It holds no change units today, only two `ApplicationRunner`s, both gated to `dev`/`test`. `DemoDataInitializer` seeds the professional-dashboard demo dataset from `src/main/resources/config/demo-data/`. `DevelopmentDataInitializer` (added 2026-08-15, shaped after hc-admin's class of the same name) seeds a record from a document supplied **from outside the image**, named by `hc.seed.location` — a Spring resource string, unset here, set by `hc-patient-quality` to the file it mounts. That document is keyed by profile at the root and holds plain arrays of domain objects per collection, so Jackson deserializes straight into the domain and a field this service does not have is a field the document cannot set. Setting `hc.seed.location` **stands `DemoDataInitializer` down**, because the two datasets describe the same subsystem with different people in it. Two departures from the hc-admin original, both because this service already promised otherwise: every active profile's block is applied rather than only the most specific (the quality stack runs `dev,test`, and "test wins" would seed nothing at all), and seeding is additive rather than overwriting. Seeding belongs in a runner rather than a change unit because a change unit has no notion of a Spring profile and runs exactly once — the gateway shipped publicly known credentials to production by making that mistake.
+- `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.), plus `config/dbmigrations/` — the package Mongock scans (`mongock.migration-scan-package`). It holds one change unit — `AddressAsDocumentMigration` (2026-08-19), which reshapes free-text `Profile.address` values into `Address` documents — and two `ApplicationRunner`s, both gated to `dev`/`test`. `DemoDataInitializer` seeds the professional-dashboard demo dataset from `src/main/resources/config/demo-data/`. `DevelopmentDataInitializer` (added 2026-08-15, shaped after hc-admin's class of the same name) seeds a record from a document supplied **from outside the image**, named by `hc.seed.location` — a Spring resource string, unset here, set by `hc-patient-quality` to the file it mounts. That document is keyed by profile at the root and holds plain arrays of domain objects per collection, so Jackson deserializes straight into the domain and a field this service does not have is a field the document cannot set. Setting `hc.seed.location` **stands `DemoDataInitializer` down**, because the two datasets describe the same subsystem with different people in it. Two departures from the hc-admin original, both because this service already promised otherwise: every active profile's block is applied rather than only the most specific (the quality stack runs `dev,test`, and "test wins" would seed nothing at all), and seeding is additive rather than overwriting. Seeding belongs in a runner rather than a change unit because a change unit has no notion of a Spring profile and runs exactly once — the gateway shipped publicly known credentials to production by making that mistake.
 - `broker` — `KafkaConsumer`/`KafkaProducer`.
 - `management` — metrics/health support.
 - `aop/logging` — logging aspect.
@@ -132,17 +132,24 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 
 ### Entities
 
-Generated and present as `@Document` classes with repository + resource + `*ResourceIT` — twenty-two, all of them:
+Present as `@Document` classes with a repository — twenty-three. All but `CareDelegation` also have a generated resource and a CRUD `*ResourceIT`:
 
-`ActivityLog`, `Address`, `Allergy`, `CarePlanItem`, `ClinicalCase`, `Condition`, `DutyRoster`, `Emergency`,
-`Medication`, `Membership`, `Metadata`, `PaymentOption`, `PersonalDocument`, `Professional`, `Profile`,
+`ActivityLog`, `Address`, `Allergy`, `CareDelegation`, `CarePlanItem`, `ClinicalCase`, `Condition`, `DutyRoster`,
+`Emergency`, `Medication`, `Membership`, `Metadata`, `PaymentOption`, `PersonalDocument`, `Professional`, `Profile`,
 `Recommendation`, `Report`, `Shift`, `Stat`, `Task`, `Team`, `Visitation`.
+
+`CareDelegation` (2026-08-19) is the exception to every convention here and deliberately so: **no generated CRUD
+resource and no `DELETE`.** Its endpoints are one per state transition. A generic `PATCH` would let a care angel set
+their own status to `ACTIVE`, which is the whole delegation model defeated by the one verb nobody thought about; and
+the record of who could act for a patient, and between which dates, is the point of keeping it.
 
 `ClinicalCase` **replaced** `MedCase` (it is not a rename — different fields, collection `clinicalcase`, and a
 many-to-many to `Recommendation`); its contract comes from `hc-professional/web/.jhipster/ClinicalCase.json`.
 `Recommendation` is new, and exists because that relationship needs it. The `CaseCategory` enum was removed with
-`MedCase`; `CaseStatus` (URGENT/OPEN/TREATMENT/CLOSED) remains. `ClinicalCase` and `Recommendation` are the only
-entities in this service with a relationship — everything else is standalone, referencing by plain String id.
+`MedCase`; `CaseStatus` (URGENT/OPEN/TREATMENT/CLOSED) remains. There are now **two** relationships in this service:
+`ClinicalCase` <-> `Recommendation`, and `Profile` -> `Address`, which became a `@DBRef` on 2026-08-19 because
+onboarding needed a structured address. Everything else is standalone, referencing by plain String id, and a third
+relationship should be argued for rather than assumed.
 
 `DutyRoster` and `Shift` are the newest (2026-08-11) and are what `ClinicalCase.assignedRosterId` points at; it
 named nothing until they existed. Both are **staff reference data**, so they follow `Team`/`Professional` rather than
@@ -158,6 +165,29 @@ Phase A of `patient-api.md` is done. `HCCredential`, `HCPayOption`, `HCDocument`
 The `entities` array in `.yo-rc.json` is stale (still lists the removed `HCCredential`/`HCPayOption`/`HCDocument` and omits the renames). Trust `.jhipster/*.json` + the `domain` package over it. Regenerating or modifying an entity should keep the `.jhipster` config, domain class, repository, resource, and `*ResourceIT` in sync.
 
 Note the frontend (`hc-patient-dashboard`) still ships `hc-credential`/`hc-pay-option` CRUD screens for the old names — coordinate renames across both repos.
+
+## Onboarding, delegation and the rules that come with them
+
+Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the contract. Five things constrain new work:
+
+- **`PatientScope` is the whole authorization model, and it fails closed.** `POST /api/onboarding` is the single
+  narrow path that may run before a `Profile` exists. Do not add a second.
+- **A care angel's authority is an `ACTIVE` `CareDelegation`, never `ROLE_ANGEL`.** `PatientScope` reads the
+  delegation, never `Profile.careAngelEmail`, which is a display cache — reading the cache would keep granting access
+  after a revocation. Which patient an angel acts for arrives in an `X-Acting-As` header, re-checked per request.
+- **Patient data is never deleted.** Sixteen resources require `ROLE_ADMIN` for `DELETE`. Archiving — the
+  professional-only replacement — does not exist yet.
+- **`source` is stamped from the caller, never from the payload,** on create only. A value a client can choose is a
+  claim rather than a record.
+- **No event carries clinical content.** `PatientEventPublisher.assertNothingClinical` throws rather than stripping,
+  so the refusal lands on whoever is adding the field.
+
+Two things that will waste an afternoon if you meet them cold:
+
+- `src/test/resources/config/application.yml` is the **same classpath resource** as the main one and replaces it
+  wholesale. Anything configured only in main is untested. This caused three separate defects.
+- Jackson 3 refuses to bind an absent property onto a primitive (`FAIL_ON_NULL_FOR_PRIMITIVES`) and reports only
+  `"Failed to read request"`. Prefer boxed types in request records.
 
 ## Constraints
 
