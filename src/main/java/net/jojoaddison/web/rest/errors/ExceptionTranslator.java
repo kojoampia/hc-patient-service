@@ -9,7 +9,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import net.jojoaddison.service.DelegationStateException;
+import net.jojoaddison.service.DomainStateException;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
@@ -65,15 +65,15 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * Renders a refused care-delegation transition as an ordinary bad request.
+     * Renders a refused domain rule as an ordinary bad request.
      *
-     * <p>{@link DelegationStateException} is thrown from {@code service}, which the ArchUnit layer rules forbid from
+     * <p>{@link DomainStateException} is thrown from {@code service}, which the ArchUnit layer rules forbid from
      * depending on this package — so the translation happens here instead. The response is identical to a
      * {@link BadRequestAlertException} raised anywhere else, which is the point: a client should not be able to tell
      * that the rule which refused it lives one layer further down.</p>
      */
-    @ExceptionHandler(DelegationStateException.class)
-    public ResponseEntity<Object> handleDelegationState(DelegationStateException ex, NativeWebRequest request) {
+    @ExceptionHandler(DomainStateException.class)
+    public ResponseEntity<Object> handleDelegationState(DomainStateException ex, NativeWebRequest request) {
         return handleAnyException(new BadRequestAlertException(ex.getMessage(), ex.getEntityName(), ex.getErrorKey()), request);
     }
 

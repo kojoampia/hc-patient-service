@@ -99,11 +99,7 @@ public class CareDelegationService {
         if (!advanceConsent) {
             // The consent is the authorisation. Storing the nominee without it would leave a row that looks
             // activatable and is not, and the difference would only surface at the worst possible moment.
-            throw new DelegationStateException(
-                "A standby nominee cannot be recorded without advance consent",
-                ENTITY_NAME,
-                "consentrequired"
-            );
+            throw new DomainStateException("A standby nominee cannot be recorded without advance consent", ENTITY_NAME, "consentrequired");
         }
         return careDelegationRepository.save(
             stamp(
@@ -163,7 +159,7 @@ public class CareDelegationService {
     public CareDelegation revoke(String id, String callerEmail) {
         CareDelegation delegation = require(id);
         if (isTerminal(delegation.getStatus())) {
-            throw new DelegationStateException("This delegation has already ended", ENTITY_NAME, "alreadyended");
+            throw new DomainStateException("This delegation has already ended", ENTITY_NAME, "alreadyended");
         }
         DelegationParty party = partyFor(delegation, callerEmail);
 
@@ -193,10 +189,10 @@ public class CareDelegationService {
         if (!Boolean.TRUE.equals(delegation.getAdvanceConsent())) {
             // The only evidence the patient ever agreed to this. Without it, activating would be a clinician granting
             // access to a medical record on their own authority, which is exactly what the standby path avoids.
-            throw new DelegationStateException("This nominee was recorded without advance consent", ENTITY_NAME, "noconsent");
+            throw new DomainStateException("This nominee was recorded without advance consent", ENTITY_NAME, "noconsent");
         }
         if (reason == null || reason.isBlank()) {
-            throw new DelegationStateException("An incapacity declaration must say why", ENTITY_NAME, "reasonrequired");
+            throw new DomainStateException("An incapacity declaration must say why", ENTITY_NAME, "reasonrequired");
         }
 
         delegation.setStatus(DelegationStatus.AWAITING_COUNTERSIGNATURE);
@@ -220,7 +216,7 @@ public class CareDelegationService {
         // bookkeeping; if this is wrong, one clinician can ripen a delegation alone and the second signature is
         // decorative.
         if (professionalId != null && professionalId.equals(delegation.getActivationRequestedById())) {
-            throw new DelegationStateException(
+            throw new DomainStateException(
                 "The professional who declared the incapacity cannot also countersign it",
                 ENTITY_NAME,
                 "samesignatory"
@@ -252,12 +248,12 @@ public class CareDelegationService {
     private CareDelegation require(String id) {
         return careDelegationRepository
             .findById(id)
-            .orElseThrow(() -> new DelegationStateException("Entity not found", ENTITY_NAME, "idnotfound"));
+            .orElseThrow(() -> new DomainStateException("Entity not found", ENTITY_NAME, "idnotfound"));
     }
 
     private void requireStatus(CareDelegation delegation, DelegationStatus expected) {
         if (expected != delegation.getStatus()) {
-            throw new DelegationStateException("This delegation is not " + expected, ENTITY_NAME, "wrongstatus");
+            throw new DomainStateException("This delegation is not " + expected, ENTITY_NAME, "wrongstatus");
         }
     }
 
@@ -294,11 +290,7 @@ public class CareDelegationService {
             // Nobody is their own angel. Allowing it would create a delegation whose resolution order is undefined —
             // the caller resolves to themselves first, and the row would sit there granting nothing while looking like
             // it granted something.
-            throw new DelegationStateException(
-                "A patient cannot nominate themselves as their own care angel",
-                ENTITY_NAME,
-                "selfnomination"
-            );
+            throw new DomainStateException("A patient cannot nominate themselves as their own care angel", ENTITY_NAME, "selfnomination");
         }
     }
 
