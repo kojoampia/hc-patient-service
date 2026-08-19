@@ -43,6 +43,11 @@ spring:
         bindings:
           patientEvents-out-0:
             producer:
+              # messageKeyExpression yields a String, and the binder's default key serializer is ByteArraySerializer —
+              # which fails at send time with a ClassCastException, not at startup. In a service that swallows publish
+              # failures by design that is silent: every event is lost and every test still passes.
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
               messageKeyExpression: headers['patientKey']
       bindings:
         binding-out-0:

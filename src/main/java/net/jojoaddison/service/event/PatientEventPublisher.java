@@ -113,8 +113,15 @@ public class PatientEventPublisher {
         );
 
         try {
-            streamBridge.send(BINDING, MessageBuilder.withPayload(event).setHeader(KEY_HEADER, key == null ? "" : key).build());
-            log.debug("Published {} for {}", type, key);
+            // The boolean is worth reading: StreamBridge answers false for a binding it could not resolve rather
+            // than throwing, which is a mis-wired producer failing quietly.
+            boolean sent = streamBridge.send(
+                BINDING,
+                MessageBuilder.withPayload(event).setHeader(KEY_HEADER, key == null ? "" : key).build()
+            );
+            if (!sent) {
+                log.warn("Publishing {} was refused by the binder — check the {} binding", type, BINDING);
+            }
         } catch (Exception e) {
             // Deliberately swallowed. See the class javadoc: the write already happened, and the event is a
             // notification rather than the mechanism.
