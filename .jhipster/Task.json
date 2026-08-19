@@ -36,8 +36,8 @@
     {
       "fieldName": "status",
       "fieldType": "ScheduleStatus",
-      "fieldTypeDocumentation": "Appointment lifecycle, used by Task when it carries a scheduled visit.",
-      "fieldValues": "CONFIRMED,PENDING,ATTENDED,CANCELLED"
+      "fieldValues": "CONFIRMED,PENDING,ATTENDED,CANCELLED",
+      "fieldTypeDocumentation": "Appointment lifecycle, used by Task when it carries a scheduled visit."
     },
     {
       "fieldName": "location",

@@ -8,6 +8,9 @@ package net.jojoaddison.domain.enumeration;
  * portal says "you" about the first. Without this, a self-measured reading either names nobody or borrows the name of
  * a clinician who was not there.</p>
  *
+ * <p>{@code ANGEL} is a care angel who took the reading for a patient who could not, and is distinguished from
+ * {@code PATIENT} for the same reason {@link ActivitySource} distinguishes them.</p>
+ *
  * <p>{@code DEVICE} has no reader at all — a cuff or a meter that reports on its own. It is listed now because the
  * telemetry ingestion in Phase C will produce exactly that, and a reading with no {@code recordedById} needs to be
  * distinguishable from one whose recorder was simply never filled in.</p>
@@ -15,5 +18,6 @@ package net.jojoaddison.domain.enumeration;
 public enum StatSource {
     PATIENT,
     PROFESSIONAL,
+    ANGEL,
     DEVICE,
 }

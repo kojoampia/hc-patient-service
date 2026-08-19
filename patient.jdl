@@ -18,8 +18,10 @@
  * than a rewrite:
  *   - ids are String (MongoDB ObjectId rendered as a string)
  *   - cross-entity references are held as plain String ids (`patientId`, `caseId`, …) rather than
- *     JHipster relationships. Only ClinicalCase <-> Recommendation uses a real relationship,
- *     because that one already exists on the backend.
+ *     JHipster relationships. There are exactly two real relationships: ClinicalCase <-> Recommendation,
+ *     because that one already existed on the backend, and Profile -> Address, added with care
+ *     onboarding because a structured address cannot be recovered from a free-text one. Both are
+ *     deliberate exceptions; a third should be argued for, not assumed.
  *   - audit columns are `createdDate` / `modifiedDate` / `createdBy` / `modifiedBy`
  *
  * Vitals are `Stat` — there is no separate Vital entity, by decision.
@@ -36,6 +38,16 @@ enum CaseStatus {
   OPEN,
   TREATMENT,
   CLOSED
+}
+
+/** Who took a reading. Distinct from ActivitySource because a reading can come from a DEVICE — a
+ *  cuff or a meter reporting on its own — which is not something that can write a timeline entry.
+ *  ANGEL was added with care-angel delegation, for the same reason it was added there. */
+enum StatSource {
+  PATIENT,
+  PROFESSIONAL,
+  ANGEL,
+  DEVICE
 }
 
 /** Where a stat sits against its reference band, as judged when the reading was filed. */
@@ -74,10 +86,41 @@ enum EmergencyStatus {
 }
 
 /** Who put an entry on the activity timeline. */
+// ANGEL was added with care-angel delegation: a care angel acting for a patient is neither the
+// patient nor a clinician, and collapsing them into PATIENT would show a patient their angel's
+// entry as if they had written it themselves. PROFESSIONAL keeps its name rather than becoming
+// CLINICIAN — ActivityLog rows already carry it.
 enum ActivitySource {
   PATIENT,
   PROFESSIONAL,
+  ANGEL,
   SYSTEM
+}
+
+/** Where a patient is in the onboarding journey. There is deliberately no NOT_STARTED: that is the
+ *  absence of a Profile, and a null value means COMPLETE so records written before onboarding
+ *  existed are not dragged back through it. */
+enum OnboardingStatus {
+  IN_PROGRESS,
+  COMPLETE
+}
+
+/** A care delegation's lifecycle. STANDBY is a dormant nomination the patient consented to in
+ *  advance; it reaches PENDING only when two different professionals declare and countersign an
+ *  incapacity, and ACTIVE only when the nominee themselves accepts. */
+enum DelegationStatus {
+  STANDBY,
+  AWAITING_COUNTERSIGNATURE,
+  PENDING,
+  ACTIVE,
+  DECLINED,
+  REVOKED
+}
+
+/** Which side ended a delegation — the patient withdrawing access, or the angel stepping down. */
+enum DelegationParty {
+  PATIENT,
+  ANGEL
 }
 
 /** What kind of event an activity entry describes — drives the timeline icon and colour. */
@@ -140,13 +183,20 @@ entity Profile {
   cardType String
   cardNumber String
   contacts String
-  address String
   team String
   imageUrl String
   about String
   socialHandle String
   careAngelName String
   careAngelPhone String
+  // The angel's identity. careAngelEmail is a denormalised pointer to the ACTIVE CareDelegation so
+  // the profile screen can name the angel without a second query — it is NOT the source of truth and
+  // must never be what an authorization check reads. CareDelegation is authoritative.
+  careAngelEmail String
+  careAngelLogin String
+  onboardingStatus OnboardingStatus
+  onboardingStep Integer
+  onboardingCompletedAt Instant
 }
 
 entity Address {
@@ -232,6 +282,11 @@ entity Stat {
   flag StatFlag
   note String
   recordedAt Instant
+  // Added by 67b103f to the domain class and the entity configs but never to this file, so the next
+  // render would have deleted them. `source` is StatSource, not ActivitySource: a reading can come
+  // from a device, which is not a thing that can put an entry on a timeline.
+  recordedById String
+  source StatSource
   createdDate LocalDate
   createdBy String
 }
@@ -253,6 +308,9 @@ entity Medication {
   status MedicationStatus
   startedOn LocalDate
   prescribedById String
+  // Who reported this. Set by the server from the authenticated caller, never from the payload —
+  // a self-reported allergy and a clinician-attested one are clinically different facts.
+  source ActivitySource
   createdDate LocalDate
   modifiedDate LocalDate
   createdBy String
@@ -286,6 +344,9 @@ entity Condition {
   name String
   description String
   patientId String
+  // Who reported this. Set by the server from the authenticated caller, never from the payload —
+  // a self-reported allergy and a clinician-attested one are clinically different facts.
+  source ActivitySource
   createdDate LocalDate
   modifiedDate LocalDate
   createdBy String
@@ -366,6 +427,10 @@ entity Professional {
   initials String
   location String
   teamId String
+  // Added by 67b103f to the domain class and the entity configs but never to this file, so the next
+  // render would have deleted it. How this person is addressed — "Dr.", "Prof.", "Sr." — and never
+  // derived from the role.
+  honorific String
   createdDate LocalDate
   modifiedDate LocalDate
   createdBy String
@@ -455,6 +520,9 @@ entity Allergy {
   reaction String
   notedOn LocalDate
   notedById String
+  // Who reported this. Set by the server from the authenticated caller, never from the payload —
+  // a self-reported allergy and a clinician-attested one are clinically different facts.
+  source ActivitySource
   createdDate LocalDate
   modifiedDate LocalDate
   createdBy String
@@ -467,8 +535,14 @@ entity Allergy {
 // DutyRoster additionally carries `subscribedProfessionalIds`, a Mongo array of Professional ids,
 // which is NOT declared below because JDL has no list-of-scalars type. It is maintained by hand in
 // `domain/DutyRoster.java` and a regeneration of this entity will drop it — see the comment on the
-// field. The alternative, a @DBRef many-to-many to Professional, was rejected: it would be the second
-// relationship in a domain that holds every other cross-entity reference as a bare String id.
+// field. The alternative, a @DBRef many-to-many to Professional, was rejected on the grounds that it
+// would be the second relationship in a domain that holds every other cross-entity reference as a
+// bare String id.
+//
+// That argument no longer stands on its own: Profile -> Address is now a real relationship too (see
+// the Relationships section). The rejection here still holds, but for the narrower reason that a
+// roster's subscribers are a set of ids with no attributes of their own, where an address is a
+// document with nine fields. Rarity was never the real objection; needing a document was.
 /** A named rota a professional can be on duty for — a ward, a clinic, a night shift. */
 entity DutyRoster {
   id String
@@ -498,6 +572,48 @@ entity Shift {
   modifiedBy String
 }
 
+// New with care onboarding. This is the record that a care angel's access rests on, and the only
+// thing PatientScope may consult when deciding whether one person may act for another —
+// `Profile.careAngelEmail` is a display cache and reading it to authorize would be a bypass.
+//
+// Deliberately NOT given a generated CRUD resource: the lifecycle endpoints are the whole API. A
+// generic PATCH would let an angel set their own status to ACTIVE, which is the entire security
+// model in one careless verb.
+/**
+ * One person's authority to act for one patient.
+ *
+ * A patient nominates an angel (PENDING) who accepts (ACTIVE). Separately, a patient may name a
+ * STANDBY nominee and consent in advance that clinicians may activate them — which takes two
+ * different professionals, and still ends in the nominee accepting. Nothing here is ever deleted;
+ * ending a delegation records who ended it and when.
+ */
+entity CareDelegation {
+  id String
+  patientId String
+  angelEmail String
+  angelLogin String
+  angelName String
+  angelPhone String
+  status DelegationStatus
+  grantedAt Instant
+  acceptedAt Instant
+  revokedAt Instant
+  revokedBy DelegationParty
+  // The standby path. advanceConsent is the patient's recorded authorisation and the only evidence
+  // they ever agreed; without it on the row, activation must be refused. The two professional ids
+  // must differ — that single check is the whole of the two-signature control.
+  advanceConsent Boolean
+  activationRequestedById String
+  activationRequestedAt Instant
+  activationReason String
+  countersignedById String
+  countersignedAt Instant
+  createdDate LocalDate
+  modifiedDate LocalDate
+  createdBy String
+  modifiedBy String
+}
+
 // ===========================================================================
 // Relationships
 // ===========================================================================
@@ -506,11 +622,20 @@ relationship ManyToMany {
   ClinicalCase{recommendation} to Recommendation{clinicalCase}
 }
 
+// Profile.address was a plain String until care onboarding needed a real one — a digital address,
+// a town and a region cannot be recovered from "5 Ankobra River Street". This is the second real
+// relationship in the domain, and the comment on DutyRoster above explains why that count used to
+// be one. Address already carries `patientId` and AddressResource already scopes on it, so the
+// referenced document is protected by the same rules as everything else the patient owns.
+relationship OneToOne {
+  Profile{address} to Address
+}
+
 // ===========================================================================
 // Options
 // ===========================================================================
 
-service ClinicalCase, Recommendation, Profile, Professional, Visitation, Emergency, ActivityLog, CarePlanItem, Allergy with serviceClass
+service ClinicalCase, Recommendation, Profile, Professional, Visitation, Emergency, ActivityLog, CarePlanItem, Allergy, CareDelegation with serviceClass
 
 paginate Profile, Report, Medication, Visitation, ActivityLog, Task with pagination
 paginate ClinicalCase with infinite-scroll

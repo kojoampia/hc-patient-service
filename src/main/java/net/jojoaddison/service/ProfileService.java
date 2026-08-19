@@ -120,6 +120,22 @@ public class ProfileService {
                 if (profile.getCareAngelPhone() != null) {
                     existingProfile.setCareAngelPhone(profile.getCareAngelPhone());
                 }
+                if (profile.getOnboardingStatus() != null) {
+                    existingProfile.setOnboardingStatus(profile.getOnboardingStatus());
+                }
+                if (profile.getOnboardingStep() != null) {
+                    existingProfile.setOnboardingStep(profile.getOnboardingStep());
+                }
+                if (profile.getOnboardingCompletedAt() != null) {
+                    existingProfile.setOnboardingCompletedAt(profile.getOnboardingCompletedAt());
+                }
+
+                // careAngelEmail and careAngelLogin are deliberately NOT merged here, and their absence is the
+                // point rather than an oversight. They are a display cache of the active CareDelegation, maintained
+                // by CareDelegationService as delegations change. Letting a generic PATCH write them would let the
+                // profile screen name an angel who has no delegation, or fail to name one who has — a caller cannot
+                // grant themselves access this way, because PatientScope reads the delegation and never this cache,
+                // but "the record says my angel is X" and "X may act for me" would stop being the same statement.
 
                 return existingProfile;
             })

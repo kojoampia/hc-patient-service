@@ -39,8 +39,8 @@
     {
       "fieldName": "status",
       "fieldType": "CaseStatus",
-      "fieldTypeDocumentation": "Lifecycle of a clinical case: raised, assessed, under treatment, then closed.",
-      "fieldValues": "URGENT,OPEN,TREATMENT,CLOSED"
+      "fieldValues": "URGENT,OPEN,TREATMENT,CLOSED",
+      "fieldTypeDocumentation": "Lifecycle of a clinical case: raised, assessed, under treatment, then closed."
     },
     {
       "fieldName": "symptoms",
