@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import net.jojoaddison.domain.Address;
 import net.jojoaddison.domain.Allergy;
@@ -31,6 +32,8 @@ import net.jojoaddison.service.dto.OnboardingCurrentStateDTO;
 import net.jojoaddison.service.dto.OnboardingIdentificationDTO;
 import net.jojoaddison.service.dto.OnboardingIdentityDTO;
 import net.jojoaddison.service.dto.OnboardingStatusDTO;
+import net.jojoaddison.service.event.PatientEventPublisher;
+import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -75,6 +78,7 @@ public class OnboardingService {
     private final AllergyRepository allergyRepository;
     private final MedicationRepository medicationRepository;
     private final CareDelegationService careDelegationService;
+    private final PatientEventPublisher events;
 
     public OnboardingService(
         ProfileRepository profileRepository,
@@ -83,7 +87,8 @@ public class OnboardingService {
         ConditionRepository conditionRepository,
         AllergyRepository allergyRepository,
         MedicationRepository medicationRepository,
-        CareDelegationService careDelegationService
+        CareDelegationService careDelegationService,
+        PatientEventPublisher events
     ) {
         this.profileRepository = profileRepository;
         this.addressRepository = addressRepository;
@@ -92,6 +97,7 @@ public class OnboardingService {
         this.allergyRepository = allergyRepository;
         this.medicationRepository = medicationRepository;
         this.careDelegationService = careDelegationService;
+        this.events = events;
     }
 
     /**
@@ -157,6 +163,17 @@ public class OnboardingService {
             address.setPatientId(saved.getPatientId());
             addressRepository.save(address);
         }
+
+        // The only place the email -> patientId mapping is published. A consumer that has been watching this person
+        // since registration learns here which patient they became.
+        events.publish(
+            PatientEventType.ONBOARDING_STARTED,
+            saved.getEmail(),
+            null,
+            saved.getPatientId(),
+            Map.of("startedAt", Instant.now().toString())
+        );
+        publishStep(saved, STEP_IDENTITY, "identity");
         return saved;
     }
 
@@ -201,7 +218,9 @@ public class OnboardingService {
         if (careAngel.contacts() != null) {
             profile.setContacts(careAngel.contacts());
         }
-        return advance(profile, STEP_CARE_ANGEL);
+        Profile advanced = advance(profile, STEP_CARE_ANGEL);
+        publishStep(advanced, STEP_CARE_ANGEL, "careAngel");
+        return advanced;
     }
 
     /** Step 3 — the baseline readings, one {@code Stat} each. */
@@ -222,7 +241,9 @@ public class OnboardingService {
             readings.add(stat(profile, "BLOOD_SUGAR", "Blood sugar", baseline.bloodSugarMmolL(), null, "mmol/L"));
         }
         statRepository.saveAll(readings);
-        return advance(profile, STEP_BASELINE);
+        Profile advanced = advance(profile, STEP_BASELINE);
+        publishStep(advanced, STEP_BASELINE, "baseline");
+        return advanced;
     }
 
     /** Step 4 — conditions, allergies and medications the patient reports. */
@@ -294,7 +315,9 @@ public class OnboardingService {
                     .toList()
             );
         }
-        return advance(profile, STEP_CURRENT_STATE);
+        Profile advanced = advance(profile, STEP_CURRENT_STATE);
+        publishStep(advanced, STEP_CURRENT_STATE, "currentState");
+        return advanced;
     }
 
     /** Step 5 — identification. Required, and with no "none" accepted. */
@@ -304,7 +327,9 @@ public class OnboardingService {
 
         profile.setCardType(identification.cardType());
         profile.setCardNumber(identification.cardNumber());
-        return advance(profile, STEP_IDENTIFICATION);
+        Profile advanced = advance(profile, STEP_IDENTIFICATION);
+        publishStep(advanced, STEP_IDENTIFICATION, "identification");
+        return advanced;
     }
 
     /**
@@ -322,7 +347,15 @@ public class OnboardingService {
         }
         profile.setOnboardingStatus(OnboardingStatus.COMPLETE);
         profile.setOnboardingCompletedAt(Instant.now());
-        return profileRepository.save(profile);
+        Profile done = profileRepository.save(profile);
+        events.publish(
+            PatientEventType.ONBOARDING_COMPLETED,
+            done.getEmail(),
+            null,
+            done.getPatientId(),
+            Map.of("completedAt", done.getOnboardingCompletedAt().toString())
+        );
+        return done;
     }
 
     /** The profile this email owns, for the steps that require one to exist already. */
@@ -331,6 +364,22 @@ public class OnboardingService {
     }
 
     // --- internals ------------------------------------------------------------------------------------------------
+
+    /**
+     * Announces a completed step.
+     *
+     * <p>Carries the step and how much was answered, and nothing that was answered — see
+     * {@link PatientEventPublisher} for why that line is drawn absolutely rather than case by case.</p>
+     */
+    private void publishStep(Profile profile, int step, String stepName) {
+        events.publish(
+            PatientEventType.ONBOARDING_STEP_COMPLETED,
+            profile.getEmail(),
+            null,
+            profile.getPatientId(),
+            Map.of("step", step, "stepName", stepName, "completedAt", Instant.now().toString())
+        );
+    }
 
     private Profile advance(Profile profile, int step) {
         // Never backwards: a patient revisiting step 2 has not un-answered steps 3 to 5.

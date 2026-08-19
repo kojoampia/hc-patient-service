@@ -2,8 +2,10 @@ package net.jojoaddison.service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.Profile;
@@ -12,6 +14,8 @@ import net.jojoaddison.domain.enumeration.DelegationStatus;
 import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.event.PatientEventPublisher;
+import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
@@ -45,10 +49,16 @@ public class CareDelegationService {
 
     private final CareDelegationRepository careDelegationRepository;
     private final ProfileRepository profileRepository;
+    private final PatientEventPublisher events;
 
-    public CareDelegationService(CareDelegationRepository careDelegationRepository, ProfileRepository profileRepository) {
+    public CareDelegationService(
+        CareDelegationRepository careDelegationRepository,
+        ProfileRepository profileRepository,
+        PatientEventPublisher events
+    ) {
         this.careDelegationRepository = careDelegationRepository;
         this.profileRepository = profileRepository;
+        this.events = events;
     }
 
     /**
@@ -171,6 +181,9 @@ public class CareDelegationService {
         if (wasActive) {
             clearProfileCache(saved);
         }
+        // An angel stepping down is the case the patient must hear about: they are left without one, and only they can
+        // nominate a replacement. A patient revoking is told nothing they do not already know.
+        publishChange(saved, party == DelegationParty.ANGEL ? "REVOKED_BY_ANGEL" : "REVOKED_BY_PATIENT", Map.of());
         return saved;
     }
 
@@ -226,7 +239,18 @@ public class CareDelegationService {
         delegation.setStatus(DelegationStatus.PENDING);
         delegation.setCountersignedById(professionalId);
         delegation.setCountersignedAt(Instant.now());
-        return careDelegationRepository.save(stamp(delegation));
+        CareDelegation saved = careDelegationRepository.save(stamp(delegation));
+        publishChange(
+            saved,
+            "STANDBY_ACTIVATED",
+            Map.of(
+                "activationRequestedById",
+                String.valueOf(saved.getActivationRequestedById()),
+                "countersignedById",
+                String.valueOf(saved.getCountersignedById())
+            )
+        );
+        return saved;
     }
 
     /** Every delegation naming this caller as the angel, in any state — what the sign-in profile picker reads. */
@@ -241,6 +265,27 @@ public class CareDelegationService {
 
     public Optional<CareDelegation> findOne(String id) {
         return careDelegationRepository.findById(id);
+    }
+
+    /**
+     * Announces a delegation change on the shared patient stream.
+     *
+     * <p>Keyed on the patient's email rather than the angel's, so a delegation change sorts into the same partition as
+     * that patient's onboarding and account events. The angel's address travels in the payload because the gateway's
+     * consumer has to write to them, and it is a contact detail rather than anything clinical.</p>
+     */
+    private void publishChange(CareDelegation delegation, String change, Map<String, Object> extra) {
+        Map<String, Object> data = new HashMap<>(extra);
+        data.put("delegationId", delegation.getId());
+        data.put("change", change);
+        data.put("angelEmail", delegation.getAngelEmail());
+        events.publish(
+            PatientEventType.CARE_DELEGATION_CHANGED,
+            profileForPatient(delegation.getPatientId()).map(Profile::getEmail).orElse(null),
+            null,
+            delegation.getPatientId(),
+            data
+        );
     }
 
     // --- internals ------------------------------------------------------------------------------------------------
