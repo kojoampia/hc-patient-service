@@ -57,6 +57,9 @@ public class ConditionResource {
             throw new BadRequestAlertException("A new condition cannot already have an ID", ENTITY_NAME, "idexists");
         }
         condition.setPatientId(patientScope.requirePatientIdForWrite(condition.getPatientId()));
+        // Provenance comes from the caller, never from the body — otherwise anyone could post a record
+        // marked PROFESSIONAL and have it read as clinician-attested ever after.
+        condition.setSource(patientScope.currentActivitySource());
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         condition.setCreatedBy(AuditStamp.currentUser());
@@ -104,6 +107,9 @@ public class ConditionResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         condition.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), condition.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        condition.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         condition.setCreatedBy(existing.getCreatedBy());
         condition.setCreatedDate(existing.getCreatedDate());
@@ -152,6 +158,9 @@ public class ConditionResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         condition.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), condition.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        condition.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         condition.setCreatedBy(existing.getCreatedBy());
         condition.setCreatedDate(existing.getCreatedDate());

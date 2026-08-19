@@ -9,6 +9,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.DBRef;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * The patient's own details, as shown on the record header and the profile screen.
@@ -75,6 +76,7 @@ public class Profile implements Serializable {
      */
     @DBRef
     @Field("address")
+    @JsonDeserialize(using = LenientAddressDeserializer.class)
     private Address address;
 
     @Field("team")

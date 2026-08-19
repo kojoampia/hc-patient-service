@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.domain.enumeration.OnboardingStatus;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
@@ -66,6 +67,19 @@ public class ProfileResource {
             throw new BadRequestAlertException("A new profile cannot already have an ID", ENTITY_NAME, "idexists");
         }
         profile.setPatientId(patientScope.requirePatientIdForWrite(profile.getPatientId()));
+
+        // A profile created here was created by somebody other than its patient — a clinician registering a walk-in,
+        // or an administrator. That patient has not nominated a care angel, given the advance consent a standby
+        // activation depends on, or supplied identification, and the wizard is the only place any of those are
+        // collected. Marking the record IN_PROGRESS is what makes them see it on their first sign-in.
+        //
+        // Null keeps meaning COMPLETE, so nothing already in the database is dragged backwards; this only applies to
+        // records written from now on. See OnboardingStatus.
+        if (profile.getOnboardingStatus() == null) {
+            profile.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
+            profile.setOnboardingStep(0);
+        }
+
         Profile result = profileService.save(profile);
         return ResponseEntity
             .created(new URI("/api/profiles/" + result.getId()))

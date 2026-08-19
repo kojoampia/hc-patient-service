@@ -61,6 +61,9 @@ public class AllergyResource {
             throw new BadRequestAlertException("A new allergy cannot already have an ID", ENTITY_NAME, "idexists");
         }
         allergy.setPatientId(patientScope.requirePatientIdForWrite(allergy.getPatientId()));
+        // Provenance comes from the caller, never from the body — otherwise anyone could post a record
+        // marked PROFESSIONAL and have it read as clinician-attested ever after.
+        allergy.setSource(patientScope.currentActivitySource());
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         allergy.setCreatedBy(AuditStamp.currentUser());
@@ -108,6 +111,9 @@ public class AllergyResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         allergy.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), allergy.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        allergy.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         allergy.setCreatedBy(existing.getCreatedBy());
         allergy.setCreatedDate(existing.getCreatedDate());
@@ -156,6 +162,9 @@ public class AllergyResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         allergy.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), allergy.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        allergy.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         allergy.setCreatedBy(existing.getCreatedBy());
         allergy.setCreatedDate(existing.getCreatedDate());

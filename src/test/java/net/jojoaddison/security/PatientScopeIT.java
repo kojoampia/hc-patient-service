@@ -17,6 +17,7 @@ import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.Report;
+import net.jojoaddison.domain.enumeration.ActivitySource;
 import net.jojoaddison.repository.AllergyRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.repository.ReportRepository;
@@ -354,6 +355,60 @@ class PatientScopeIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(1))
             .andExpect(jsonPath("$.[0].patientId").value(BOB_PATIENT_ID));
+    }
+
+    // --- provenance -------------------------------------------------------------------------------------------
+
+    @Test
+    void aPatientCannotForgeProvenanceOnARecordTheyCreate() throws Exception {
+        // The body claims a clinician recorded this. The token says otherwise, and the token wins — without that,
+        // anyone could post an allergy that reads as clinician-attested for the rest of the record's life.
+        restMockMvc
+            .perform(
+                post("/api/allergies")
+                    .with(alice())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"name\":\"Peanut\",\"source\":\"PROFESSIONAL\",\"notedById\":\"dr-forged\"}")
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.source").value("PATIENT"));
+    }
+
+    @Test
+    void aClinicianRecordsAsAProfessional() throws Exception {
+        restMockMvc
+            .perform(
+                post("/api/allergies")
+                    .with(admin())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"name\":\"Latex\",\"patientId\":\"" + ALICE_PATIENT_ID + "\",\"source\":\"PATIENT\"}")
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.source").value("PROFESSIONAL"));
+    }
+
+    @Test
+    void editingARecordDoesNotChangeWhereItCameFrom() throws Exception {
+        Allergy patientReported = allergyRepository.save(
+            new Allergy().patientId(ALICE_PATIENT_ID).name("Peanut").source(ActivitySource.PATIENT)
+        );
+
+        // A clinician fixing a typo in a patient's self-report has not turned it into a clinical finding.
+        restMockMvc
+            .perform(
+                put("/api/allergies/{id}", patientReported.getId())
+                    .with(admin())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"id\":\"" +
+                        patientReported.getId() +
+                        "\",\"patientId\":\"" +
+                        ALICE_PATIENT_ID +
+                        "\",\"name\":\"Peanuts\",\"source\":\"PROFESSIONAL\"}"
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.source").value("PATIENT"));
     }
 
     // --- helpers ---------------------------------------------------------------------------------------------

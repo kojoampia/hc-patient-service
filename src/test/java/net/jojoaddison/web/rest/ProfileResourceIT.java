@@ -687,4 +687,28 @@ class ProfileResourceIT {
         List<Profile> profileList = profileRepository.findAll();
         assertThat(profileList).hasSize(databaseSizeBeforeDelete - 1);
     }
+
+    @Test
+    void aProfileCreatedByAClinicianStillHasToBeOnboarded() throws Exception {
+        // Created by somebody other than its patient — a walk-in registered at a desk. That patient has nominated no
+        // care angel, given no advance consent and supplied no identification, and the wizard is where all three are
+        // collected, so the record has to say it is unfinished.
+        restProfileMockMvc
+            .perform(
+                post(ENTITY_API_URL).contentType(MediaType.APPLICATION_JSON).content(TestUtil.convertObjectToJsonBytes(createEntity()))
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.onboardingStatus").value("IN_PROGRESS"))
+            .andExpect(jsonPath("$.onboardingStep").value(0));
+    }
+
+    @Test
+    void aProfileWrittenBeforeOnboardingExistedCountsAsFinished() {
+        // Null is COMPLETE, and has to be: every production record, the development seed and the quality dataset all
+        // read null, and treating them as unfinished would put an onboarding form in front of the demo data the
+        // quality stack exists to show.
+        Profile legacy = profileRepository.save(createEntity().onboardingStatus(null));
+
+        assertThat(profileRepository.findById(legacy.getId()).orElseThrow().getOnboardingStatus()).isNull();
+    }
 }

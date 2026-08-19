@@ -5,7 +5,9 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import net.jojoaddison.domain.enumeration.ActivitySource;
 import net.jojoaddison.domain.enumeration.DelegationStatus;
+import net.jojoaddison.domain.enumeration.StatSource;
 import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.slf4j.Logger;
@@ -163,6 +165,41 @@ public class PatientScope {
      */
     public boolean isActingAsAngel() {
         return resolve().actingAsAngel();
+    }
+
+    /**
+     * Who is writing this record, for the {@code source} field on a clinical document.
+     *
+     * <p>Derived from the caller and <strong>never taken from the payload</strong>. A value a client can choose is a
+     * claim rather than a record: without this, anyone could post an allergy marked {@code PROFESSIONAL} and have it
+     * read, forever afterwards, as clinician-attested.</p>
+     *
+     * <p>Only on create. An update preserves whatever the stored document already says, because provenance is about
+     * where a record came from — a clinician correcting a typo in a patient's self-report does not turn it into a
+     * clinical finding.</p>
+     *
+     * @return {@code PROFESSIONAL} for clinical staff and administrators, {@code ANGEL} for a delegate acting on a
+     *         patient's behalf, {@code PATIENT} otherwise.
+     */
+    public ActivitySource currentActivitySource() {
+        if (isUnrestricted()) {
+            return ActivitySource.PROFESSIONAL;
+        }
+        return isActingAsAngel() ? ActivitySource.ANGEL : ActivitySource.PATIENT;
+    }
+
+    /**
+     * The {@link #currentActivitySource()} of a reading.
+     *
+     * <p>A separate enum because a {@code Stat} can come from a {@code DEVICE} — a cuff or a meter reporting on its
+     * own — which is not something that can write a timeline entry. Nothing here ever returns {@code DEVICE}: a device
+     * does not hold a token, and when telemetry ingestion exists it will arrive by a different path.</p>
+     */
+    public StatSource currentStatSource() {
+        if (isUnrestricted()) {
+            return StatSource.PROFESSIONAL;
+        }
+        return isActingAsAngel() ? StatSource.ANGEL : StatSource.PATIENT;
     }
 
     /**

@@ -62,6 +62,9 @@ public class MedicationResource {
             throw new BadRequestAlertException("A new medication cannot already have an ID", ENTITY_NAME, "idexists");
         }
         medication.setPatientId(patientScope.requirePatientIdForWrite(medication.getPatientId()));
+        // Provenance comes from the caller, never from the body — otherwise anyone could post a record
+        // marked PROFESSIONAL and have it read as clinician-attested ever after.
+        medication.setSource(patientScope.currentActivitySource());
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         medication.setCreatedBy(AuditStamp.currentUser());
@@ -109,6 +112,9 @@ public class MedicationResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         medication.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), medication.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        medication.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         medication.setCreatedBy(existing.getCreatedBy());
         medication.setCreatedDate(existing.getCreatedDate());
@@ -157,6 +163,9 @@ public class MedicationResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         medication.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), medication.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        medication.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         medication.setCreatedBy(existing.getCreatedBy());
         medication.setCreatedDate(existing.getCreatedDate());

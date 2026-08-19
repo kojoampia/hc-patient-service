@@ -57,6 +57,9 @@ public class StatResource {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
         stat.setPatientId(patientScope.requirePatientIdForWrite(stat.getPatientId()));
+        // Provenance comes from the caller, never from the body — otherwise anyone could post a record
+        // marked PROFESSIONAL and have it read as clinician-attested ever after.
+        stat.setSource(patientScope.currentStatSource());
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         stat.setCreatedBy(AuditStamp.currentUser());
@@ -100,6 +103,9 @@ public class StatResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        stat.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         stat.setCreatedBy(existing.getCreatedBy());
         stat.setCreatedDate(existing.getCreatedDate());
@@ -144,6 +150,9 @@ public class StatResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         stat.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), stat.getPatientId()));
+        // Where a record came from does not change when somebody edits it. A clinician fixing a typo in a
+        // patient's self-report has not turned it into a clinical finding.
+        stat.setSource(existing.getSource());
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         stat.setCreatedBy(existing.getCreatedBy());
         stat.setCreatedDate(existing.getCreatedDate());
