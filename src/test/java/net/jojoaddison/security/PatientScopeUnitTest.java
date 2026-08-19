@@ -2,16 +2,21 @@ package net.jojoaddison.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.domain.enumeration.DelegationStatus;
+import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -27,6 +33,8 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Unit tests for {@link PatientScope}.
@@ -40,17 +48,31 @@ class PatientScopeUnitTest {
     private static final Pageable PAGE = PageRequest.of(0, 20);
 
     private ProfileRepository profileRepository;
+    private CareDelegationRepository careDelegationRepository;
     private PatientScope patientScope;
 
     @BeforeEach
     void setUp() {
         profileRepository = mock(ProfileRepository.class);
-        patientScope = new PatientScope(profileRepository);
+        careDelegationRepository = mock(CareDelegationRepository.class);
+        patientScope = new PatientScope(profileRepository, careDelegationRepository);
     }
 
     @AfterEach
     void clearContext() {
         SecurityContextHolder.clearContext();
+        // The resolved scope is cached on the request, so a leftover request would carry one test's answer into the
+        // next — and the leak would look like the cache working.
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    /** Puts a request carrying the acting-as header in scope, as the servlet container would. */
+    private static void actingAs(String patientId) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        if (patientId != null) {
+            request.addHeader(PatientScope.ACTING_AS_HEADER, patientId);
+        }
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
     }
 
     // --- resolving identity ----------------------------------------------------------------------------------
@@ -296,5 +318,161 @@ class PatientScopeUnitTest {
 
     private static Page<String> pageOf(String value) {
         return new PageImpl<>(List.of(value), PAGE, 1);
+    }
+
+    // --- acting as somebody else ------------------------------------------------------------------------------
+
+    @Test
+    void bootstrapEmailReturnsTheClaimForACallerWithNoProfileYet() {
+        authenticateAs("newcomer@example.com", AuthoritiesConstants.USER);
+
+        assertThat(patientScope.bootstrapEmail()).isEqualTo("newcomer@example.com");
+        // Deliberately without consulting the profile collection: this is the one path that runs before a profile
+        // exists, so a lookup here could only ever fail.
+        verify(profileRepository, never()).findOneByEmailIgnoreCase(anyString());
+    }
+
+    @Test
+    void bootstrapEmailRefusesATokenWithNoEmailClaim() {
+        Jwt jwt = new Jwt("token", null, null, Map.of("alg", "HS512"), Map.of("sub", "someone"));
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority(AuthoritiesConstants.USER))));
+        SecurityContextHolder.setContext(context);
+
+        assertThatThrownBy(() -> patientScope.bootstrapEmail()).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void withNoHeaderTheCallerIsThemselves() {
+        authenticateAs("alice@example.com", AuthoritiesConstants.USER);
+        whenProfileFor("alice@example.com", profile("alice-patient", "alice-profile"));
+
+        assertThat(patientScope.currentPatientId()).contains("alice-patient");
+        assertThat(patientScope.isActingAsAngel()).isFalse();
+        verify(careDelegationRepository, never()).findOneByAngelEmailIgnoreCaseAndStatus(anyString(), any());
+    }
+
+    @Test
+    void aHeaderNamingYourOwnPatientIdIsNotDelegation() {
+        authenticateAs("alice@example.com", AuthoritiesConstants.USER);
+        whenProfileFor("alice@example.com", profile("alice-patient", "alice-profile"));
+        actingAs("alice-patient");
+
+        // The portal sends the header on every request once a choice has been made, so this is the ordinary case for a
+        // signed-in patient — not an edge one — and it must not cost a delegation lookup.
+        assertThat(patientScope.currentPatientId()).contains("alice-patient");
+        assertThat(patientScope.isActingAsAngel()).isFalse();
+        verify(careDelegationRepository, never()).findOneByAngelEmailIgnoreCaseAndStatus(anyString(), any());
+    }
+
+    @Test
+    void anActiveDelegationLetsAnAngelActForTheirPatient() {
+        authenticateAs("angel@example.com", AuthoritiesConstants.ANGEL);
+        when(profileRepository.findOneByEmailIgnoreCase("angel@example.com")).thenReturn(Optional.empty());
+        whenActiveDelegation("angel@example.com", "bob-patient");
+        actingAs("bob-patient");
+
+        assertThat(patientScope.currentPatientId()).contains("bob-patient");
+        assertThat(patientScope.isActingAsAngel()).isTrue();
+    }
+
+    @Test
+    void anAngelWhoIsAlsoAPatientGetsWhicheverTheyAskedFor() {
+        authenticateAs("carer@example.com", AuthoritiesConstants.USER);
+        whenProfileFor("carer@example.com", profile("carer-patient", "carer-profile"));
+        whenActiveDelegation("carer@example.com", "bob-patient");
+
+        actingAs("carer-patient");
+        assertThat(patientScope.currentPatientId()).as("their own record").contains("carer-patient");
+        assertThat(patientScope.isActingAsAngel()).isFalse();
+
+        RequestContextHolder.resetRequestAttributes();
+        actingAs("bob-patient");
+        assertThat(patientScope.currentPatientId()).as("the record they were nominated for").contains("bob-patient");
+        assertThat(patientScope.isActingAsAngel()).isTrue();
+    }
+
+    @Test
+    void namingAPatientYouHoldNoDelegationForIsRefused() {
+        authenticateAs("stranger@example.com", AuthoritiesConstants.USER);
+        when(profileRepository.findOneByEmailIgnoreCase("stranger@example.com")).thenReturn(Optional.empty());
+        when(careDelegationRepository.findOneByAngelEmailIgnoreCaseAndStatus("stranger@example.com", DelegationStatus.ACTIVE))
+            .thenReturn(Optional.empty());
+        actingAs("bob-patient");
+
+        // Refused, not silently ignored. Falling back to "yourself" would turn a probe into a quiet success for
+        // whatever the caller does hold.
+        assertThatThrownBy(() -> patientScope.currentPatientId()).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void aDelegationForADifferentPatientDoesNotAuthorizeThisOne() {
+        authenticateAs("angel@example.com", AuthoritiesConstants.ANGEL);
+        when(profileRepository.findOneByEmailIgnoreCase("angel@example.com")).thenReturn(Optional.empty());
+        whenActiveDelegation("angel@example.com", "bob-patient");
+        actingAs("carol-patient");
+
+        assertThatThrownBy(() -> patientScope.currentPatientId()).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void onlyAnActiveDelegationCounts() {
+        // The lookup asks for ACTIVE specifically, so a pending, dormant, declined or revoked row is simply not found.
+        // Pinned because the whole delegation model rests on it: STANDBY in particular looks like a nomination and
+        // grants nothing at all.
+        authenticateAs("angel@example.com", AuthoritiesConstants.ANGEL);
+        when(profileRepository.findOneByEmailIgnoreCase("angel@example.com")).thenReturn(Optional.empty());
+        when(careDelegationRepository.findOneByAngelEmailIgnoreCaseAndStatus("angel@example.com", DelegationStatus.ACTIVE))
+            .thenReturn(Optional.empty());
+        actingAs("bob-patient");
+
+        assertThatThrownBy(() -> patientScope.currentPatientId()).isInstanceOf(AccessDeniedException.class);
+        verify(careDelegationRepository).findOneByAngelEmailIgnoreCaseAndStatus("angel@example.com", DelegationStatus.ACTIVE);
+    }
+
+    @Test
+    void aStaleCareAngelEmailOnTheProfileGrantsNothing() {
+        // The profile says this person is Bob's angel; no delegation says so. The delegation wins, because it is the
+        // only one of the two that knows whether the arrangement is still in force. If this test ever fails, a
+        // revocation has stopped taking effect.
+        authenticateAs("angel@example.com", AuthoritiesConstants.ANGEL);
+        Profile bob = profile("bob-patient", "bob-profile");
+        bob.setCareAngelEmail("angel@example.com");
+        when(profileRepository.findOneByEmailIgnoreCase("angel@example.com")).thenReturn(Optional.empty());
+        when(careDelegationRepository.findOneByAngelEmailIgnoreCaseAndStatus("angel@example.com", DelegationStatus.ACTIVE))
+            .thenReturn(Optional.empty());
+        actingAs("bob-patient");
+
+        assertThatThrownBy(() -> patientScope.currentPatientId()).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void anUnrestrictedCallerIgnoresTheHeader() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("bob-patient");
+
+        // Empty means "every patient" for an unrestricted caller. The header narrows a caller to one patient, and an
+        // administrator is not narrowed to begin with.
+        assertThat(patientScope.currentPatientId()).isEmpty();
+        assertThat(patientScope.isActingAsAngel()).isFalse();
+        verify(careDelegationRepository, never()).findOneByAngelEmailIgnoreCaseAndStatus(anyString(), any());
+    }
+
+    @Test
+    void theScopeIsResolvedOncePerRequest() {
+        authenticateAs("alice@example.com", AuthoritiesConstants.USER);
+        whenProfileFor("alice@example.com", profile("alice-patient", "alice-profile"));
+        actingAs(null);
+
+        patientScope.currentPatientId();
+        patientScope.currentPatientId();
+        patientScope.isVisible("alice-patient");
+
+        verify(profileRepository, times(1)).findOneByEmailIgnoreCase("alice@example.com");
+    }
+
+    private void whenActiveDelegation(String angelEmail, String patientId) {
+        when(careDelegationRepository.findOneByAngelEmailIgnoreCaseAndStatus(angelEmail, DelegationStatus.ACTIVE))
+            .thenReturn(Optional.of(new CareDelegation().angelEmail(angelEmail).patientId(patientId).status(DelegationStatus.ACTIVE)));
     }
 }

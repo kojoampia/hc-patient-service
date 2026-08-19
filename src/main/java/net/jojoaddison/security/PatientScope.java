@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import net.jojoaddison.domain.enumeration.DelegationStatus;
+import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +14,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Answers the question every patient-facing endpoint has to ask before it touches data: <em>whose records may this
@@ -46,23 +51,83 @@ import org.springframework.stereotype.Component;
  * distinguish the two, and treat "unknown" as no access. A caller with no Profile sees nothing rather than everything,
  * which is the opposite of how this code behaved before.</p>
  *
+ * <h2>Acting for somebody else</h2>
+ *
+ * <p>A care angel signs in as themselves and <em>acts as</em> the patient, so that decisions can be made when the
+ * patient cannot make them. Which patient is named by an {@value #ACTING_AS_HEADER} header:</p>
+ *
+ * <pre>
+ *   no header                      -&gt; the caller's own profile, exactly as before
+ *   header naming your own patient -&gt; the same thing, said explicitly
+ *   header naming another patient  -&gt; allowed only with an ACTIVE CareDelegation, else denied
+ * </pre>
+ *
+ * <p><strong>The header is not a trust assertion.</strong> It selects among scopes the server confirms
+ * independently; a caller who names a patient they hold no active delegation for is refused exactly as if they had
+ * guessed a record id.</p>
+ *
+ * <p>It is a header rather than a claim in the token, and that is the load-bearing choice. A token freezes the
+ * delegation at the moment it was minted, so a revoked angel would keep access until it expired — with
+ * {@code rememberMe} that is days. Re-reading the delegation per request is what makes revocation take effect on the
+ * very next one.</p>
+ *
+ * <h2>Authorization comes from the delegation, never from the role</h2>
+ *
+ * <p>{@code ROLE_ANGEL} grants nothing. An {@code ACTIVE} {@link net.jojoaddison.domain.CareDelegation} grants
+ * everything, and this class reads that collection — never {@code Profile.careAngelEmail}, which is a display cache
+ * that a stale write would turn into a bypass. The role exists so the gateway and the portal can tell that somebody is
+ * an angel at all, for menus and the sign-in profile picker. Two things follow that are worth having deliberately: no
+ * code has to remember to strip a role when a delegation ends, and a stale token cannot be replayed into access the
+ * delegation no longer permits.</p>
+ *
+ * <p>Until care delegation existed this class said, correctly, that {@code ROLE_ANGEL} was scoped exactly like a
+ * patient because no delegation was recorded anywhere in the platform. One is recorded now.</p>
+ *
+ * <p>{@code ROLE_PROFESSIONAL} and {@code ROLE_ADMIN} remain unrestricted, which is the point of naming them —
+ * cross-patient access is something a role grants, not something you get when nobody remembers to write a check. They
+ * ignore the header: it exists to narrow a caller to one patient, and they are not narrowed to begin with.</p>
+ *
  * <h2>What is deliberately not solved here</h2>
  *
- * <p>{@code ROLE_ANGEL} is scoped exactly like a patient. An angel is a carer nominated by a patient, but no
- * delegation is recorded anywhere in the platform, so there is nothing to authorize against; inventing one here would
- * be inventing a security model. {@code ROLE_PROFESSIONAL} and {@code ROLE_ADMIN} are unrestricted, which is the point
- * of naming them — cross-patient access is now something a role grants, not something you get when nobody remembers to
- * write a check.</p>
+ * <p>An angel who is also a patient in their own right must choose, per request, which of the two they are acting as;
+ * this class only enforces that the choice was one they were entitled to make. Nothing here decides <em>who may
+ * delete</em> either — since patient data became undeletable that is a flat {@code ROLE_ADMIN} check on the endpoints
+ * themselves, not a question about scope.</p>
  */
 @Component
 public class PatientScope {
 
     private static final Logger LOG = LoggerFactory.getLogger(PatientScope.class);
 
-    private final ProfileRepository profileRepository;
+    /** Names the patient the caller wants to act as. Absent means "myself". */
+    public static final String ACTING_AS_HEADER = "X-Acting-As";
 
-    public PatientScope(ProfileRepository profileRepository) {
+    /**
+     * Where the resolved scope is parked for the rest of the request.
+     *
+     * <p>Resolving costs up to two Mongo queries and every scoped operation asks, several times per request. Caching
+     * on the request rather than anywhere longer-lived is deliberate: a delegation revoked between two requests must
+     * take effect on the second, which is the whole reason the selection travels as a header rather than in the
+     * token.</p>
+     */
+    private static final String SCOPE_ATTRIBUTE = PatientScope.class.getName() + ".scope";
+
+    private final ProfileRepository profileRepository;
+    private final CareDelegationRepository careDelegationRepository;
+
+    public PatientScope(ProfileRepository profileRepository, CareDelegationRepository careDelegationRepository) {
         this.profileRepository = profileRepository;
+        this.careDelegationRepository = careDelegationRepository;
+    }
+
+    /**
+     * Who the caller is acting for, and whether they had to be a delegate to do it.
+     *
+     * @param patientId the patient in scope, or null for an unrestricted caller and for one who cannot be resolved.
+     * @param actingAsAngel true when the scope came from a delegation rather than from the caller's own profile.
+     */
+    public record Scope(String patientId, boolean actingAsAngel) {
+        private static final Scope NONE = new Scope(null, false);
     }
 
     /**
@@ -83,15 +148,117 @@ public class PatientScope {
      * @return the caller's patientId, or empty.
      */
     public Optional<String> currentPatientId() {
-        if (isUnrestricted()) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(resolve().patientId());
+    }
+
+    /**
+     * Whether the caller reached this patient through a delegation rather than by being them.
+     *
+     * <p>What it gates is small and specific: an angel may read and write the record, but may not re-run onboarding on
+     * the patient's behalf, and may not edit the fields that decide who the angel is
+     * ({@code email}, {@code careAngelEmail}, {@code careAngelLogin}) — otherwise an angel could hand their access to
+     * a third party, or lock the patient's own nominee out.</p>
+     *
+     * @return true when acting as somebody else's delegate.
+     */
+    public boolean isActingAsAngel() {
+        return resolve().actingAsAngel();
+    }
+
+    /**
+     * The email of a caller who is creating their very first {@code Profile}.
+     *
+     * <p>Unlike {@link #requirePatientIdForWrite} this does <em>not</em> require an existing profile — it is the one
+     * path that may run before one exists, and so the one place the usual "no profile means no access" rule cannot
+     * apply. It is safe only because it derives identity solely from the token, and because its caller refuses to run
+     * when a profile for that email is already there. Both halves are needed; this method alone authorizes nothing.</p>
+     *
+     * @return the token's email claim.
+     * @throws AccessDeniedException if the token carries no usable email.
+     */
+    public String bootstrapEmail() {
         return SecurityUtils
             .getCurrentUserEmail()
-            .flatMap(profileRepository::findOneByEmailIgnoreCase)
+            .orElseThrow(() ->
+                // The gateway issues an account with no email an unscoped token, and this service already reads that
+                // as "no records at all". It has to mean "cannot onboard" too — the alternative is that the one
+                // identity we cannot pin down is the one that gets to create a patient.
+                new AccessDeniedException("This account has no email address, so it cannot be resolved to a patient")
+            );
+    }
+
+    /**
+     * Works out whose records this caller may touch, honouring {@value #ACTING_AS_HEADER}.
+     *
+     * @return the resolved scope; never null.
+     * @throws AccessDeniedException if the caller names a patient they hold no active delegation for.
+     */
+    private Scope resolve() {
+        if (isUnrestricted()) {
+            return Scope.NONE;
+        }
+        Optional<Scope> cached = cachedScope();
+        if (cached.isPresent()) {
+            return cached.orElseThrow();
+        }
+        Scope scope = resolveUncached();
+        cacheScope(scope);
+        return scope;
+    }
+
+    private Scope resolveUncached() {
+        Optional<String> email = SecurityUtils.getCurrentUserEmail();
+        if (email.isEmpty()) {
+            return Scope.NONE;
+        }
+        String own = profileRepository
+            .findOneByEmailIgnoreCase(email.orElseThrow())
             // patientId is the identifier the collections are keyed by, but profiles written before the field existed
             // only have their own id — the same fallback the dashboard uses, so both agree on who a person is.
-            .map(profile -> Optional.ofNullable(profile.getPatientId()).orElse(profile.getId()));
+            .map(profile -> Optional.ofNullable(profile.getPatientId()).orElse(profile.getId()))
+            .orElse(null);
+
+        String requested = actingAsHeader();
+        if (requested == null || requested.equals(own)) {
+            // No header, or one that names the caller themselves. The second is the common case once the portal has
+            // made a choice — it always sends the header thereafter — so it must not be treated as an exception.
+            return new Scope(own, false);
+        }
+
+        // Naming somebody else. This is the only path that consults a delegation, and it consults the delegation
+        // itself rather than Profile.careAngelEmail: the cache does not know whether the delegation is pending,
+        // dormant or revoked, and reading it here would keep granting access after a revocation.
+        return careDelegationRepository
+            .findOneByAngelEmailIgnoreCaseAndStatus(email.orElseThrow(), DelegationStatus.ACTIVE)
+            .filter(delegation -> requested.equals(delegation.getPatientId()))
+            .map(delegation -> new Scope(delegation.getPatientId(), true))
+            .orElseThrow(() -> {
+                LOG.warn("Rejected an acting-as request: the caller holds no active delegation for the patient named");
+                return new AccessDeniedException("No active care delegation lets this account act for that patient");
+            });
+    }
+
+    private static String actingAsHeader() {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        if (!(attributes instanceof ServletRequestAttributes servletAttributes)) {
+            return null;
+        }
+        String value = servletAttributes.getRequest().getHeader(ACTING_AS_HEADER);
+        return (value == null || value.isBlank()) ? null : value.trim();
+    }
+
+    private static Optional<Scope> cachedScope() {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        return attributes == null
+            ? Optional.empty()
+            : Optional.ofNullable((Scope) attributes.getAttribute(SCOPE_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST));
+    }
+
+    private static void cacheScope(Scope scope) {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            attributes.setAttribute(SCOPE_ATTRIBUTE, scope, RequestAttributes.SCOPE_REQUEST);
+        }
     }
 
     /**
