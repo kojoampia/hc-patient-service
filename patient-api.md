@@ -293,7 +293,21 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 
 ## Phase D — platform hardening
 
-- `[ ]` **Align the JWT signing key with the gateway.** The committed `base64-secret` in `application-dev.yml`/`application-prod.yml` differs from the gateway's, so a relayed token fails signature validation. Source both from one env var / Consul KV entry and remove the committed values.
+- `[x]` ~~**Align the JWT signing key with the gateway.**~~ **Done 2026-08-05**, recorded here 2026-08-21 after the
+  claim was found still standing in three plan files and in `docs/CLAUDE.md`. `application-dev.yml` now carries the
+  SAME committed key as `hc-patient-gateway` — public by construction and labelled as such, so `./mvnw` works with no
+  setup in either repo — and `application-prod.yml` carries `${JWT_BASE64_SECRET:}` with **no default**, so a
+  production JVM that is not given one fails rather than silently minting tokens nobody can validate. `.yo-rc.json`
+  holds an empty `jwtSecretKey` in both repos.
+
+  Verified by comparing the values, not the comments: dev matches, prod matches, `.yo-rc.json` matches, and neither
+  repo's `src/test/resources/config/application.yml` sets it — which matters, because that file REPLACES the main one
+  wholesale rather than merging, so a key set only in main is a key no test can see.
+
+  **The remaining risk is a partial injection**, not a mismatched default: one service handed a
+  `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` the other was not. `deploy/prod-server/observability/hc-patient-rules.yaml`
+  already alerts on the 401 pattern that produces, and says to compare the variable across both containers first.
+
 - `[ ]` Paginate the generated `getAll*` endpoints that can grow unbounded (`Stat`, `Report`, `ClinicalCase`, `Metadata` first) — they currently return unpaged `List<Entity>`.
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
 - `[ ]` Decide on caching: `cacheProvider` is `"no"`; if read load justifies it, add Spring Cache deliberately rather than per-service ad hoc.
