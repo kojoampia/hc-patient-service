@@ -11,6 +11,7 @@ import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.ProfileSearch;
 import net.jojoaddison.service.ProfileService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -183,15 +184,30 @@ public class ProfileResource {
     @GetMapping("")
     public ResponseEntity<List<Profile>> getAllProfiles(
         @RequestParam(required = false) String patientId,
+        @RequestParam(required = false) String search,
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Profiles for patient {}", patientId);
-        Page<Profile> page = patientScope.findScopedPage(
-            patientId,
-            pageable,
-            profileRepository::findAll,
-            profileRepository::findByPatientId
-        );
+        // Both branches go through findScopedPage, and that is the whole point of the shape. Searching must narrow
+        // within the caller's scope rather than escape it: a patient who searches reaches searchWithinPatient, which
+        // has their patient_id in the query, and can no more find somebody else by name than by listing.
+        //
+        // The term is escaped before it gets anywhere near the query. It is interpolated into a $regex, so a search
+        // for `.*` would otherwise match every patient in the system — an authorization boundary stepped around by a
+        // query language rather than by a missing check. See ProfileSearch.
+        Page<Profile> page;
+        if (search != null && !search.isBlank()) {
+            String escaped = ProfileSearch.escape(search.trim());
+            page =
+                patientScope.findScopedPage(
+                    patientId,
+                    pageable,
+                    requested -> profileRepository.search(escaped, requested),
+                    (scopedPatientId, requested) -> profileRepository.searchWithinPatient(scopedPatientId, escaped, requested)
+                );
+        } else {
+            page = patientScope.findScopedPage(patientId, pageable, profileRepository::findAll, profileRepository::findByPatientId);
+        }
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
