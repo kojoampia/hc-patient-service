@@ -57,6 +57,18 @@
     {
       "fieldName": "assignedRosterId",
       "fieldType": "String"
+    },
+    {
+      "fieldName": "archivedAt",
+      "fieldType": "Instant"
+    },
+    {
+      "fieldName": "archivedById",
+      "fieldType": "String"
+    },
+    {
+      "fieldName": "archiveReason",
+      "fieldType": "String"
     }
   ],
   "microserviceName": "hcPatientService",

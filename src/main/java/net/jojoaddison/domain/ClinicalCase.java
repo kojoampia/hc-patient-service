@@ -1,5 +1,6 @@
 package net.jojoaddison.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
@@ -59,6 +60,29 @@ public class ClinicalCase implements Serializable {
 
     @Field("assigned_roster_id")
     private String assignedRosterId;
+
+    /**
+     * When this case was retired from the working queue, or null while it is still live.
+     *
+     * <p>Nullable-instant rather than a boolean, and the difference is the point: patient data is never deleted, so
+     * archiving is the only way a case ever leaves a clinician's list, and "when" is the question asked about it
+     * afterwards. A boolean would record that it happened and lose everything about it.</p>
+     */
+    @Field("archived_at")
+    private Instant archivedAt;
+
+    /** The professional who archived it. Stamped from the caller, never from the payload. */
+    @Field("archived_by_id")
+    private String archivedById;
+
+    /**
+     * Why it was archived.
+     *
+     * <p>Required by the endpoint rather than by the document: records written before archiving existed have none,
+     * and a validation annotation here would make every one of them unsaveable.</p>
+     */
+    @Field("archive_reason")
+    private String archiveReason;
 
     @DBRef
     @Field("recommendations")
@@ -223,6 +247,56 @@ public class ClinicalCase implements Serializable {
         this.assignedRosterId = assignedRosterId;
     }
 
+    public Instant getArchivedAt() {
+        return this.archivedAt;
+    }
+
+    public ClinicalCase archivedAt(Instant archivedAt) {
+        this.setArchivedAt(archivedAt);
+        return this;
+    }
+
+    public void setArchivedAt(Instant archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    public String getArchivedById() {
+        return this.archivedById;
+    }
+
+    public ClinicalCase archivedById(String archivedById) {
+        this.setArchivedById(archivedById);
+        return this;
+    }
+
+    public void setArchivedById(String archivedById) {
+        this.archivedById = archivedById;
+    }
+
+    public String getArchiveReason() {
+        return this.archiveReason;
+    }
+
+    public ClinicalCase archiveReason(String archiveReason) {
+        this.setArchiveReason(archiveReason);
+        return this;
+    }
+
+    public void setArchiveReason(String archiveReason) {
+        this.archiveReason = archiveReason;
+    }
+
+    /**
+     * Whether this case has been retired from the working queue.
+     *
+     * <p>{@code @JsonIgnore} because it is derived — serialising it would put a second, redundant answer on the wire
+     * next to {@code archivedAt}, and a client could then read one and write the other.</p>
+     */
+    @JsonIgnore
+    public boolean isArchived() {
+        return this.archivedAt != null;
+    }
+
     public Set<Recommendation> getRecommendations() {
         return this.recommendations;
     }
@@ -281,6 +355,9 @@ public class ClinicalCase implements Serializable {
             ", diagnosis='" + getDiagnosis() + "'" +
             ", assignedProfessionalId='" + getAssignedProfessionalId() + "'" +
             ", assignedRosterId='" + getAssignedRosterId() + "'" +
+            ", archivedAt='" + getArchivedAt() + "'" +
+            ", archivedById='" + getArchivedById() + "'" +
+            ", archiveReason='" + getArchiveReason() + "'" +
             "}";
     }
 }

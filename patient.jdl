@@ -253,6 +253,11 @@ entity ClinicalCase {
   diagnosis String
   assignedProfessionalId String
   assignedRosterId String
+  // Archiving, the professional-only replacement for a delete that patient data does not allow.
+  // archivedAt null means live; the other two are stamped from the caller and the request beside it.
+  archivedAt Instant
+  archivedById String
+  archiveReason String
 }
 
 entity Recommendation {
