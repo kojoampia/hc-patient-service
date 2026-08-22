@@ -3,12 +3,14 @@ package net.jojoaddison.web.rest;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.ClinicalCaseService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -111,6 +113,14 @@ public class ClinicalCaseResource {
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         clinicalCase.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), clinicalCase.getPatientId()));
 
+        // Archive state is carried over from the stored record and never read from the payload. A PUT replaces the
+        // document wholesale, so without this any caller who may edit a case could archive or un-archive it by
+        // setting a field — which is the ROLE_PROFESSIONAL rule on /archive bypassed by the one verb nobody thought
+        // about, exactly as a generic PATCH would have defeated CareDelegation.
+        clinicalCase.setArchivedAt(existing.getArchivedAt());
+        clinicalCase.setArchivedById(existing.getArchivedById());
+        clinicalCase.setArchiveReason(existing.getArchiveReason());
+
         ClinicalCase result = clinicalCaseService.update(clinicalCase);
         return ResponseEntity
             .ok()
@@ -173,9 +183,26 @@ public class ClinicalCaseResource {
     public ResponseEntity<List<ClinicalCase>> getAllClinicalCases(
         @RequestParam(required = false) String patientId,
         @org.springdoc.core.annotations.ParameterObject Pageable pageable,
-        @RequestParam(name = "eagerload", required = false, defaultValue = "true") boolean eagerload
+        @RequestParam(name = "eagerload", required = false, defaultValue = "true") boolean eagerload,
+        @RequestParam(name = "includeArchived", required = false, defaultValue = "false") boolean includeArchived
     ) {
         log.debug("REST request to get a page of ClinicalCases for patient {}", patientId);
+        // Archived cases are excluded unless asked for. This is the half of archiving that clients actually see: the
+        // point of retiring a case is that the working queue stops showing it, and a default of "everything" would
+        // leave every caller to remember to filter — which is what the dashboard was doing in a client-side Set.
+        //
+        // They are excluded from the list, not hidden: GET /{id} still returns an archived case, so a link or a
+        // bookmark to one keeps working and nothing has to be un-archived merely to be read.
+        if (!includeArchived) {
+            Page<ClinicalCase> live = patientScope.findScopedPage(
+                patientId,
+                pageable,
+                requested -> clinicalCaseService.findAllLiveWithEagerRelationships(requested),
+                clinicalCaseRepository::findByPatientIdAndArchivedAtIsNull
+            );
+            HttpHeaders liveHeaders = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), live);
+            return ResponseEntity.ok().headers(liveHeaders).body(live.getContent());
+        }
         // The unscoped branch reaches the eager-loading query, so it is passed as the "findAll" arm and only an
         // unrestricted caller can ever get there. A patient always lands on findByPatientId — Recommendations are a
         // DBRef and a patient-scoped query cannot eager-load them the way findAllWithEagerRelationships does; the
@@ -224,5 +251,76 @@ public class ClinicalCaseResource {
         }
         clinicalCaseService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * {@code POST /api/clinical-cases/:id/archive} : retire a case from the working queue.
+     *
+     * <p>The professional-only replacement for the delete that patient data does not allow. The case keeps every
+     * field it had and its place in the patient's record; it stops appearing in the lists clinicians work from.</p>
+     *
+     * <p><strong>{@code ROLE_PROFESSIONAL} only</strong>, following {@code CareDelegation}'s activate and
+     * countersign rather than the DELETE above. Retiring a clinical episode is a clinical judgement about whether a
+     * patient is still being treated for something; {@code ROLE_ADMIN} is an operational role, and it already holds
+     * the harder power here.</p>
+     *
+     * @param id the case to archive.
+     * @param body must carry a {@code reason}. An archive with no reason is the delete this exists to replace.
+     * @return the archived case.
+     */
+    @PostMapping("/{id}/archive")
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.PROFESSIONAL + "')")
+    public ResponseEntity<ClinicalCase> archiveClinicalCase(
+        @PathVariable("id") String id,
+        @RequestBody(required = false) Map<String, String> body
+    ) {
+        log.debug("REST request to archive ClinicalCase : {}", id);
+        String reason = body == null ? null : body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestAlertException("An archive must say why", ENTITY_NAME, "reasonrequired");
+        }
+        // Visibility is checked before existence is admitted, exactly as the read endpoints do: a caller who may not
+        // see a case must not be able to learn that it exists by archiving it.
+        if (clinicalCaseRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ClinicalCase archived = clinicalCaseService.archive(id, professionalId(), reason.trim());
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(archived);
+    }
+
+    /**
+     * {@code POST /api/clinical-cases/:id/unarchive} : put a case back in the working queue.
+     *
+     * <p>The way back, and not optional. Without it archiving is a delete with extra steps — the one thing a
+     * clinician could do to a record that nobody could undo — and the mistake it invites is archiving the wrong row
+     * of a list.</p>
+     *
+     * @param id the case to restore.
+     * @return the restored case.
+     */
+    @PostMapping("/{id}/unarchive")
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.PROFESSIONAL + "')")
+    public ResponseEntity<ClinicalCase> unarchiveClinicalCase(@PathVariable("id") String id) {
+        log.debug("REST request to unarchive ClinicalCase : {}", id);
+        if (clinicalCaseRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ClinicalCase restored = clinicalCaseService.unarchive(id);
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(restored);
+    }
+
+    /**
+     * Who archived it.
+     *
+     * <p>The login rather than a {@code Professional} document id, for the reason {@code CareDelegationResource}
+     * gives about signatures: this service has no user management and no reliable mapping from a token to a staff
+     * record. If that mapping ever exists, both places change together.</p>
+     */
+    private String professionalId() {
+        return SecurityUtils
+            .getCurrentUserLogin()
+            .orElseThrow(() ->
+                new BadRequestAlertException("The archiving professional could not be identified", ENTITY_NAME, "noarchivist")
+            );
     }
 }
