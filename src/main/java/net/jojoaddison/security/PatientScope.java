@@ -232,7 +232,23 @@ public class PatientScope {
      */
     private Scope resolve() {
         if (isUnrestricted()) {
-            return Scope.NONE;
+            // An unrestricted caller who has NAMED a patient is narrowed to them. The role still decides what may be
+            // done; it stops deciding who is being looked at.
+            //
+            // Before this, the header was not read at all on this path, so an administrator who picked a patient in
+            // the portal was served every patient's records while the acting-as banner named one person. A screen
+            // showing one name over another patient's blood group is the exact failure the banner exists to prevent,
+            // and it answered 200 throughout.
+            //
+            // Note which direction this runs: an administrator already reads every record, so honouring the header
+            // takes access away rather than granting it. Nothing here lets a caller reach a patient they could not
+            // already reach — a restricted caller still falls through to the delegation check below.
+            //
+            // actingAsAngel stays false: they are not a delegate. It gates the small set of things an angel may not
+            // do — re-running onboarding, editing the fields that decide who the angel is — and an administrator's
+            // authority over those does not come from a delegation, so it should not be revoked by one.
+            String requested = actingAsHeader();
+            return requested == null ? Scope.NONE : new Scope(requested, false);
         }
         Optional<Scope> cached = cachedScope();
         if (cached.isPresent()) {
@@ -317,19 +333,22 @@ public class PatientScope {
      * @return the records the caller is allowed to see.
      */
     public <T> List<T> findScoped(String requestedPatientId, Supplier<List<T>> findAll, Function<String, List<T>> findByPatientId) {
-        if (isUnrestricted()) {
-            return requestedPatientId == null ? findAll.get() : findByPatientId.apply(requestedPatientId);
-        }
-        Optional<String> own = currentPatientId();
-        if (own.isEmpty()) {
+        // The scope is consulted before the role, so that an unrestricted caller who has chosen a patient is confined
+        // to them like anybody else. Only a caller with no scope at all falls through to the role, and for them
+        // "unrestricted" still means every patient.
+        Optional<String> scope = currentPatientId();
+        if (scope.isEmpty()) {
+            if (isUnrestricted()) {
+                return requestedPatientId == null ? findAll.get() : findByPatientId.apply(requestedPatientId);
+            }
             LOG.debug("Returning no records: the caller has no resolvable profile");
             return List.of();
         }
-        if (requestedPatientId != null && !requestedPatientId.equals(own.orElseThrow())) {
-            LOG.warn("Rejected a cross-patient query: caller asked for a patientId that is not their own");
+        if (requestedPatientId != null && !requestedPatientId.equals(scope.orElseThrow())) {
+            LOG.warn("Rejected a cross-patient query: caller asked for a patientId outside the record they have open");
             return List.of();
         }
-        return findByPatientId.apply(own.orElseThrow());
+        return findByPatientId.apply(scope.orElseThrow());
     }
 
     /**
@@ -353,19 +372,20 @@ public class PatientScope {
         Function<Pageable, Page<T>> findAll,
         BiFunction<String, Pageable, Page<T>> findByPatientId
     ) {
-        if (isUnrestricted()) {
-            return requestedPatientId == null ? findAll.apply(pageable) : findByPatientId.apply(requestedPatientId, pageable);
-        }
-        Optional<String> own = currentPatientId();
-        if (own.isEmpty()) {
+        // Same order as findScoped, and for the same reason: scope first, role only for a caller who has none.
+        Optional<String> scope = currentPatientId();
+        if (scope.isEmpty()) {
+            if (isUnrestricted()) {
+                return requestedPatientId == null ? findAll.apply(pageable) : findByPatientId.apply(requestedPatientId, pageable);
+            }
             LOG.debug("Returning no records: the caller has no resolvable profile");
             return Page.empty(pageable);
         }
-        if (requestedPatientId != null && !requestedPatientId.equals(own.orElseThrow())) {
-            LOG.warn("Rejected a cross-patient query: caller asked for a patientId that is not their own");
+        if (requestedPatientId != null && !requestedPatientId.equals(scope.orElseThrow())) {
+            LOG.warn("Rejected a cross-patient query: caller asked for a patientId outside the record they have open");
             return Page.empty(pageable);
         }
-        return findByPatientId.apply(own.orElseThrow(), pageable);
+        return findByPatientId.apply(scope.orElseThrow(), pageable);
     }
 
     /**
@@ -381,7 +401,10 @@ public class PatientScope {
      * @return the value to persist.
      */
     public String patientIdForUpdate(String storedPatientId, String requestedPatientId) {
-        if (isUnrestricted()) {
+        // Refiling is a cross-patient operation, so it belongs to a caller who is looking across patients. An
+        // administrator who has chosen one record is not, and while the choice stands they move records no more than
+        // an angel does — otherwise the way to move a record out of the open patient would be to open that patient.
+        if (isUnrestricted() && currentPatientId().isEmpty()) {
             return requestedPatientId == null ? storedPatientId : requestedPatientId;
         }
         return storedPatientId;
@@ -395,6 +418,13 @@ public class PatientScope {
      * @throws AccessDeniedException if the caller cannot be resolved to a patient and is not unrestricted.
      */
     public String requirePatientIdForWrite(String requestedPatientId) {
+        // A caller with a scope writes into it, whoever they are. For an administrator acting as a patient that is
+        // the record they have open: creating something while one patient is on screen and having it land on another
+        // is the write-side of the same confusion the banner exists to prevent.
+        Optional<String> scope = currentPatientId();
+        if (scope.isPresent()) {
+            return scope.orElseThrow();
+        }
         if (isUnrestricted()) {
             // Whatever the payload says, INCLUDING NOTHING. An administrator or clinician creating a record with no
             // owner is what these entities did before they were scoped, and refusing it breaks the reference-shaped
@@ -405,8 +435,8 @@ public class PatientScope {
             // "the admin supplied no owner" then became indistinguishable from "this caller may not write at all".
             return requestedPatientId;
         }
-        return currentPatientId()
-            .orElseThrow(() -> new AccessDeniedException("No patient profile is associated with this account, so it cannot own records"));
+        // Restricted, and no scope resolved: there is no profile behind this account to own the record.
+        throw new AccessDeniedException("No patient profile is associated with this account, so it cannot own records");
     }
 
     /**
@@ -416,11 +446,16 @@ public class PatientScope {
      * @return true if the caller may see it.
      */
     public boolean isVisible(String patientId) {
-        if (isUnrestricted()) {
-            return true;
+        Optional<String> scope = currentPatientId();
+        if (scope.isEmpty()) {
+            return isUnrestricted();
         }
         // A record with no owner is visible to no patient. Such documents exist (the field was added after some data
         // was written); making them universally readable would be a hole exactly the shape of the one being closed.
-        return patientId != null && currentPatientId().filter(patientId::equals).isPresent();
+        //
+        // This is what stops the single-record reads leaking past the chosen patient: without it an administrator
+        // acting as one patient could still GET another patient's record by id, and the list endpoints would be the
+        // only thing the choice narrowed.
+        return patientId != null && scope.filter(patientId::equals).isPresent();
     }
 }

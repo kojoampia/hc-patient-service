@@ -15,7 +15,9 @@ import java.util.Map;
 import java.util.Optional;
 import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.domain.enumeration.ActivitySource;
 import net.jojoaddison.domain.enumeration.DelegationStatus;
+import net.jojoaddison.domain.enumeration.StatSource;
 import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -447,13 +449,18 @@ class PatientScopeUnitTest {
     }
 
     @Test
-    void anUnrestrictedCallerIgnoresTheHeader() {
+    void anUnrestrictedCallerIsNarrowedByTheHeader() {
         authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
         actingAs("bob-patient");
 
-        // Empty means "every patient" for an unrestricted caller. The header narrows a caller to one patient, and an
-        // administrator is not narrowed to begin with.
-        assertThat(patientScope.currentPatientId()).isEmpty();
+        // This asserted the opposite until 2026-08-22 — that an unrestricted caller ignores the header, because "an
+        // administrator is not narrowed to begin with". True of the role and wrong about the request: an
+        // administrator who picked a patient in the portal was served every patient's records under that one
+        // patient's name, and answered 200 doing it.
+        //
+        // The header does not say what the caller may reach. It says which record is open, and that is a narrowing
+        // for whoever sends it. An administrator still reaches every patient — by not sending one.
+        assertThat(patientScope.currentPatientId()).contains("bob-patient");
         assertThat(patientScope.isActingAsAngel()).isFalse();
         verify(careDelegationRepository, never()).findOneByAngelEmailIgnoreCaseAndStatus(anyString(), any());
     }
@@ -469,6 +476,109 @@ class PatientScopeUnitTest {
         patientScope.isVisible("alice-patient");
 
         verify(profileRepository, times(1)).findOneByEmailIgnoreCase("alice@example.com");
+    }
+
+    // --- an unrestricted caller who has chosen a patient -----------------------------------------------------
+    //
+    // The header used to be unread on this path, so an administrator who picked a patient in the portal was served
+    // every patient's records while the banner named one person. These pin the narrowing down on both the read and
+    // the write side, and pin the two things that must NOT change with it: the role still grants what it granted,
+    // and an administrator is still not a delegate.
+
+    @Test
+    void unrestrictedCallerActingAsAPatientIsScopedToThem() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        assertThat(patientScope.findScoped(null, () -> List.of("all"), id -> List.of(id))).containsExactly("patient-9");
+    }
+
+    @Test
+    void unrestrictedCallerActingAsAPatientGetsNothingForAnotherPatientsFilter() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        assertThat(patientScope.findScoped("patient-7", () -> List.of("all"), id -> List.of(id))).isEmpty();
+    }
+
+    @Test
+    void pagedUnrestrictedCallerActingAsAPatientIsScopedToThem() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        Page<String> page = patientScope.findScopedPage(
+            null,
+            Pageable.unpaged(),
+            pageable -> new PageImpl<>(List.of("all")),
+            (id, pageable) -> new PageImpl<>(List.of(id))
+        );
+
+        assertThat(page.getContent()).containsExactly("patient-9");
+    }
+
+    @Test
+    void unrestrictedCallerActingAsAPatientCannotSeeAnotherPatientsRecord() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        assertThat(patientScope.isVisible("patient-9")).isTrue();
+        assertThat(patientScope.isVisible("patient-7")).isFalse();
+    }
+
+    @Test
+    void unrestrictedCallerActingAsAPatientWritesIntoThatRecord() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        // Whatever the body says. Creating something with one patient on screen and having it land on another is the
+        // write-side of the confusion the banner exists to prevent.
+        assertThat(patientScope.requirePatientIdForWrite("patient-7")).isEqualTo("patient-9");
+        assertThat(patientScope.requirePatientIdForWrite(null)).isEqualTo("patient-9");
+    }
+
+    @Test
+    void unrestrictedCallerActingAsAPatientCannotRefileARecord() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        assertThat(patientScope.patientIdForUpdate("patient-9", "patient-7")).isEqualTo("patient-9");
+    }
+
+    @Test
+    void unrestrictedCallerNotActingKeepsEveryPowerItHad() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs(null);
+
+        assertThat(patientScope.findScoped(null, () -> List.of("all"), id -> List.of(id))).containsExactly("all");
+        assertThat(patientScope.isVisible("patient-7")).isTrue();
+        assertThat(patientScope.patientIdForUpdate("patient-9", "patient-7")).isEqualTo("patient-7");
+        assertThat(patientScope.requirePatientIdForWrite(null)).isNull();
+    }
+
+    @Test
+    void unrestrictedCallerActingAsAPatientIsNotAnAngel() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        // actingAsAngel gates what a delegate may not do — re-run onboarding, edit the fields deciding who the angel
+        // is. An administrator's authority over those does not come from a delegation, so a delegation-shaped flag
+        // must not take it away. The audit trail still says staff.
+        assertThat(patientScope.isActingAsAngel()).isFalse();
+        assertThat(patientScope.currentActivitySource()).isEqualTo(ActivitySource.PROFESSIONAL);
+        assertThat(patientScope.currentStatSource()).isEqualTo(StatSource.PROFESSIONAL);
+    }
+
+    @Test
+    void unrestrictedCallerActingAsAPatientNeedsNoDelegationAndNoProfileLookup() {
+        authenticateAs("admin@example.com", AuthoritiesConstants.ADMIN);
+        actingAs("patient-9");
+
+        patientScope.currentPatientId();
+
+        // The narrowing is not a delegation check: an administrator holds none, and requiring one would make the
+        // feature depend on somebody nominating them.
+        verify(careDelegationRepository, never()).findOneByAngelEmailIgnoreCaseAndStatus(anyString(), any());
+        verify(profileRepository, never()).findOneByEmailIgnoreCase(anyString());
     }
 
     private void whenActiveDelegation(String angelEmail, String patientId) {
