@@ -2,7 +2,9 @@ package net.jojoaddison.web.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -183,6 +185,60 @@ class ClinicalCaseArchiveIT {
         mockMvc
             .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("I feel better")))
             .andExpect(status().isForbidden());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().isArchived()).isFalse();
+    }
+
+    @Test
+    void aPutCannotArchiveACaseBehindTheEndpointsBack() throws Exception {
+        // A PUT replaces the document wholesale, so without carrying the stored archive state over, any caller who
+        // may edit a case could archive it by setting a field — the ROLE_PROFESSIONAL rule defeated by the one verb
+        // nobody thought about, which is exactly how a generic PATCH would have defeated CareDelegation.
+        mockMvc
+            .perform(
+                put(API + "/{id}", live.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"id\":\"" +
+                        live.getId() +
+                        "\",\"patientId\":\"" +
+                        PATIENT_ID +
+                        "\",\"title\":\"A sore throat\",\"archivedAt\":\"2020-01-01T00:00:00Z\",\"archivedById\":\"forged\"}"
+                    )
+            )
+            .andExpect(status().isOk());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().isArchived()).isFalse();
+    }
+
+    @Test
+    void aPutCannotUnarchiveACaseEither() throws Exception {
+        mockMvc
+            .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("Resolved")))
+            .andExpect(status().isOk());
+
+        mockMvc
+            .perform(
+                put(API + "/{id}", live.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"id\":\"" + live.getId() + "\",\"patientId\":\"" + PATIENT_ID + "\",\"title\":\"A sore throat\"}")
+            )
+            .andExpect(status().isOk());
+
+        ClinicalCase stored = clinicalCaseRepository.findById(live.getId()).orElseThrow();
+        assertThat(stored.isArchived()).isTrue();
+        assertThat(stored.getArchiveReason()).isEqualTo("Resolved");
+    }
+
+    @Test
+    void aPatchCannotTouchTheArchiveFields() throws Exception {
+        mockMvc
+            .perform(
+                patch(API + "/{id}", live.getId())
+                    .contentType("application/merge-patch+json")
+                    .content("{\"id\":\"" + live.getId() + "\",\"archivedAt\":\"2020-01-01T00:00:00Z\",\"archivedById\":\"forged\"}")
+            )
+            .andExpect(status().isOk());
 
         assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().isArchived()).isFalse();
     }

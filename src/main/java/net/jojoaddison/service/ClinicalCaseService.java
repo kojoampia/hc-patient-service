@@ -99,6 +99,10 @@ public class ClinicalCaseService {
                 if (clinicalCase.getAssignedRosterId() != null) {
                     existingClinicalCase.setAssignedRosterId(clinicalCase.getAssignedRosterId());
                 }
+                // archivedAt, archivedById and archiveReason are deliberately absent from this merge, and must stay
+                // absent. They are set by /archive and /unarchive, which are ROLE_PROFESSIONAL and stamp the caller;
+                // merging them here would let anyone who may edit a case archive it by sending a field, and let them
+                // choose whose name was on it. This is the same rule that keeps CareDelegation off a generic PATCH.
 
                 return existingClinicalCase;
             })
@@ -150,7 +154,7 @@ public class ClinicalCaseService {
      * @param professionalId the caller, as resolved by the resource; stamped rather than accepted from a payload.
      * @param reason why it is being retired. Required: an archive with no reason is the delete this replaces.
      * @return the archived case.
-     * @throws ArchiveConflictException if it is archived already.
+     * @throws DomainStateException if it is archived already.
      */
     public ClinicalCase archive(String id, String professionalId, String reason) {
         log.debug("Request to archive ClinicalCase : {}", id);
@@ -180,7 +184,7 @@ public class ClinicalCaseService {
      *
      * @param id the case to restore.
      * @return the restored case.
-     * @throws ArchiveConflictException if it was not archived to begin with.
+     * @throws DomainStateException if it was not archived to begin with.
      */
     public ClinicalCase unarchive(String id) {
         log.debug("Request to unarchive ClinicalCase : {}", id);

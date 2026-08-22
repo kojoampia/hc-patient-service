@@ -113,6 +113,14 @@ public class ClinicalCaseResource {
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         clinicalCase.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), clinicalCase.getPatientId()));
 
+        // Archive state is carried over from the stored record and never read from the payload. A PUT replaces the
+        // document wholesale, so without this any caller who may edit a case could archive or un-archive it by
+        // setting a field — which is the ROLE_PROFESSIONAL rule on /archive bypassed by the one verb nobody thought
+        // about, exactly as a generic PATCH would have defeated CareDelegation.
+        clinicalCase.setArchivedAt(existing.getArchivedAt());
+        clinicalCase.setArchivedById(existing.getArchivedById());
+        clinicalCase.setArchiveReason(existing.getArchiveReason());
+
         ClinicalCase result = clinicalCaseService.update(clinicalCase);
         return ResponseEntity
             .ok()
