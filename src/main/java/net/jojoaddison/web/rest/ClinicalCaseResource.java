@@ -9,6 +9,7 @@ import java.util.Optional;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.ClinicalCaseService;
@@ -67,6 +68,7 @@ public class ClinicalCaseResource {
     @PostMapping("")
     public ResponseEntity<ClinicalCase> createClinicalCase(@RequestBody ClinicalCase clinicalCase) throws URISyntaxException {
         log.debug("REST request to save ClinicalCase : {}", clinicalCase);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
         if (clinicalCase.getId() != null) {
             throw new BadRequestAlertException("A new clinicalCase cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -94,6 +96,7 @@ public class ClinicalCaseResource {
         @RequestBody ClinicalCase clinicalCase
     ) throws URISyntaxException {
         log.debug("REST request to update ClinicalCase : {}, {}", id, clinicalCase);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
         if (clinicalCase.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -145,6 +148,7 @@ public class ClinicalCaseResource {
         @RequestBody ClinicalCase clinicalCase
     ) throws URISyntaxException {
         log.debug("REST request to partial update ClinicalCase partially : {}, {}", id, clinicalCase);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
         if (clinicalCase.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

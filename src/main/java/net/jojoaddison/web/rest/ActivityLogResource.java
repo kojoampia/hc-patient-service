@@ -9,6 +9,7 @@ import net.jojoaddison.domain.ActivityLog;
 import net.jojoaddison.repository.ActivityLogRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.ActivityLogService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -66,6 +67,7 @@ public class ActivityLogResource {
     @PostMapping("")
     public ResponseEntity<ActivityLog> createActivityLog(@RequestBody ActivityLog activityLog) throws URISyntaxException {
         log.debug("REST request to save ActivityLog : {}", activityLog);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (activityLog.getId() != null) {
             throw new BadRequestAlertException("A new activityLog cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -97,6 +99,7 @@ public class ActivityLogResource {
         @RequestBody ActivityLog activityLog
     ) throws URISyntaxException {
         log.debug("REST request to update ActivityLog : {}, {}", id, activityLog);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (activityLog.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -143,6 +146,7 @@ public class ActivityLogResource {
         @RequestBody ActivityLog activityLog
     ) throws URISyntaxException {
         log.debug("REST request to partial update ActivityLog partially : {}, {}", id, activityLog);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (activityLog.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

@@ -2,6 +2,8 @@ package net.jojoaddison.security;
 
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -127,6 +129,20 @@ public final class SecurityUtils {
      */
     public static boolean hasCurrentUserThisAuthority(String authority) {
         return hasCurrentUserAnyOfAuthorities(authority);
+    }
+
+    /**
+     * Every authority on the current token.
+     *
+     * <p>Needed because {@link ScopeOfPractice} answers questions about the caller's authorities <em>as a set</em> —
+     * "may any of these write a medication" — which cannot be asked one string at a time without the caller already
+     * knowing which strings to ask about, and that knowledge is what the table exists to hold.</p>
+     *
+     * @return the authorities, or an empty set when nobody is authenticated.
+     */
+    public static Set<String> getCurrentUserAuthorities() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication == null ? Set.of() : getAuthorities(authentication).collect(Collectors.toSet());
     }
 
     private static Stream<String> getAuthorities(Authentication authentication) {
