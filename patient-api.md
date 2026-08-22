@@ -10,6 +10,62 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 
 ## What changed since the last baseline
 
+### Scope of practice: a discipline decides what kind of data (2026-08-22)
+
+- [x] `ScopeOfPractice` + `ClinicalDomain`: one table mapping the eight clinical roles onto six kinds
+      of patient data, wired into the write paths of eleven resources through `PatientScope`.
+- [~] **The table is a starting position, not a clinical ruling.** Written from the shape of the data
+  rather than from anybody's scope of practice, and it says so at the top. The rows most likely to
+  be wrong, flagged rather than buried: whether a carer may read the diagnosis (currently no),
+  whether a therapist may write observations (no), whether a paramedic should write medications
+  given at scene (no). Correcting it is a two-line change in one file, deliberately.
+- [ ] **Reads are not filtered.** `canRead`/`requireRead` exist and are tested; nothing calls them, so
+      today the table restricts writing only.
+- [ ] `RecommendationResource` is not wired — it has no `patientId` and no `PatientScope`, being
+      reference data joined to a case rather than a patient record.
+
+The request was to _port_ hc-professional's gateway authority rules. **There were none to port.** That
+gateway defines the nine roles and seeds them as Authority documents, and nothing anywhere enforces
+any of them — its `SecurityConfiguration` only distinguishes `ADMIN` from `authenticated`, and a grep
+for those roles in any `hasAuthority` or `@PreAuthorize` across that gateway _and_ its api returns
+nothing. What exists there is a vocabulary; porting it verbatim would have given this service nine
+constants that grant and restrict nothing, which is the situation `ROLE_ANGEL` is already in.
+
+Underneath it was a live defect, and it is the reason this landed as a fix rather than a feature:
+hc-professional's gateway has **no `ROLE_PROFESSIONAL` at all**, this service gates thirty places on
+exactly that role, and the two stacks share a JWT signing key. So a doctor signing in there reached
+this service holding `ROLE_DOCTOR`, failed every check, resolved to no patient, and was served empty
+lists rather than a refusal — silent, and indistinguishable from a patient with no records. Inferred
+from the code, pinned by a test, and since demonstrated on the quality stack once
+`hc-patient-quality` seeded an account per discipline.
+
+### Archiving a clinical case (2026-08-22)
+
+- [x] `POST /api/clinical-cases/{id}/archive` and `/unarchive`, `ROLE_PROFESSIONAL`, reason required.
+- [x] `archivedAt` / `archivedById` / `archiveReason` on `ClinicalCase`; `GET` excludes archived
+      unless `includeArchived=true`, and `GET /{id}` still returns one.
+- [x] `PUT` and `PATCH` cannot reach the archive fields. Found reviewing the diff: `PUT` replaces the
+      document wholesale, so without carrying the stored state over, anybody who may edit a case could
+      archive it by sending a field — and choose whose name went on it.
+- [ ] Only `ClinicalCase`. The DELETE lockdown covers sixteen resources; the other fifteen still have
+      no replacement for the delete they do not have.
+
+Archiving had been the _named_ replacement for that lockdown since it landed, and had never existed —
+`PatientScopeEveryEndpointIT` said so in a comment, and `hc-professional/web` implemented it in a
+client-side `Set` with "No archive endpoint specced" written beside it. **That client is still
+unwired**; a case retired there is still in every other clinician's queue and returns on reload.
+
+### Searching the patient directory (2026-08-22)
+
+- [x] `GET /api/profiles?search=` over first name, middle names, last name, email, mobile phone and
+      `patientId`, through `findScopedPage` so a scoped caller's search narrows within their scope
+      rather than escaping it.
+- [x] `ProfileSearch.escape`. The term is interpolated into a `$regex`, which makes it code rather
+      than data: unescaped, `.*` returns the whole directory, `(a+)+$` backtracks exponentially over
+      every profile, and `(024) 555` — how people write phone numbers — arrives as a syntax error.
+- [ ] No index. A regex scan is fine at the current size and will not stay fine; a text index or a
+      normalised search field is the next step if the directory keeps growing.
+
 ### Patient onboarding, care delegation and the first domain events (2026-08-19)
 
 The largest change this service has taken. `docs/onboarding.md` is the plan of record and its §16 is

@@ -101,10 +101,14 @@ config → web → service (optional) → security → repository (optional) →
 Directory map (`src/main/java/net/jojoaddison/`):
 
 - `web/rest` — `@RestController`s, one per entity (`ProfileResource`, `ClinicalCaseResource`, etc.) plus `web/rest/errors` for the RFC-7807-style exception translation (`ExceptionTranslator`, `BadRequestAlertException`).
-- `service` — business/persistence orchestration; `service/dto` and `service/event` beneath it. There is **no general DTO/mapper layer** — domain documents are returned directly — with one deliberate exception: `service/dto` holds the onboarding step payloads, because those must _not_ be a `Profile`. A request body carrying `email`, `patientId` or `id` is how onboarding would become an account-takeover endpoint. `service/event` holds the `patient-events` publisher.
+- `service` — business/persistence orchestration; `service/dto` and `service/event` beneath it. `ProfileSearch` also
+  lives here: `GET /api/profiles?search=` matches six fields by regex, so the term is **escaped there before it goes
+  near the query**. Unescaped, a search for `.*` returns the entire patient directory to anyone who types two
+  characters — an authorization boundary stepped around by a query language rather than by a missing check. There is **no general DTO/mapper layer** — domain documents are returned directly — with one deliberate exception: `service/dto` holds the onboarding step payloads, because those must _not_ be a `Profile`. A request body carrying `email`, `patientId` or `id` is how onboarding would become an account-takeover endpoint. `service/event` holds the `patient-events` publisher.
 - `repository` — `Spring Data MongoRepository` interfaces only, one per entity, no query logic beyond what Spring Data derives.
 - `domain` — Mongo document classes (`@Document`) plus `AbstractAuditingEntity` and `domain/enumeration` for enums (`CaseCategory`, `CaseStatus`).
-- `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`).
+- `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`), `PatientScope` (whose records), and
+  `ScopeOfPractice` + `ClinicalDomain` (what kind of data a discipline may touch).
 - `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.), plus `config/dbmigrations/` — the package Mongock scans (`mongock.migration-scan-package`). It holds one change unit — `AddressAsDocumentMigration` (2026-08-19), which reshapes free-text `Profile.address` values into `Address` documents — and two `ApplicationRunner`s, both gated to `dev`/`test`. `DemoDataInitializer` seeds the professional-dashboard demo dataset from `src/main/resources/config/demo-data/`. `DevelopmentDataInitializer` (added 2026-08-15, shaped after hc-admin's class of the same name) seeds a record from a document supplied **from outside the image**, named by `hc.seed.location` — a Spring resource string, unset here, set by `hc-patient-quality` to the file it mounts. That document is keyed by profile at the root and holds plain arrays of domain objects per collection, so Jackson deserializes straight into the domain and a field this service does not have is a field the document cannot set. Setting `hc.seed.location` **stands `DemoDataInitializer` down**, because the two datasets describe the same subsystem with different people in it. Two departures from the hc-admin original, both because this service already promised otherwise: every active profile's block is applied rather than only the most specific (the quality stack runs `dev,test`, and "test wins" would seed nothing at all), and seeding is additive rather than overwriting. Seeding belongs in a runner rather than a change unit because a change unit has no notion of a Spring profile and runs exactly once — the gateway shipped publicly known credentials to production by making that mistake.
 - `broker` — `KafkaConsumer`/`KafkaProducer`.
 - `management` — metrics/health support.
@@ -151,6 +155,13 @@ many-to-many to `Recommendation`); its contract comes from `hc-professional/web/
 onboarding needed a structured address. Everything else is standalone, referencing by plain String id, and a third
 relationship should be argued for rather than assumed.
 
+`ClinicalCase` gained `archivedAt`, `archivedById` and `archiveReason` on 2026-08-22. A nullable instant rather than
+a boolean, because the question asked about an archived case afterwards is _who_ and _why_, and a boolean records
+that it happened and loses both. The queries use `IsNull` rather than a boolean test, and that is load-bearing for
+the data that already exists: every case written before those fields has no `archived_at` key at all, and in MongoDB
+a null match also matches a missing field, so they all read as live with no migration. `GET /api/clinical-cases`
+excludes archived cases unless `includeArchived=true`; `GET /{id}` still returns one, so a link keeps working.
+
 `DutyRoster` and `Shift` are the newest (2026-08-11) and are what `ClinicalCase.assignedRosterId` points at; it
 named nothing until they existed. Both are **staff reference data**, so they follow `Team`/`Professional` rather than
 the patient entities: readable by any authenticated caller, writable only by `ROLE_ADMIN`/`ROLE_PROFESSIONAL`, no
@@ -176,7 +187,24 @@ Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the con
   delegation, never `Profile.careAngelEmail`, which is a display cache — reading the cache would keep granting access
   after a revocation. Which patient an angel acts for arrives in an `X-Acting-As` header, re-checked per request.
 - **Patient data is never deleted.** Sixteen resources require `ROLE_ADMIN` for `DELETE`. Archiving — the
-  professional-only replacement — does not exist yet.
+  professional-only replacement — **exists for `ClinicalCase` since 2026-08-22** and for nothing else yet:
+  `POST /api/clinical-cases/{id}/archive` and `/unarchive`, `ROLE_PROFESSIONAL`, a reason required. It is a
+  transition endpoint rather than a `PATCH` for the reason `CareDelegation` has none — a `PATCH` over `archivedAt`
+  lets a client choose when a case was archived and by whom, and both are records rather than claims. `PUT` carries
+  the stored archive state over from the existing record for the same reason; without that, the one verb that
+  replaces a document wholesale is the way round the rule.
+- **A caller's discipline decides what kind of data they may touch** (2026-08-22). `ScopeOfPractice` is one table
+  mapping `ROLE_DOCTOR`/`NURSE`/`CARER`/`PARAMEDIC`/`PHARMACIST`/`THERAPIST`/`CHEMIST`/`TECHNICIAN` onto six
+  `ClinicalDomain`s. **It is a starting position rather than a clinical ruling** and says so at the top; correcting
+  it is a two-line change in one file, deliberately.
+  - This service issues none of those roles. **`hc-professional`'s gateway does, and has no `ROLE_PROFESSIONAL` at
+    all** — and the two stacks share a JWT signing key, so its tokens reach here. Before this, a doctor signing in
+    there failed every `ROLE_PROFESSIONAL` check, resolved to no patient, and was served empty lists rather than a
+    refusal.
+  - `ROLE_PROFESSIONAL` still means everything. Narrowing it would change thirty checks at once, silently.
+  - It composes with `PatientScope` and never replaces it: that decides _whose_ records, this decides _what kind_,
+    and whose is settled first. Wired into the write paths of eleven resources; **reads are not filtered yet** —
+    `canRead`/`requireRead` exist and are tested but nothing calls them.
 - **`source` is stamped from the caller, never from the payload,** on create only. A value a client can choose is a
   claim rather than a record.
 - **No event carries clinical content.** `PatientEventPublisher.assertNothingClinical` throws rather than stripping,
