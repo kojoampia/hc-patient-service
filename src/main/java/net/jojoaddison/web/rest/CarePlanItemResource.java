@@ -9,6 +9,7 @@ import net.jojoaddison.domain.CarePlanItem;
 import net.jojoaddison.repository.CarePlanItemRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.CarePlanItemService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -61,6 +62,7 @@ public class CarePlanItemResource {
     @PostMapping("")
     public ResponseEntity<CarePlanItem> createCarePlanItem(@RequestBody CarePlanItem carePlanItem) throws URISyntaxException {
         log.debug("REST request to save CarePlanItem : {}", carePlanItem);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
         if (carePlanItem.getId() != null) {
             throw new BadRequestAlertException("A new carePlanItem cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -94,6 +96,7 @@ public class CarePlanItemResource {
         @RequestBody CarePlanItem carePlanItem
     ) throws URISyntaxException {
         log.debug("REST request to update CarePlanItem : {}, {}", id, carePlanItem);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
         if (carePlanItem.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -142,6 +145,7 @@ public class CarePlanItemResource {
         @RequestBody CarePlanItem carePlanItem
     ) throws URISyntaxException {
         log.debug("REST request to partial update CarePlanItem partially : {}, {}", id, carePlanItem);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
         if (carePlanItem.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

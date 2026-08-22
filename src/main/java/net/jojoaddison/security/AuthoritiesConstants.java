@@ -32,5 +32,39 @@ public final class AuthoritiesConstants {
      */
     public static final String PROFESSIONAL = "ROLE_PROFESSIONAL";
 
+    /**
+     * The clinical disciplines, spelled exactly as {@code hc-professional}'s gateway spells them.
+     *
+     * <h2>Why they appear here without being issued here</h2>
+     *
+     * <p>This service issues no authorities at all — it validates tokens. {@code hc-patient}'s own gateway mints
+     * {@link #PROFESSIONAL} and will go on doing so. These eight are minted by <em>hc-professional</em>'s gateway,
+     * and they reach this service because the two stacks share one JWT signing key: a token from either is accepted
+     * by either.</p>
+     *
+     * <p>Which means they were already arriving and being ignored. {@code hc-professional}'s gateway has no
+     * {@code ROLE_PROFESSIONAL} at all, so a doctor signing in there reached this service holding
+     * {@code ROLE_DOCTOR}, failed every {@code ROLE_PROFESSIONAL} check, resolved to no patient, and was served an
+     * empty list rather than a refusal. Naming them is what stops that.</p>
+     *
+     * <p>The strings must stay byte-identical to {@code hc-professional}'s {@code AuthoritiesConstants}. There is no
+     * shared artefact between the two repositories to enforce it, which is precisely why it is written down here.</p>
+     */
+    public static final String DOCTOR = "ROLE_DOCTOR";
+
+    public static final String NURSE = "ROLE_NURSE";
+
+    public static final String CARER = "ROLE_CARER";
+
+    public static final String PARAMEDIC = "ROLE_PARAMEDIC";
+
+    public static final String PHARMACIST = "ROLE_PHARMACIST";
+
+    public static final String THERAPIST = "ROLE_THERAPIST";
+
+    public static final String CHEMIST = "ROLE_CHEMIST";
+
+    public static final String TECHNICIAN = "ROLE_TECHNICIAN";
+
     private AuthoritiesConstants() {}
 }

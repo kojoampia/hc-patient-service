@@ -2,6 +2,7 @@ package net.jojoaddison.security;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -138,7 +139,64 @@ public class PatientScope {
      * @return true for administrators and clinical staff.
      */
     public boolean isUnrestricted() {
-        return SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN, AuthoritiesConstants.PROFESSIONAL);
+        return (
+            SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN) ||
+            ScopeOfPractice.isClinical(SecurityUtils.getCurrentUserAuthorities())
+        );
+    }
+
+    /**
+     * Whether the caller's discipline permits reading this kind of patient data.
+     *
+     * <p>Separate from {@link #isUnrestricted()} and asked after it. That answers "whose records", this answers
+     * "what kind" — an administrator is unrestricted and holds no scope of practice, a pharmacist may be unrestricted
+     * across patients and still have no business in a diagnosis.</p>
+     *
+     * <p>True for anybody who is not clinical at all, because a patient reading their own record is not exercising a
+     * scope of practice and must not be filtered by one. Whose record they may read is already settled by the time
+     * this is asked.</p>
+     */
+    public boolean canRead(ClinicalDomain domain) {
+        Set<String> authorities = SecurityUtils.getCurrentUserAuthorities();
+        if (authorities.contains(AuthoritiesConstants.ADMIN) || !ScopeOfPractice.isClinical(authorities)) {
+            return true;
+        }
+        return ScopeOfPractice.canRead(authorities, domain);
+    }
+
+    /** The write-side of {@link #canRead}, with the same rule about non-clinical callers. */
+    public boolean canWrite(ClinicalDomain domain) {
+        Set<String> authorities = SecurityUtils.getCurrentUserAuthorities();
+        if (authorities.contains(AuthoritiesConstants.ADMIN) || !ScopeOfPractice.isClinical(authorities)) {
+            return true;
+        }
+        return ScopeOfPractice.canWrite(authorities, domain);
+    }
+
+    /**
+     * Refuses the request unless the caller's discipline permits writing this kind of data.
+     *
+     * @param domain the kind of data being written.
+     * @throws AccessDeniedException when it does not.
+     */
+    public void requireWrite(ClinicalDomain domain) {
+        if (!canWrite(domain)) {
+            LOG.warn("Refused a write outside the caller's scope of practice: {}", domain);
+            throw new AccessDeniedException("This account's clinical role does not permit writing " + domain + " data");
+        }
+    }
+
+    /**
+     * Refuses the request unless the caller's discipline permits reading this kind of data.
+     *
+     * @param domain the kind of data being read.
+     * @throws AccessDeniedException when it does not.
+     */
+    public void requireRead(ClinicalDomain domain) {
+        if (!canRead(domain)) {
+            LOG.warn("Refused a read outside the caller's scope of practice: {}", domain);
+            throw new AccessDeniedException("This account's clinical role does not permit reading " + domain + " data");
+        }
     }
 
     /**

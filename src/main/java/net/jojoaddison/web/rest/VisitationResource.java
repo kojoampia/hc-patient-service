@@ -9,6 +9,7 @@ import net.jojoaddison.domain.Visitation;
 import net.jojoaddison.repository.VisitationRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.VisitationService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -62,6 +63,7 @@ public class VisitationResource {
     @PostMapping("")
     public ResponseEntity<Visitation> createVisitation(@RequestBody Visitation visitation) throws URISyntaxException {
         log.debug("REST request to save Visitation : {}", visitation);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (visitation.getId() != null) {
             throw new BadRequestAlertException("A new visitation cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -95,6 +97,7 @@ public class VisitationResource {
         @RequestBody Visitation visitation
     ) throws URISyntaxException {
         log.debug("REST request to update Visitation : {}, {}", id, visitation);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (visitation.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -143,6 +146,7 @@ public class VisitationResource {
         @RequestBody Visitation visitation
     ) throws URISyntaxException {
         log.debug("REST request to partial update Visitation partially : {}, {}", id, visitation);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (visitation.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

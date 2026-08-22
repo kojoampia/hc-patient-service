@@ -9,6 +9,7 @@ import net.jojoaddison.domain.Stat;
 import net.jojoaddison.repository.StatRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -53,6 +54,7 @@ public class StatResource {
     @PostMapping("")
     public ResponseEntity<Stat> createStat(@RequestBody Stat stat) throws URISyntaxException {
         log.debug("REST request to save Stat : {}", stat);
+        patientScope.requireWrite(ClinicalDomain.OBSERVATION);
         if (stat.getId() != null) {
             throw new BadRequestAlertException("A new stat cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -85,6 +87,7 @@ public class StatResource {
     public ResponseEntity<Stat> updateStat(@PathVariable(value = "id", required = false) final String id, @RequestBody Stat stat)
         throws URISyntaxException {
         log.debug("REST request to update Stat : {}, {}", id, stat);
+        patientScope.requireWrite(ClinicalDomain.OBSERVATION);
         if (stat.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -132,6 +135,7 @@ public class StatResource {
     public ResponseEntity<Stat> partialUpdateStat(@PathVariable(value = "id", required = false) final String id, @RequestBody Stat stat)
         throws URISyntaxException {
         log.debug("REST request to partial update Stat partially : {}, {}", id, stat);
+        patientScope.requireWrite(ClinicalDomain.OBSERVATION);
         if (stat.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

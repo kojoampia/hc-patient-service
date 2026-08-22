@@ -9,6 +9,7 @@ import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.repository.AllergyRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.AllergyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -57,6 +58,7 @@ public class AllergyResource {
     @PostMapping("")
     public ResponseEntity<Allergy> createAllergy(@RequestBody Allergy allergy) throws URISyntaxException {
         log.debug("REST request to save Allergy : {}", allergy);
+        patientScope.requireWrite(ClinicalDomain.MEDICATION);
         if (allergy.getId() != null) {
             throw new BadRequestAlertException("A new allergy cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -93,6 +95,7 @@ public class AllergyResource {
         @RequestBody Allergy allergy
     ) throws URISyntaxException {
         log.debug("REST request to update Allergy : {}, {}", id, allergy);
+        patientScope.requireWrite(ClinicalDomain.MEDICATION);
         if (allergy.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -144,6 +147,7 @@ public class AllergyResource {
         @RequestBody Allergy allergy
     ) throws URISyntaxException {
         log.debug("REST request to partial update Allergy partially : {}, {}", id, allergy);
+        patientScope.requireWrite(ClinicalDomain.MEDICATION);
         if (allergy.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

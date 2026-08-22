@@ -9,6 +9,7 @@ import net.jojoaddison.domain.Task;
 import net.jojoaddison.repository.TaskRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -58,6 +59,7 @@ public class TaskResource {
     @PostMapping("")
     public ResponseEntity<Task> createTask(@RequestBody Task task) throws URISyntaxException {
         log.debug("REST request to save Task : {}", task);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
         if (task.getId() != null) {
             throw new BadRequestAlertException("A new task cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -89,6 +91,7 @@ public class TaskResource {
     public ResponseEntity<Task> updateTask(@PathVariable(value = "id", required = false) final String id, @RequestBody Task task)
         throws URISyntaxException {
         log.debug("REST request to update Task : {}, {}", id, task);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
         if (task.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -135,6 +138,7 @@ public class TaskResource {
     public ResponseEntity<Task> partialUpdateTask(@PathVariable(value = "id", required = false) final String id, @RequestBody Task task)
         throws URISyntaxException {
         log.debug("REST request to partial update Task partially : {}, {}", id, task);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
         if (task.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

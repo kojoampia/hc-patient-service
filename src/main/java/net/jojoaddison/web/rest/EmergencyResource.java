@@ -9,6 +9,7 @@ import net.jojoaddison.domain.Emergency;
 import net.jojoaddison.repository.EmergencyRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.EmergencyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
@@ -57,6 +58,7 @@ public class EmergencyResource {
     @PostMapping("")
     public ResponseEntity<Emergency> createEmergency(@RequestBody Emergency emergency) throws URISyntaxException {
         log.debug("REST request to save Emergency : {}", emergency);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (emergency.getId() != null) {
             throw new BadRequestAlertException("A new emergency cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -90,6 +92,7 @@ public class EmergencyResource {
         @RequestBody Emergency emergency
     ) throws URISyntaxException {
         log.debug("REST request to update Emergency : {}, {}", id, emergency);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (emergency.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -138,6 +141,7 @@ public class EmergencyResource {
         @RequestBody Emergency emergency
     ) throws URISyntaxException {
         log.debug("REST request to partial update Emergency partially : {}, {}", id, emergency);
+        patientScope.requireWrite(ClinicalDomain.ENCOUNTER);
         if (emergency.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }

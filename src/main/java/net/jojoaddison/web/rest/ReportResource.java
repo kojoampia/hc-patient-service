@@ -11,6 +11,7 @@ import net.jojoaddison.domain.Report;
 import net.jojoaddison.repository.ReportRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
+import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.ReportFileService;
 import net.jojoaddison.service.UnsupportedReportFileException;
@@ -69,6 +70,7 @@ public class ReportResource {
     @PostMapping("")
     public ResponseEntity<Report> createReport(@RequestBody Report report) throws URISyntaxException {
         log.debug("REST request to save Report : {}", report);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
         if (report.getId() != null) {
             throw new BadRequestAlertException("A new report cannot already have an ID", ENTITY_NAME, "idexists");
         }
@@ -100,6 +102,7 @@ public class ReportResource {
     public ResponseEntity<Report> updateReport(@PathVariable(value = "id", required = false) final String id, @RequestBody Report report)
         throws URISyntaxException {
         log.debug("REST request to update Report : {}, {}", id, report);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
         if (report.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
@@ -148,6 +151,7 @@ public class ReportResource {
         @RequestBody Report report
     ) throws URISyntaxException {
         log.debug("REST request to partial update Report partially : {}, {}", id, report);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
         if (report.getId() == null) {
             throw new BadRequestAlertException("Invalid id", ENTITY_NAME, "idnull");
         }
