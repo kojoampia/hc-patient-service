@@ -59,8 +59,23 @@ each changes what the code should say and none of them is in it yet.
       is the one place a nurse touches a `DIAGNOSIS`-adjacent act, and `CareDelegationResourceIT`
       coverage for doctor-declares/nurse-countersigns and for nurse-cannot-declare.
 
-- [ ] **`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
-      than provisional.** The table says at its top that it is a starting position written from the
+- [x] **Reviewed and three rows changed, 2026-08-24.** Carer gained `DIAGNOSIS` reads — a carer alone
+      with a patient at home who does not know they are diabetic or epileptic may not recognise what
+      they are watching happen, and that was judged to outweigh the disclosure. Therapist gained
+      `MEDICATION` reads, which was an omission rather than a decision: anticoagulants and beta
+      blockers change what is safe to do and how a pulse should be read. Paramedic gained `MEDICATION`
+      writes, so a drug given in an emergency can be recorded rather than leaving the next clinician
+      to prescribe against an incomplete history. **All three widened**, which is the direction this
+      table's bias predicts: it refuses when unsure, so its errors accumulate where a clinician
+      notices within minutes rather than where nobody ever does.
+- [ ] **Two limits recorded rather than closed.** The model has no notion of a doctor's specialty — a
+      dermatologist and a psychiatrist are the same row — and `CHEMIST` and `TECHNICIAN` are identical
+      rows. Differentiating the lab roles was agreed in principle but **needs somebody to say how they
+      differ in this service**; inventing a difference in a table whose bias is to refuse when unsure
+      is the wrong way to resolve it. A test pins them as identical so the day they diverge, somebody
+      has to say so.
+- [x] ~~**`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
+      than provisional.**~~ The table says at its top that it is a starting position written from the
       shape of the data rather than from anybody's scope of practice, and names carer, paramedic and
       pharmacist as the rows most likely wrong. Somebody with the standing to rule on scope of practice
       reviews all eight rows. **Deliverable for that review: one page per row — what it grants, what it

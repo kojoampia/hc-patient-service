@@ -25,6 +25,24 @@ import java.util.Set;
  *
  * <p>{@code ROLE_ADMIN} is absent on purpose. An administrator is not a clinician and holds no scope of practice;
  * they are unrestricted for operational reasons and are handled before this table is consulted.</p>
+ *
+ * <h2>Reviewed 2026-08-24</h2>
+ *
+ * <p>Three rows changed after review — carer gained {@code DIAGNOSIS} reads, therapist gained {@code MEDICATION}
+ * reads, paramedic gained {@code MEDICATION} writes. Each is explained at the row itself. All three widened, which
+ * is the expected direction: this table refuses when unsure, so its errors accumulate on the side that a clinician
+ * notices and complains about within minutes rather than the side nobody ever sees.</p>
+ *
+ * <h2>Two limits this model has, recorded rather than hidden</h2>
+ *
+ * <p><strong>There is no notion of a doctor's specialty.</strong> A dermatologist and a psychiatrist are the same
+ * row, and both hold the whole record. This is the largest simplification here, and closing it would make every
+ * {@code DIAGNOSIS} check specialty-dependent.</p>
+ *
+ * <p><strong>{@code CHEMIST} and {@code TECHNICIAN} are identical rows</strong>, so the model does not distinguish
+ * them at all. That has been accepted as a known limit rather than corrected, because correcting it needs somebody
+ * to say <em>how</em> they differ in this service — and inventing a difference in a table whose stated bias is to
+ * refuse when unsure is exactly the wrong way to resolve it.</p>
  */
 public final class ScopeOfPractice {
 
@@ -56,12 +74,20 @@ public final class ScopeOfPractice {
         );
 
         // A carer, who is with the patient rather than treating them. They record what they see and what they did;
-        // they read the plan they are carrying out and the allergies that would make them stop. Not the diagnosis:
-        // a carer does not need to know the name of the condition to follow the plan for it, and this is the row
-        // most likely to be wrong — see the note at the top.
+        // they read the plan they are carrying out and the allergies that would make them stop.
+        //
+        // THEY ALSO READ THE DIAGNOSIS, decided 2026-08-24, reversing this table's original position. The old
+        // reasoning was that a carer does not need the name of a condition to follow the plan for it. That is true
+        // of following a plan and false of recognising an emergency: a carer alone with a patient at home who does
+        // not know they are diabetic, epileptic or living with dementia may not understand what they are watching
+        // happen. The disclosure is real — carers are often agency staff — and it was judged the lesser risk,
+        // because the carer is also the person present when it matters.
+        //
+        // Reads only. A carer never writes a diagnosis, and the write set below is unchanged.
         grant(
             AuthoritiesConstants.CARER,
             EnumSet.of(
+                ClinicalDomain.DIAGNOSIS,
                 ClinicalDomain.MEDICATION,
                 ClinicalDomain.OBSERVATION,
                 ClinicalDomain.CARE_PLAN,
@@ -73,11 +99,15 @@ public final class ScopeOfPractice {
 
         // A paramedic, who arrives knowing nothing and needs the dangerous facts immediately. Reads the diagnosis
         // because arriving at an unconscious patient without it is the case this role exists for; writes what
-        // happened and what was measured.
+        // happened, what was measured, and — since 2026-08-24 — what they gave.
+        //
+        // MEDICATION writes were missing and it was a real gap, not a deliberate narrowing. A paramedic attending
+        // an emergency may well administer something, and a record that cannot hold it is worse than no record:
+        // the next clinician reads an incomplete medication history and prescribes against it.
         grant(
             AuthoritiesConstants.PARAMEDIC,
             EnumSet.allOf(ClinicalDomain.class),
-            EnumSet.of(ClinicalDomain.OBSERVATION, ClinicalDomain.ENCOUNTER)
+            EnumSet.of(ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.ENCOUNTER)
         );
 
         // A pharmacist: the medication record, and the conditions that bear on it. Writes medications and nothing
@@ -89,10 +119,17 @@ public final class ScopeOfPractice {
         );
 
         // A therapist: works to the plan and reports against it.
+        //
+        // MEDICATION reads added 2026-08-24. Their absence was an omission rather than a decision — no clinical
+        // reasoning for it was ever recorded — and it left a physiotherapist working without facts that change what
+        // is safe to do. Anticoagulants change what a fall costs; beta blockers blunt the heart-rate response that
+        // exercise tolerance is judged by, so a therapist reading a pulse without knowing about them is reading it
+        // wrong. Read only: a therapist does not prescribe, and the write set is unchanged.
         grant(
             AuthoritiesConstants.THERAPIST,
             EnumSet.of(
                 ClinicalDomain.DIAGNOSIS,
+                ClinicalDomain.MEDICATION,
                 ClinicalDomain.CARE_PLAN,
                 ClinicalDomain.OBSERVATION,
                 ClinicalDomain.ENCOUNTER,
