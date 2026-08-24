@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class VisitationService {
 
+    private static final String ENTITY_NAME = "hcPatientServiceVisitation";
+
     private final Logger log = LoggerFactory.getLogger(VisitationService.class);
 
     private final VisitationRepository visitationRepository;
@@ -126,5 +128,28 @@ public class VisitationService {
     public void delete(String id) {
         log.debug("Request to delete Visitation : {}", id);
         visitationRepository.deleteById(id);
+    }
+
+    /**
+     * Retires a visitation from the working lists. See {@link ArchiveSupport} for why it refuses rather than
+     * silently succeeding when the record is already archived.
+     */
+    public Visitation archive(String id, String professionalId, String reason) {
+        log.debug("Request to archive Visitation : {}", id);
+        return ArchiveSupport.archive(
+            visitationRepository.findById(id),
+            id,
+            professionalId,
+            reason,
+            ENTITY_NAME,
+            "visitation",
+            visitationRepository::save
+        );
+    }
+
+    /** The way back. Archiving without it is a delete with extra steps. */
+    public Visitation unarchive(String id) {
+        log.debug("Request to unarchive Visitation : {}", id);
+        return ArchiveSupport.unarchive(visitationRepository.findById(id), id, ENTITY_NAME, "visitation", visitationRepository::save);
     }
 }

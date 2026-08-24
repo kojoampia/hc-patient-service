@@ -3,6 +3,7 @@ package net.jojoaddison.web.rest;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Allergy;
@@ -11,6 +12,7 @@ import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.AllergyService;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -123,6 +125,20 @@ public class AllergyResource {
         allergy.setModifiedBy(AuditStamp.currentUser());
         allergy.setModifiedDate(AuditStamp.today());
 
+        // Archive state is carried from the stored record and never read from the payload. A PUT replaces
+
+        // the document wholesale, so without this any caller who may edit a Allergy could archive or
+
+        // un-archive it by setting a field -- the /archive rule bypassed by the one verb nobody thought
+
+        // about, and they would choose whose name went on it. Same defect ClinicalCase closed 2026-08-22.
+
+        allergy.setArchivedAt(existing.getArchivedAt());
+
+        allergy.setArchivedById(existing.getArchivedById());
+
+        allergy.setArchiveReason(existing.getArchiveReason());
+
         Allergy result = allergyService.update(allergy);
         return ResponseEntity
             .ok()
@@ -229,5 +245,61 @@ public class AllergyResource {
         }
         allergyService.delete(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * {@code POST /api/allergies/:id/archive} : retire a allergy from the working lists.
+     *
+     * <p>The clinician's replacement for the delete that patient data does not allow. The record keeps every field
+     * it had and its place in the patient's record; it stops appearing in the lists people work from.</p>
+     *
+     * <p><strong>The authority follows this entity's {@code ClinicalDomain}</strong> — MEDICATION — so archiving is
+     * never wider than editing. Deriving it rather than naming a role per endpoint is what stops the two drifting:
+     * a discipline that may not write a allergy must not be able to retire one either.</p>
+     *
+     * <p>{@code ROLE_ADMIN} is excluded deliberately, as it is on {@code ClinicalCase}, and that exclusion is why
+     * this is a {@code requireWrite} call rather than only a {@code @PreAuthorize}: {@code PatientScope} returns
+     * true for an administrator before it consults {@code ScopeOfPractice}, so the visibility check below is what
+     * confines them to records they may already see.</p>
+     *
+     * @param body must carry a {@code reason}. An archive with no reason is the delete this exists to replace.
+     */
+    @PostMapping("/{id}/archive")
+    public ResponseEntity<Allergy> archiveAllergy(@PathVariable("id") String id, @RequestBody(required = false) Map<String, String> body) {
+        log.debug("REST request to archive Allergy : {}", id);
+        patientScope.requireWrite(ClinicalDomain.MEDICATION);
+        String reason = body == null ? null : body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestAlertException("An archive must say why", ENTITY_NAME, "reasonrequired");
+        }
+        // Visibility before existence, exactly as the read endpoints do: a caller who may not see a record must not
+        // be able to learn that it exists by archiving it.
+        if (allergyRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Allergy archived = allergyService.archive(id, professionalId(), reason.trim());
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(archived);
+    }
+
+    /**
+     * {@code POST /api/allergies/:id/unarchive} : put a allergy back.
+     *
+     * <p>Not optional. Without it archiving is a delete with extra steps — the one thing a clinician could do that
+     * nobody could undo — and the mistake it invites is archiving the wrong row of a list.</p>
+     */
+    @PostMapping("/{id}/unarchive")
+    public ResponseEntity<Allergy> unarchiveAllergy(@PathVariable("id") String id) {
+        log.debug("REST request to unarchive Allergy : {}", id);
+        patientScope.requireWrite(ClinicalDomain.MEDICATION);
+        if (allergyRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Allergy restored = allergyService.unarchive(id);
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(restored);
+    }
+
+    /** The login of whoever acted, for the same reason {@code ClinicalCaseResource} gives: this service has no user management. */
+    private String professionalId() {
+        return SecurityUtils.getCurrentUserLogin().orElse(null);
     }
 }

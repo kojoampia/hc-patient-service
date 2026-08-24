@@ -20,4 +20,15 @@ public interface CarePlanItemRepository extends MongoRepository<CarePlanItem, St
     List<CarePlanItem> findByPatientId(String patientId);
 
     Page<CarePlanItem> findByPatientId(String patientId, Pageable pageable);
+
+    /**
+     * Live records only.
+     *
+     * <p>{@code IsNull} rather than a boolean test, and it is load-bearing for the data that already exists: every
+     * document written before the archive fields has no {@code archived_at} key at all, and in MongoDB a null match
+     * also matches a missing field, so they all read as live with no migration.</p>
+     */
+    List<CarePlanItem> findByPatientIdAndArchivedAtIsNull(String patientId);
+
+    List<CarePlanItem> findByArchivedAtIsNull();
 }
