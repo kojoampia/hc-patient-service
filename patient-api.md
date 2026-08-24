@@ -42,6 +42,16 @@ from the code, pinned by a test, and since demonstrated on the quality stack onc
 ### Archiving a clinical case (2026-08-22)
 
 - [x] `POST /api/clinical-cases/{id}/archive` and `/unarchive`, `ROLE_PROFESSIONAL`, reason required.
+- [x] **`ROLE_DOCTOR` admitted too, 2026-08-24.** `ROLE_PROFESSIONAL` alone made this unreachable from
+      the portal that owns the case queue: `hc-professional`'s gateway mints the nine disciplines and has
+      no `ROLE_PROFESSIONAL` at all, so every clinician arriving from that stack got a 403.
+      `AuthoritiesConstants`' javadoc already recorded that shape for the read path, which was fixed by
+      naming the disciplines on 2026-08-22 — archive and unarchive were left behind. Doctor and not the
+      other eight because `ScopeOfPractice` grants `DIAGNOSIS` writes to doctor alone and
+      `ClinicalDomain` maps `ClinicalCase` to `DIAGNOSIS`. Still `@PreAuthorize` rather than
+      `requireWrite(DIAGNOSIS)`, deliberately: `PatientScope` returns true for `ROLE_ADMIN` before it
+      consults `ScopeOfPractice`, so `requireWrite` would quietly admit the operational role this
+      endpoint excludes on purpose. `ClinicalCaseArchiveIT` asserts all four directions.
 - [x] `archivedAt` / `archivedById` / `archiveReason` on `ClinicalCase`; `GET` excludes archived
       unless `includeArchived=true`, and `GET /{id}` still returns one.
 - [x] `PUT` and `PATCH` cannot reach the archive fields. Found reviewing the diff: `PUT` replaces the

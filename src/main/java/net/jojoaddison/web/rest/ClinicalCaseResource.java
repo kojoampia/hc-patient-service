@@ -263,17 +263,29 @@ public class ClinicalCaseResource {
      * <p>The professional-only replacement for the delete that patient data does not allow. The case keeps every
      * field it had and its place in the patient's record; it stops appearing in the lists clinicians work from.</p>
      *
-     * <p><strong>{@code ROLE_PROFESSIONAL} only</strong>, following {@code CareDelegation}'s activate and
-     * countersign rather than the DELETE above. Retiring a clinical episode is a clinical judgement about whether a
-     * patient is still being treated for something; {@code ROLE_ADMIN} is an operational role, and it already holds
-     * the harder power here.</p>
+     * <p><strong>A clinical authority only</strong> — {@code ROLE_PROFESSIONAL} or {@code ROLE_DOCTOR} — following
+     * {@code CareDelegation}'s activate and countersign rather than the DELETE above. Retiring a clinical episode is
+     * a clinical judgement about whether a patient is still being treated for something; {@code ROLE_ADMIN} is an
+     * operational role, and it already holds the harder power here. <b>That exclusion is deliberate and is why this
+     * is not {@code requireWrite(DIAGNOSIS)}</b>, which would admit an admin through {@code PatientScope}'s early
+     * return.</p>
+     *
+     * <p>{@code ROLE_DOCTOR} was added on 2026-08-24. This service issues no authorities; {@code hc-professional}'s
+     * gateway mints the nine disciplines and has no {@code ROLE_PROFESSIONAL} at all, so every clinician arriving
+     * from that stack failed this check — a doctor got 403 and archiving was unreachable from the portal that owns
+     * the case queue. {@code AuthoritiesConstants}' javadoc already recorded that shape for the read path, which was
+     * fixed by naming the disciplines; archive and unarchive were left behind.</p>
+     *
+     * <p>Doctor and not the other eight, because {@code ScopeOfPractice} grants {@code DIAGNOSIS} writes to doctor
+     * alone — a nurse "writes everything except the diagnosis" by its own comment — and {@code ClinicalDomain} maps
+     * {@code ClinicalCase} to {@code DIAGNOSIS}. Widening further would say something this model does not.</p>
      *
      * @param id the case to archive.
      * @param body must carry a {@code reason}. An archive with no reason is the delete this exists to replace.
      * @return the archived case.
      */
     @PostMapping("/{id}/archive")
-    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.PROFESSIONAL + "', '" + AuthoritiesConstants.DOCTOR + "')")
     public ResponseEntity<ClinicalCase> archiveClinicalCase(
         @PathVariable("id") String id,
         @RequestBody(required = false) Map<String, String> body
@@ -299,11 +311,15 @@ public class ClinicalCaseResource {
      * clinician could do to a record that nobody could undo — and the mistake it invites is archiving the wrong row
      * of a list.</p>
      *
+     * <p><strong>The authorities must match the archive above, exactly</strong> — see its javadoc for why they are
+     * these two and not {@code requireWrite(DIAGNOSIS)}. A caller who can archive but not unarchive has the delete
+     * this endpoint exists to prevent, so the two move together or not at all.</p>
+     *
      * @param id the case to restore.
      * @return the restored case.
      */
     @PostMapping("/{id}/unarchive")
-    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.PROFESSIONAL + "', '" + AuthoritiesConstants.DOCTOR + "')")
     public ResponseEntity<ClinicalCase> unarchiveClinicalCase(@PathVariable("id") String id) {
         log.debug("REST request to unarchive ClinicalCase : {}", id);
         if (clinicalCaseRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {

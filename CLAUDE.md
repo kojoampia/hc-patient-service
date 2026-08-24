@@ -188,7 +188,11 @@ Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the con
   after a revocation. Which patient an angel acts for arrives in an `X-Acting-As` header, re-checked per request.
 - **Patient data is never deleted.** Sixteen resources require `ROLE_ADMIN` for `DELETE`. Archiving — the
   professional-only replacement — **exists for `ClinicalCase` since 2026-08-22** and for nothing else yet:
-  `POST /api/clinical-cases/{id}/archive` and `/unarchive`, `ROLE_PROFESSIONAL`, a reason required. It is a
+  `POST /api/clinical-cases/{id}/archive` and `/unarchive`, a reason required, and a **clinical** authority —
+  `ROLE_PROFESSIONAL` or `ROLE_DOCTOR` (added 2026-08-24, because `hc-professional`'s gateway mints no
+  `ROLE_PROFESSIONAL` and every clinician arriving from that stack was getting a 403). `ROLE_ADMIN` is excluded on
+  purpose, which is why this is `@PreAuthorize` and not `requireWrite(DIAGNOSIS)` — `PatientScope` returns true for
+  an admin before it consults `ScopeOfPractice`. It is a
   transition endpoint rather than a `PATCH` for the reason `CareDelegation` has none — a `PATCH` over `archivedAt`
   lets a client choose when a case was archived and by whom, and both are records rather than claims. `PUT` carries
   the stored archive state over from the existing record for the same reason; without that, the one verb that
