@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class EmergencyService {
 
+    private static final String ENTITY_NAME = "hcPatientServiceEmergency";
+
     private final Logger log = LoggerFactory.getLogger(EmergencyService.class);
 
     private final EmergencyRepository emergencyRepository;
@@ -136,5 +138,28 @@ public class EmergencyService {
     public void delete(String id) {
         log.debug("Request to delete Emergency : {}", id);
         emergencyRepository.deleteById(id);
+    }
+
+    /**
+     * Retires a emergency from the working lists. See {@link ArchiveSupport} for why it refuses rather than
+     * silently succeeding when the record is already archived.
+     */
+    public Emergency archive(String id, String professionalId, String reason) {
+        log.debug("Request to archive Emergency : {}", id);
+        return ArchiveSupport.archive(
+            emergencyRepository.findById(id),
+            id,
+            professionalId,
+            reason,
+            ENTITY_NAME,
+            "emergency",
+            emergencyRepository::save
+        );
+    }
+
+    /** The way back. Archiving without it is a delete with extra steps. */
+    public Emergency unarchive(String id) {
+        log.debug("Request to unarchive Emergency : {}", id);
+        return ArchiveSupport.unarchive(emergencyRepository.findById(id), id, ENTITY_NAME, "emergency", emergencyRepository::save);
     }
 }

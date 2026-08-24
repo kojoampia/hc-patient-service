@@ -3,6 +3,7 @@ package net.jojoaddison.web.rest;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Task;
@@ -11,6 +12,8 @@ import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.ArchiveSupport;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,6 +118,20 @@ public class TaskResource {
         task.setCreatedDate(existing.getCreatedDate());
         task.setModifiedBy(AuditStamp.currentUser());
         task.setModifiedDate(AuditStamp.today());
+
+        // Archive state is carried from the stored record and never read from the payload. A PUT replaces
+
+        // the document wholesale, so without this any caller who may edit a Task could archive or
+
+        // un-archive it by setting a field -- the /archive rule bypassed by the one verb nobody thought
+
+        // about, and they would choose whose name went on it. Same defect ClinicalCase closed 2026-08-22.
+
+        task.setArchivedAt(existing.getArchivedAt());
+
+        task.setArchivedById(existing.getArchivedById());
+
+        task.setArchiveReason(existing.getArchiveReason());
 
         Task result = taskRepository.save(task);
         return ResponseEntity
@@ -274,5 +291,69 @@ public class TaskResource {
         }
         taskRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * {@code POST /api/tasks/:id/archive} : retire a task from the working lists.
+     *
+     * <p>The clinician's replacement for the delete that patient data does not allow. The record keeps every field
+     * it had and its place in the patient's record; it stops appearing in the lists people work from.</p>
+     *
+     * <p><strong>The authority follows this entity's {@code ClinicalDomain}</strong> — CARE_PLAN — so archiving is
+     * never wider than editing. Deriving it rather than naming a role per endpoint is what stops the two drifting:
+     * a discipline that may not write a task must not be able to retire one either.</p>
+     *
+     * <p>{@code ROLE_ADMIN} is excluded deliberately, as it is on {@code ClinicalCase}, and that exclusion is why
+     * this is a {@code requireWrite} call rather than only a {@code @PreAuthorize}: {@code PatientScope} returns
+     * true for an administrator before it consults {@code ScopeOfPractice}, so the visibility check below is what
+     * confines them to records they may already see.</p>
+     *
+     * @param body must carry a {@code reason}. An archive with no reason is the delete this exists to replace.
+     */
+    @PostMapping("/{id}/archive")
+    public ResponseEntity<Task> archiveTask(@PathVariable("id") String id, @RequestBody(required = false) Map<String, String> body) {
+        log.debug("REST request to archive Task : {}", id);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
+        String reason = body == null ? null : body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestAlertException("An archive must say why", ENTITY_NAME, "reasonrequired");
+        }
+        // Visibility before existence, exactly as the read endpoints do: a caller who may not see a record must not
+        // be able to learn that it exists by archiving it.
+        if (taskRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Task archived = ArchiveSupport.archive(
+            taskRepository.findById(id),
+            id,
+            professionalId(),
+            reason.trim(),
+            ENTITY_NAME,
+            "task",
+            taskRepository::save
+        );
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(archived);
+    }
+
+    /**
+     * {@code POST /api/tasks/:id/unarchive} : put a task back.
+     *
+     * <p>Not optional. Without it archiving is a delete with extra steps — the one thing a clinician could do that
+     * nobody could undo — and the mistake it invites is archiving the wrong row of a list.</p>
+     */
+    @PostMapping("/{id}/unarchive")
+    public ResponseEntity<Task> unarchiveTask(@PathVariable("id") String id) {
+        log.debug("REST request to unarchive Task : {}", id);
+        patientScope.requireWrite(ClinicalDomain.CARE_PLAN);
+        if (taskRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Task restored = ArchiveSupport.unarchive(taskRepository.findById(id), id, ENTITY_NAME, "task", taskRepository::save);
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(restored);
+    }
+
+    /** The login of whoever acted, for the same reason {@code ClinicalCaseResource} gives: this service has no user management. */
+    private String professionalId() {
+        return SecurityUtils.getCurrentUserLogin().orElse(null);
     }
 }

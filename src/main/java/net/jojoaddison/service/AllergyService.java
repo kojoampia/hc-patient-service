@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class AllergyService {
 
+    private static final String ENTITY_NAME = "hcPatientServiceAllergy";
+
     private final Logger log = LoggerFactory.getLogger(AllergyService.class);
 
     private final AllergyRepository allergyRepository;
@@ -124,5 +126,28 @@ public class AllergyService {
     public void delete(String id) {
         log.debug("Request to delete Allergy : {}", id);
         allergyRepository.deleteById(id);
+    }
+
+    /**
+     * Retires a allergy from the working lists. See {@link ArchiveSupport} for why it refuses rather than
+     * silently succeeding when the record is already archived.
+     */
+    public Allergy archive(String id, String professionalId, String reason) {
+        log.debug("Request to archive Allergy : {}", id);
+        return ArchiveSupport.archive(
+            allergyRepository.findById(id),
+            id,
+            professionalId,
+            reason,
+            ENTITY_NAME,
+            "allergy",
+            allergyRepository::save
+        );
+    }
+
+    /** The way back. Archiving without it is a delete with extra steps. */
+    public Allergy unarchive(String id) {
+        log.debug("Request to unarchive Allergy : {}", id);
+        return ArchiveSupport.unarchive(allergyRepository.findById(id), id, ENTITY_NAME, "allergy", allergyRepository::save);
     }
 }

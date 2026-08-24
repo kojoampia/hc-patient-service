@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class ActivityLogService {
 
+    private static final String ENTITY_NAME = "hcPatientServiceActivityLog";
+
     private final Logger log = LoggerFactory.getLogger(ActivityLogService.class);
 
     private final ActivityLogRepository activityLogRepository;
@@ -123,5 +125,28 @@ public class ActivityLogService {
     public void delete(String id) {
         log.debug("Request to delete ActivityLog : {}", id);
         activityLogRepository.deleteById(id);
+    }
+
+    /**
+     * Retires a activity log from the working lists. See {@link ArchiveSupport} for why it refuses rather than
+     * silently succeeding when the record is already archived.
+     */
+    public ActivityLog archive(String id, String professionalId, String reason) {
+        log.debug("Request to archive ActivityLog : {}", id);
+        return ArchiveSupport.archive(
+            activityLogRepository.findById(id),
+            id,
+            professionalId,
+            reason,
+            ENTITY_NAME,
+            "activity log",
+            activityLogRepository::save
+        );
+    }
+
+    /** The way back. Archiving without it is a delete with extra steps. */
+    public ActivityLog unarchive(String id) {
+        log.debug("Request to unarchive ActivityLog : {}", id);
+        return ArchiveSupport.unarchive(activityLogRepository.findById(id), id, ENTITY_NAME, "activity log", activityLogRepository::save);
     }
 }

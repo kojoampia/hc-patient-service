@@ -14,12 +14,31 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @Schema(description = "A visit that took place — the counterpart to Task, which is a visit that is planned.")
 @Document(collection = "visitation")
 @SuppressWarnings("common-java:DuplicatedBlocks")
-public class Visitation implements Serializable {
+public class Visitation implements Serializable, Archivable {
 
     private static final long serialVersionUID = 1L;
 
     @Id
     private String id;
+
+    /**
+     * When this record was retired from the working lists, or null while it is live.
+     *
+     * <p>Nullable instant rather than a boolean, so the record survives the question asked of it afterwards: who
+     * retired it and why. It is also what makes existing documents correct with no migration — they have no
+     * {@code archived_at} key at all, and a null match in MongoDB also matches a missing field, so every one of
+     * them reads as live. Query with {@code IsNull}, never a boolean test.</p>
+     */
+    @Field("archived_at")
+    private Instant archivedAt;
+
+    /** The login of whoever archived it. Stamped from the caller, never accepted from a payload. */
+    @Field("archived_by_id")
+    private String archivedById;
+
+    /** Required when archiving. An archive with no reason is the delete this replaces. */
+    @Field("archive_reason")
+    private String archiveReason;
 
     @Field("patient_id")
     private String patientId;
@@ -248,5 +267,35 @@ public class Visitation implements Serializable {
             ", createdBy='" + getCreatedBy() + "'" +
             ", modifiedBy='" + getModifiedBy() + "'" +
             "}";
+    }
+
+    @Override
+    public Instant getArchivedAt() {
+        return this.archivedAt;
+    }
+
+    @Override
+    public void setArchivedAt(Instant archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    @Override
+    public String getArchivedById() {
+        return this.archivedById;
+    }
+
+    @Override
+    public void setArchivedById(String archivedById) {
+        this.archivedById = archivedById;
+    }
+
+    @Override
+    public String getArchiveReason() {
+        return this.archiveReason;
+    }
+
+    @Override
+    public void setArchiveReason(String archiveReason) {
+        this.archiveReason = archiveReason;
     }
 }

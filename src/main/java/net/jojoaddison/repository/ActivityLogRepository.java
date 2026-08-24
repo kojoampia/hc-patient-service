@@ -20,4 +20,15 @@ public interface ActivityLogRepository extends MongoRepository<ActivityLog, Stri
     List<ActivityLog> findByPatientId(String patientId);
 
     Page<ActivityLog> findByPatientId(String patientId, Pageable pageable);
+
+    /**
+     * Live records only.
+     *
+     * <p>{@code IsNull} rather than a boolean test, and it is load-bearing for the data that already exists: every
+     * document written before the archive fields has no {@code archived_at} key at all, and in MongoDB a null match
+     * also matches a missing field, so they all read as live with no migration.</p>
+     */
+    List<ActivityLog> findByPatientIdAndArchivedAtIsNull(String patientId);
+
+    List<ActivityLog> findByArchivedAtIsNull();
 }

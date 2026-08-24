@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class CarePlanItemService {
 
+    private static final String ENTITY_NAME = "hcPatientServiceCarePlanItem";
+
     private final Logger log = LoggerFactory.getLogger(CarePlanItemService.class);
 
     private final CarePlanItemRepository carePlanItemRepository;
@@ -124,5 +126,34 @@ public class CarePlanItemService {
     public void delete(String id) {
         log.debug("Request to delete CarePlanItem : {}", id);
         carePlanItemRepository.deleteById(id);
+    }
+
+    /**
+     * Retires a care plan item from the working lists. See {@link ArchiveSupport} for why it refuses rather than
+     * silently succeeding when the record is already archived.
+     */
+    public CarePlanItem archive(String id, String professionalId, String reason) {
+        log.debug("Request to archive CarePlanItem : {}", id);
+        return ArchiveSupport.archive(
+            carePlanItemRepository.findById(id),
+            id,
+            professionalId,
+            reason,
+            ENTITY_NAME,
+            "care plan item",
+            carePlanItemRepository::save
+        );
+    }
+
+    /** The way back. Archiving without it is a delete with extra steps. */
+    public CarePlanItem unarchive(String id) {
+        log.debug("Request to unarchive CarePlanItem : {}", id);
+        return ArchiveSupport.unarchive(
+            carePlanItemRepository.findById(id),
+            id,
+            ENTITY_NAME,
+            "care plan item",
+            carePlanItemRepository::save
+        );
     }
 }

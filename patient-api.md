@@ -129,8 +129,19 @@ each changes what the code should say and none of them is in it yet.
 - [x] `PUT` and `PATCH` cannot reach the archive fields. Found reviewing the diff: `PUT` replaces the
       document wholesale, so without carrying the stored state over, anybody who may edit a case could
       archive it by sending a field — and choose whose name went on it.
-- [ ] Only `ClinicalCase`. The DELETE lockdown covers sixteen resources; the other fifteen still have
-      no replacement for the delete they do not have.
+- [x] **Ten of the other fifteen got archiving on 2026-08-24.** `ActivityLog`, `Allergy`,
+      `CarePlanItem`, `Condition`, `Emergency`, `Medication`, `Report`, `Stat`, `Task`, `Visitation` —
+      every resource that maps to a `ClinicalDomain`. The behaviour lives once in `ArchiveSupport`
+      behind an `Archivable` interface, rather than in ten copies where the tenth drifts. The
+      authority is **derived** from each entity's domain rather than named per endpoint, so archiving
+      can never be wider than editing, and `ArchiveEveryClinicalRecordIT` asserts that property for
+      all ten.
+- [ ] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
+      `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
+      one is a different act — archiving a `Profile` deactivates a patient, archiving a
+      `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
+      answered a question nobody has asked. **What is needed first is the decision about what
+      archiving one of these means**, not more code.
 
 Archiving had been the _named_ replacement for that lockdown since it landed, and had never existed —
 `PatientScopeEveryEndpointIT` said so in a comment, and `hc-professional/web` implemented it in a

@@ -3,6 +3,7 @@ package net.jojoaddison.web.rest;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Condition;
@@ -11,6 +12,8 @@ import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.ClinicalDomain;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.ArchiveSupport;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,6 +121,20 @@ public class ConditionResource {
         condition.setCreatedDate(existing.getCreatedDate());
         condition.setModifiedBy(AuditStamp.currentUser());
         condition.setModifiedDate(AuditStamp.today());
+
+        // Archive state is carried from the stored record and never read from the payload. A PUT replaces
+
+        // the document wholesale, so without this any caller who may edit a Condition could archive or
+
+        // un-archive it by setting a field -- the /archive rule bypassed by the one verb nobody thought
+
+        // about, and they would choose whose name went on it. Same defect ClinicalCase closed 2026-08-22.
+
+        condition.setArchivedAt(existing.getArchivedAt());
+
+        condition.setArchivedById(existing.getArchivedById());
+
+        condition.setArchiveReason(existing.getArchiveReason());
 
         Condition result = conditionRepository.save(condition);
         return ResponseEntity
@@ -252,5 +269,78 @@ public class ConditionResource {
         }
         conditionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * {@code POST /api/conditions/:id/archive} : retire a condition from the working lists.
+     *
+     * <p>The clinician's replacement for the delete that patient data does not allow. The record keeps every field
+     * it had and its place in the patient's record; it stops appearing in the lists people work from.</p>
+     *
+     * <p><strong>The authority follows this entity's {@code ClinicalDomain}</strong> — DIAGNOSIS — so archiving is
+     * never wider than editing. Deriving it rather than naming a role per endpoint is what stops the two drifting:
+     * a discipline that may not write a condition must not be able to retire one either.</p>
+     *
+     * <p>{@code ROLE_ADMIN} is excluded deliberately, as it is on {@code ClinicalCase}, and that exclusion is why
+     * this is a {@code requireWrite} call rather than only a {@code @PreAuthorize}: {@code PatientScope} returns
+     * true for an administrator before it consults {@code ScopeOfPractice}, so the visibility check below is what
+     * confines them to records they may already see.</p>
+     *
+     * @param body must carry a {@code reason}. An archive with no reason is the delete this exists to replace.
+     */
+    @PostMapping("/{id}/archive")
+    public ResponseEntity<Condition> archiveCondition(
+        @PathVariable("id") String id,
+        @RequestBody(required = false) Map<String, String> body
+    ) {
+        log.debug("REST request to archive Condition : {}", id);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
+        String reason = body == null ? null : body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestAlertException("An archive must say why", ENTITY_NAME, "reasonrequired");
+        }
+        // Visibility before existence, exactly as the read endpoints do: a caller who may not see a record must not
+        // be able to learn that it exists by archiving it.
+        if (conditionRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Condition archived = ArchiveSupport.archive(
+            conditionRepository.findById(id),
+            id,
+            professionalId(),
+            reason.trim(),
+            ENTITY_NAME,
+            "condition",
+            conditionRepository::save
+        );
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(archived);
+    }
+
+    /**
+     * {@code POST /api/conditions/:id/unarchive} : put a condition back.
+     *
+     * <p>Not optional. Without it archiving is a delete with extra steps — the one thing a clinician could do that
+     * nobody could undo — and the mistake it invites is archiving the wrong row of a list.</p>
+     */
+    @PostMapping("/{id}/unarchive")
+    public ResponseEntity<Condition> unarchiveCondition(@PathVariable("id") String id) {
+        log.debug("REST request to unarchive Condition : {}", id);
+        patientScope.requireWrite(ClinicalDomain.DIAGNOSIS);
+        if (conditionRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Condition restored = ArchiveSupport.unarchive(
+            conditionRepository.findById(id),
+            id,
+            ENTITY_NAME,
+            "condition",
+            conditionRepository::save
+        );
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(restored);
+    }
+
+    /** The login of whoever acted, for the same reason {@code ClinicalCaseResource} gives: this service has no user management. */
+    private String professionalId() {
+        return SecurityUtils.getCurrentUserLogin().orElse(null);
     }
 }
