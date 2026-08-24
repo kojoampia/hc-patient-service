@@ -49,7 +49,7 @@ public class DutyRosterResource {
     // rule Professional and Team carry, and for the same reason. Who is on duty is not something a
     // patient gets to rewrite.
     @PostMapping("")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<DutyRoster> createDutyRoster(@RequestBody DutyRoster dutyRoster) throws URISyntaxException {
         log.debug("REST request to save DutyRoster : {}", dutyRoster);
         if (dutyRoster.getId() != null) {
@@ -73,7 +73,7 @@ public class DutyRosterResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<DutyRoster> updateDutyRoster(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody DutyRoster dutyRoster
@@ -109,7 +109,7 @@ public class DutyRosterResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<DutyRoster> partialUpdateDutyRoster(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody DutyRoster dutyRoster
@@ -202,7 +202,7 @@ public class DutyRosterResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Void> deleteDutyRoster(@PathVariable("id") String id) {
         log.debug("REST request to delete DutyRoster : {}", id);
         dutyRosterRepository.deleteById(id);

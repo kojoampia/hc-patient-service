@@ -29,12 +29,14 @@ import org.springframework.test.web.servlet.MockMvc;
  * mechanics, and archiving needs a clinical authority — the role is part of what is under test here rather than
  * scaffolding to be worked around.</p>
  *
- * <p>The class default is {@code ROLE_PROFESSIONAL}; {@link #aDoctorMayArchive()} and its neighbours override it,
- * because who may archive is exactly what changed on 2026-08-24 and a default nobody contradicts proves nothing.</p>
+ * <p>The class default is {@code ROLE_DOCTOR}, which is now the only authority that may archive. It was
+ * {@code ROLE_PROFESSIONAL} until 2026-08-24, when that role was removed from the platform entirely; the tests below
+ * that name an authority explicitly are the ones asserting who is <em>refused</em>, and they are the point of the
+ * class — a default nobody contradicts proves nothing.</p>
  */
 @IntegrationTest
 @AutoConfigureMockMvc
-@WithMockUser(username = "grace", authorities = { "ROLE_PROFESSIONAL" })
+@WithMockUser(username = "grace", authorities = { "ROLE_DOCTOR" })
 class ClinicalCaseArchiveIT {
 
     private static final String API = "/api/clinical-cases";
@@ -266,8 +268,9 @@ class ClinicalCaseArchiveIT {
     @WithMockUser(username = "dr-adjei", authorities = { "ROLE_DOCTOR" })
     void aDoctorMayArchive() throws Exception {
         // The reason this endpoint moved. This service issues no authorities: hc-professional's gateway mints the
-        // nine disciplines and has no ROLE_PROFESSIONAL at all, so before this every clinician arriving from that
-        // stack got 403 and archiving was unreachable from the portal that owns the case queue.
+        // eight disciplines and never minted ROLE_PROFESSIONAL, so before this every clinician arriving from that
+        // stack got 403 and archiving was unreachable from the portal that owns the case queue. Named explicitly
+        // even though it is now the class default, because the default is the thing that changed.
         mockMvc
             .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("Episode closed")))
             .andExpect(status().isOk());
@@ -294,6 +297,20 @@ class ClinicalCaseArchiveIT {
         // Deliberate, and the reason this is a PreAuthorize rather than requireWrite(DIAGNOSIS): PatientScope
         // returns true for ROLE_ADMIN before it consults ScopeOfPractice at all, so requireWrite would quietly
         // admit the operational role this endpoint's javadoc excludes on purpose.
+        mockMvc
+            .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("x")))
+            .andExpect(status().isForbidden());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().getArchivedAt()).isNull();
+    }
+
+    @Test
+    @WithMockUser(username = "grace", authorities = { "ROLE_PROFESSIONAL", "ROLE_USER" })
+    void theRemovedBlanketRoleMayNotArchive() throws Exception {
+        // ROLE_PROFESSIONAL was this endpoint's only accepted authority until 2026-08-24 and no longer exists. It is
+        // asserted by literal because the constant is gone, and it is asserted at all because tokens minted before
+        // the cutover still carry it: the six accounts that held it must lose this endpoint, not keep it by
+        // accident. A 403 here is the whole removal working.
         mockMvc
             .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("x")))
             .andExpect(status().isForbidden());

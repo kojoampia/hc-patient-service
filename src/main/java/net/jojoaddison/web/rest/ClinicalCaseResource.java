@@ -118,7 +118,7 @@ public class ClinicalCaseResource {
 
         // Archive state is carried over from the stored record and never read from the payload. A PUT replaces the
         // document wholesale, so without this any caller who may edit a case could archive or un-archive it by
-        // setting a field — which is the ROLE_PROFESSIONAL rule on /archive bypassed by the one verb nobody thought
+        // setting a field — which is the ROLE_DOCTOR rule on /archive bypassed by the one verb nobody thought
         // about, exactly as a generic PATCH would have defeated CareDelegation.
         clinicalCase.setArchivedAt(existing.getArchivedAt());
         clinicalCase.setArchivedById(existing.getArchivedById());
@@ -260,32 +260,31 @@ public class ClinicalCaseResource {
     /**
      * {@code POST /api/clinical-cases/:id/archive} : retire a case from the working queue.
      *
-     * <p>The professional-only replacement for the delete that patient data does not allow. The case keeps every
+     * <p>The clinician-only replacement for the delete that patient data does not allow. The case keeps every
      * field it had and its place in the patient's record; it stops appearing in the lists clinicians work from.</p>
      *
-     * <p><strong>A clinical authority only</strong> — {@code ROLE_PROFESSIONAL} or {@code ROLE_DOCTOR} — following
-     * {@code CareDelegation}'s activate and countersign rather than the DELETE above. Retiring a clinical episode is
-     * a clinical judgement about whether a patient is still being treated for something; {@code ROLE_ADMIN} is an
-     * operational role, and it already holds the harder power here. <b>That exclusion is deliberate and is why this
-     * is not {@code requireWrite(DIAGNOSIS)}</b>, which would admit an admin through {@code PatientScope}'s early
-     * return.</p>
+     * <p><strong>{@code ROLE_DOCTOR} alone</strong>, following {@code CareDelegation}'s activate and countersign
+     * rather than the DELETE above. Retiring a clinical episode is a clinical judgement about whether a patient is
+     * still being treated for something; {@code ROLE_ADMIN} is an operational role, and it already holds the harder
+     * power here. <b>That exclusion is deliberate and is why this is not {@code requireWrite(DIAGNOSIS)}</b>, which
+     * would admit an admin through {@code PatientScope}'s early return.</p>
      *
-     * <p>{@code ROLE_DOCTOR} was added on 2026-08-24. This service issues no authorities; {@code hc-professional}'s
-     * gateway mints the nine disciplines and has no {@code ROLE_PROFESSIONAL} at all, so every clinician arriving
-     * from that stack failed this check — a doctor got 403 and archiving was unreachable from the portal that owns
-     * the case queue. {@code AuthoritiesConstants}' javadoc already recorded that shape for the read path, which was
-     * fixed by naming the disciplines; archive and unarchive were left behind.</p>
+     * <p>Doctor and not any other discipline, because {@code ScopeOfPractice} grants {@code DIAGNOSIS} writes to
+     * doctor alone — a nurse "writes everything except the diagnosis" by its own comment — and {@code ClinicalDomain}
+     * maps {@code ClinicalCase} to {@code DIAGNOSIS}. Widening further would say something this model does not, and
+     * {@link AuthoritiesConstants#CLINICAL} is deliberately <em>not</em> used here for that reason: this is one of
+     * the endpoints where "any clinician" is the wrong question.</p>
      *
-     * <p>Doctor and not the other eight, because {@code ScopeOfPractice} grants {@code DIAGNOSIS} writes to doctor
-     * alone — a nurse "writes everything except the diagnosis" by its own comment — and {@code ClinicalDomain} maps
-     * {@code ClinicalCase} to {@code DIAGNOSIS}. Widening further would say something this model does not.</p>
+     * <p>This check read {@code ROLE_PROFESSIONAL} until 2026-08-24, which made archiving unreachable from the
+     * portal that owns the case queue: {@code hc-professional}'s gateway mints the disciplines and never minted that
+     * role, so every clinician arriving from it got a 403 from a live endpoint.</p>
      *
      * @param id the case to archive.
      * @param body must carry a {@code reason}. An archive with no reason is the delete this exists to replace.
      * @return the archived case.
      */
     @PostMapping("/{id}/archive")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.PROFESSIONAL + "', '" + AuthoritiesConstants.DOCTOR + "')")
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.DOCTOR + "')")
     public ResponseEntity<ClinicalCase> archiveClinicalCase(
         @PathVariable("id") String id,
         @RequestBody(required = false) Map<String, String> body
@@ -319,7 +318,7 @@ public class ClinicalCaseResource {
      * @return the restored case.
      */
     @PostMapping("/{id}/unarchive")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.PROFESSIONAL + "', '" + AuthoritiesConstants.DOCTOR + "')")
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.DOCTOR + "')")
     public ResponseEntity<ClinicalCase> unarchiveClinicalCase(@PathVariable("id") String id) {
         log.debug("REST request to unarchive ClinicalCase : {}", id);
         if (clinicalCaseRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId())).isEmpty()) {

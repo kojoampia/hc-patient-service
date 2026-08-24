@@ -82,8 +82,8 @@ GET   /api/care-delegations                     the delegations over your own re
 POST  /api/care-delegations/{id}/accept         angel only; the only transition that grants anything
 POST  /api/care-delegations/{id}/decline        angel only
 POST  /api/care-delegations/{id}/revoke         either party
-POST  /api/care-delegations/{id}/activate       ROLE_PROFESSIONAL — declares an incapacity
-POST  /api/care-delegations/{id}/countersign    a *different* ROLE_PROFESSIONAL
+POST  /api/care-delegations/{id}/activate       ROLE_DOCTOR — declares an incapacity
+POST  /api/care-delegations/{id}/countersign    a *different* ROLE_DOCTOR
 ```
 
 Three rules that constrain anything added near them:

@@ -32,26 +32,53 @@ nothing. What exists there is a vocabulary; porting it verbatim would have given
 constants that grant and restrict nothing, which is the situation `ROLE_ANGEL` is already in.
 
 Underneath it was a live defect, and it is the reason this landed as a fix rather than a feature:
-hc-professional's gateway has **no `ROLE_PROFESSIONAL` at all**, this service gates thirty places on
+hc-professional's gateway has **no `ROLE_PROFESSIONAL` at all**, this service gated thirty places on
 exactly that role, and the two stacks share a JWT signing key. So a doctor signing in there reached
 this service holding `ROLE_DOCTOR`, failed every check, resolved to no patient, and was served empty
 lists rather than a refusal — silent, and indistinguishable from a patient with no records. Inferred
 from the code, pinned by a test, and since demonstrated on the quality stack once
 `hc-patient-quality` seeded an account per discipline.
 
+### `ROLE_PROFESSIONAL` removed from the platform (2026-08-24)
+
+- [x] **The blanket clinical authority is gone.** It was minted by `hc-patient`'s gateway alone and
+      checked by this service alone — an authority this subsystem invented for itself and then required
+      of everybody else. Every check that named it was a check no clinician from `hc-professional`, the
+      portal that owns the case queue, could pass. Outside `hc-patient` the string survives only as prose
+      describing this defect, plus a display-only `CredentialRole` enum in `hc-admin/app`; `hc-admin`'s
+      gateway never had it either.
+- [x] **What replaced it, and the distinction that decides which.** The twenty-four reference-data
+      checks (`DutyRoster`, `Shift`, `Team`, `Professional`, `Metadata`, `Recommendation`) ask whether
+      the caller is clinical staff at all, and take `ROLE_ADMIN` or any of `AuthoritiesConstants.CLINICAL`
+      — no discipline has a better claim than another to read a duty roster. Archive, unarchive and
+      `CareDelegation`'s activate and countersign turn on a clinical judgement and take `ROLE_DOCTOR`,
+      because `ScopeOfPractice` grants `DIAGNOSIS` writes to doctor alone. **Replacing a blanket role
+      with a blanket set everywhere would have kept the defect under a new name.**
+- [x] **`ScopeOfPractice` lost its first row**, so `isClinical` now means "holds one of the eight
+      disciplines" and nothing else. That is what `PatientScope.isUnrestricted()` consults, so a
+      pre-cutover token carrying `ROLE_PROFESSIONAL` no longer gets cross-patient access either — asserted
+      by literal string in three tests, because the constant is gone and the tokens are not.
+- [x] **Two spellings of the set, and a test between them.** `CLINICAL` is a `Set` for Java;
+      `CLINICAL_AUTHORITIES` is pre-quoted for `@PreAuthorize`, which takes a compile-time constant and
+      cannot read a `Set`. `AuthoritiesConstantsUnitTest` asserts they name the same eight — without it, a
+      ninth discipline added to one and not the other is a silent hole in twenty-four checks that still
+      compiles and still deploys.
+- [ ] **The migration is not this repo's alone.** `hc-patient/gateway` stops minting the authority and
+      removes it from the accounts that hold it; `hc-patient/quality` reseeds its five clinicians onto
+      real disciplines. Until those land, this service simply stops honouring a role those stacks still
+      issue, which reads as a permissions regression rather than a removal.
+
 ### Archiving a clinical case (2026-08-22)
 
 - [x] `POST /api/clinical-cases/{id}/archive` and `/unarchive`, `ROLE_PROFESSIONAL`, reason required.
-- [x] **`ROLE_DOCTOR` admitted too, 2026-08-24.** `ROLE_PROFESSIONAL` alone made this unreachable from
-      the portal that owns the case queue: `hc-professional`'s gateway mints the nine disciplines and has
-      no `ROLE_PROFESSIONAL` at all, so every clinician arriving from that stack got a 403.
-      `AuthoritiesConstants`' javadoc already recorded that shape for the read path, which was fixed by
-      naming the disciplines on 2026-08-22 — archive and unarchive were left behind. Doctor and not the
-      other eight because `ScopeOfPractice` grants `DIAGNOSIS` writes to doctor alone and
+- [x] **Now `ROLE_DOCTOR` alone, 2026-08-24.** Admitted alongside `ROLE_PROFESSIONAL` first, then left
+      as the only authority when that role was removed from the platform (below). Doctor and not any
+      other discipline because `ScopeOfPractice` grants `DIAGNOSIS` writes to doctor alone and
       `ClinicalDomain` maps `ClinicalCase` to `DIAGNOSIS`. Still `@PreAuthorize` rather than
       `requireWrite(DIAGNOSIS)`, deliberately: `PatientScope` returns true for `ROLE_ADMIN` before it
       consults `ScopeOfPractice`, so `requireWrite` would quietly admit the operational role this
-      endpoint excludes on purpose. `ClinicalCaseArchiveIT` asserts all four directions.
+      endpoint excludes on purpose. `ClinicalCaseArchiveIT` asserts doctor, admin, nurse and the removed
+      blanket role.
 - [x] `archivedAt` / `archivedById` / `archiveReason` on `ClinicalCase`; `GET` excludes archived
       unless `includeArchived=true`, and `GET /{id}` still returns one.
 - [x] `PUT` and `PATCH` cannot reach the archive fields. Found reviewing the diff: `PUT` replaces the
@@ -126,7 +153,7 @@ into MongoDB on startup, and the two things in it the domain could not express n
   (ACTIVE/UPCOMING/COMPLETED). `ClinicalCase.assignedRosterId` has named nothing since the portal
   refactor introduced it; these are what it points at. Both are **staff reference data** and follow
   `Team`/`Professional`: repository-direct resources, no `patientId`, no `PatientScope`, readable by
-  any authenticated caller and writable only by `ROLE_ADMIN`/`ROLE_PROFESSIONAL`. `ReferenceDataIT`
+  any authenticated caller and writable only by `ROLE_ADMIN` or a clinical discipline. `ReferenceDataIT`
   covers that rule for them alongside the four entities it already covered.
 - **`ShiftStatus` is not `ScheduleStatus`.** The latter is an appointment's lifecycle (confirmed,
   pending, attended, cancelled) and answers a different question — a shift is not attended or
@@ -139,8 +166,8 @@ into MongoDB on startup, and the two things in it the domain could not express n
   records edited through the API survive a restart and a dropped collection is restored.
 - **The clinician joins to a real login.** The demo file identifies its professional by
   `accountLogin: "doctor"`, which `Professional` has no field for; the gateway now seeds a matching
-  `doctor` account and the join is `doctor@localhost`. That account is the only holder of
-  `ROLE_PROFESSIONAL` anywhere — see `hc-patient-gateway/patient-gateway.md`.
+  `doctor` account and the join is `doctor@localhost`. That account held `ROLE_PROFESSIONAL` until
+  2026-08-24 and now holds `ROLE_DOCTOR` — see `hc-patient-gateway/patient-gateway.md`.
 - **Verified:** `./mvnw verify` — 117 unit tests, 450 integration tests, coverage gates met.
 
 Open, and deliberately left so:

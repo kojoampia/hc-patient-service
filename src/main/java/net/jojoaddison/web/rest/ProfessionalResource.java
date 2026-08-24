@@ -2,9 +2,11 @@ package net.jojoaddison.web.rest;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import net.jojoaddison.domain.Professional;
 import net.jojoaddison.repository.ProfessionalRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
@@ -54,7 +56,7 @@ public class ProfessionalResource {
     // patient could rewrite the clinical staff directory, retitle a clinical recommendation or delete a
     // care team outright, because the only rule anywhere was "is authenticated".
     @PostMapping("")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Professional> createProfessional(@RequestBody Professional professional) throws URISyntaxException {
         log.debug("REST request to save Professional : {}", professional);
         if (professional.getId() != null) {
@@ -78,7 +80,7 @@ public class ProfessionalResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Professional> updateProfessional(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Professional professional
@@ -114,7 +116,7 @@ public class ProfessionalResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Professional> partialUpdateProfessional(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Professional professional
@@ -170,7 +172,7 @@ public class ProfessionalResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Void> deleteProfessional(@PathVariable("id") String id) {
         log.debug("REST request to delete Professional : {}", id);
         professionalService.delete(id);
@@ -192,7 +194,10 @@ public class ProfessionalResource {
      * today, but it is the kind of thing that becomes a cache-poisoning bug the moment anything caches.</p>
      */
     private Professional redactForNonStaff(Professional professional) {
-        if (SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN, AuthoritiesConstants.PROFESSIONAL)) {
+        // Staff is an administrator or any clinical discipline. Read from AuthoritiesConstants.CLINICAL rather than
+        // named one by one, so a ninth discipline does not quietly start seeing colleagues' direct lines redacted.
+        Set<String> authorities = SecurityUtils.getCurrentUserAuthorities();
+        if (authorities.contains(AuthoritiesConstants.ADMIN) || !Collections.disjoint(authorities, AuthoritiesConstants.CLINICAL)) {
             return professional;
         }
         Professional redacted = new Professional();

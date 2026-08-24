@@ -38,10 +38,11 @@ public final class ScopeOfPractice {
     }
 
     static {
-        // The generic clinical authority this service has always had. Everything, because that is what it has meant
-        // since it was introduced and narrowing it here would silently change the behaviour of thirty existing
-        // checks — a migration, not a default.
-        grant(AuthoritiesConstants.PROFESSIONAL, EnumSet.allOf(ClinicalDomain.class), EnumSet.allOf(ClinicalDomain.class));
+        // ROLE_PROFESSIONAL was the first row here — the generic clinical authority, granted everything because that
+        // is what it had always meant. It was removed on 2026-08-24 along with the authority itself: nothing outside
+        // this service ever issued or checked it, and while it existed every check that named it was a check no
+        // clinician from hc-professional could pass. The rows below are the whole table now, so `isClinical` means
+        // "holds one of the eight disciplines" and nothing else.
 
         // A doctor: the whole record, including the parts that assert something about the patient.
         grant(AuthoritiesConstants.DOCTOR, EnumSet.allOf(ClinicalDomain.class), EnumSet.allOf(ClinicalDomain.class));

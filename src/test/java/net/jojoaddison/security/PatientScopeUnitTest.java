@@ -221,7 +221,7 @@ class PatientScopeUnitTest {
 
     @Test
     void everythingIsVisibleToAnUnrestrictedCaller() {
-        authenticateAs("doctor@example.com", AuthoritiesConstants.PROFESSIONAL);
+        authenticateAs("doctor@example.com", AuthoritiesConstants.DOCTOR);
 
         assertThat(patientScope.isVisible("patient-1")).isTrue();
         assertThat(patientScope.isVisible(null)).isTrue();

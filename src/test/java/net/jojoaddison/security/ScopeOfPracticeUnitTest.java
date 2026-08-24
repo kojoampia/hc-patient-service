@@ -46,11 +46,13 @@ class ScopeOfPracticeUnitTest {
 
     @ParameterizedTest
     @EnumSource(ClinicalDomain.class)
-    void theBlanketProfessionalRoleKeepsEverythingItHad(ClinicalDomain domain) {
-        // Thirty existing checks in this service gate on ROLE_PROFESSIONAL and mean "all clinical data". Narrowing
-        // it here would change all of them at once, silently. Narrowing it is a migration, not a default.
-        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.PROFESSIONAL), domain)).isTrue();
-        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.PROFESSIONAL), domain)).isTrue();
+    void theBlanketProfessionalRoleGrantsNothingAndIsNotClinical(ClinicalDomain domain) {
+        // ROLE_PROFESSIONAL had a row here granting everything, and was removed with the authority on 2026-08-24.
+        // Asserted by its literal string rather than a constant, because the constant is gone and this test's job is
+        // to notice if it comes back: a token minted before the cutover still carries it, and it must now be exactly
+        // as meaningless as any other unrecognised role rather than quietly retaining the run of the record.
+        assertThat(ScopeOfPractice.canRead(of("ROLE_PROFESSIONAL"), domain)).isFalse();
+        assertThat(ScopeOfPractice.canWrite(of("ROLE_PROFESSIONAL"), domain)).isFalse();
     }
 
     @ParameterizedTest
@@ -78,9 +80,7 @@ class ScopeOfPracticeUnitTest {
         // wrong with a patient, written by somebody not qualified to assert it.
         for (String authority : ScopeOfPractice.knownAuthorities()) {
             boolean mayDiagnose = ScopeOfPractice.canWrite(of(authority), ClinicalDomain.DIAGNOSIS);
-            assertThat(mayDiagnose)
-                .as("%s writing a diagnosis", authority)
-                .isEqualTo(authority.equals(AuthoritiesConstants.DOCTOR) || authority.equals(AuthoritiesConstants.PROFESSIONAL));
+            assertThat(mayDiagnose).as("%s writing a diagnosis", authority).isEqualTo(authority.equals(AuthoritiesConstants.DOCTOR));
         }
     }
 
@@ -111,7 +111,9 @@ class ScopeOfPracticeUnitTest {
     @Test
     void isClinicalRecognisesTheDisciplinesAndNothingElse() {
         assertThat(ScopeOfPractice.isClinical(of(AuthoritiesConstants.NURSE))).isTrue();
-        assertThat(ScopeOfPractice.isClinical(of(AuthoritiesConstants.PROFESSIONAL))).isTrue();
+        // The removed blanket role. It reaches this service on any token minted before 2026-08-24 and must no longer
+        // make its holder clinical -- which is what decides cross-patient access in PatientScope.isUnrestricted().
+        assertThat(ScopeOfPractice.isClinical(of("ROLE_PROFESSIONAL"))).isFalse();
         assertThat(ScopeOfPractice.isClinical(of("ROLE_USER", "ROLE_PATIENT"))).isFalse();
         assertThat(ScopeOfPractice.isClinical(of(AuthoritiesConstants.ADMIN))).isFalse();
         assertThat(ScopeOfPractice.isClinical(Set.of())).isFalse();
@@ -123,6 +125,7 @@ class ScopeOfPracticeUnitTest {
         // service through the shared signing key, so any name missing from this table is a clinician who signs in
         // successfully and is served empty lists — the failure this whole change exists to fix.
         assertThat(ScopeOfPractice.knownAuthorities())
+            .containsExactlyInAnyOrderElementsOf(AuthoritiesConstants.CLINICAL)
             .contains(
                 AuthoritiesConstants.DOCTOR,
                 AuthoritiesConstants.NURSE,
