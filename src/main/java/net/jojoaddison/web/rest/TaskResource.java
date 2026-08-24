@@ -235,6 +235,7 @@ public class TaskResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Tasks for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.CARE_PLAN);
         Page<Task> page = patientScope.findScopedPage(patientId, pageable, taskRepository::findAll, taskRepository::findByPatientId);
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
@@ -249,6 +250,7 @@ public class TaskResource {
     @GetMapping("/{id}")
     public ResponseEntity<Task> getTask(@PathVariable("id") String id) {
         log.debug("REST request to get Task : {}", id);
+        patientScope.requireRead(ClinicalDomain.CARE_PLAN);
         Optional<Task> task = taskRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(task);
     }

@@ -183,6 +183,7 @@ public class EmergencyResource {
     @GetMapping("")
     public List<Emergency> getAllEmergencies(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Emergencys for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.ENCOUNTER);
         return patientScope.findScoped(patientId, emergencyRepository::findAll, emergencyRepository::findByPatientId);
     }
 
@@ -195,6 +196,7 @@ public class EmergencyResource {
     @GetMapping("/{id}")
     public ResponseEntity<Emergency> getEmergency(@PathVariable("id") String id) {
         log.debug("REST request to get Emergency : {}", id);
+        patientScope.requireRead(ClinicalDomain.ENCOUNTER);
         Optional<Emergency> emergency = emergencyService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(emergency);
     }

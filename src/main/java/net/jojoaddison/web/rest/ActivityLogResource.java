@@ -190,6 +190,7 @@ public class ActivityLogResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of ActivityLogs for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.ENCOUNTER);
         Page<ActivityLog> page = patientScope.findScopedPage(
             patientId,
             pageable,
@@ -209,6 +210,7 @@ public class ActivityLogResource {
     @GetMapping("/{id}")
     public ResponseEntity<ActivityLog> getActivityLog(@PathVariable("id") String id) {
         log.debug("REST request to get ActivityLog : {}", id);
+        patientScope.requireRead(ClinicalDomain.ENCOUNTER);
         Optional<ActivityLog> activityLog = activityLogService
             .findOne(id)
             .filter(current -> patientScope.isVisible(current.getPatientId()));

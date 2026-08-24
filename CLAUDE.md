@@ -212,8 +212,11 @@ Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the con
     Two spellings of the set exist — `CLINICAL` for Java, `CLINICAL_AUTHORITIES` for `@PreAuthorize`, which cannot
     read a `Set` — and `AuthoritiesConstantsUnitTest` is what stops them drifting apart.
   - It composes with `PatientScope` and never replaces it: that decides _whose_ records, this decides _what kind_,
-    and whose is settled first. Wired into the write paths of eleven resources; **reads are not filtered yet** —
-    `canRead`/`requireRead` exist and are tested but nothing calls them.
+    and whose is settled first. Wired into the write paths of eleven resources and, since 2026-08-24, into all 23
+    of their GET endpoints as well — `requireRead` was written on 2026-08-22, tested, and called by nothing for two
+    days, so the model was enforced on writes only and a pharmacist could read every diagnosis. `canRead` returns
+    early for `ROLE_ADMIN` and for any caller who is not clinical at all, so patients reading their own records are
+    never filtered by a scope of practice they do not hold.
 - **`source` is stamped from the caller, never from the payload,** on create only. A value a client can choose is a
   claim rather than a record.
 - **No event carries clinical content.** `PatientEventPublisher.assertNothingClinical` throws rather than stripping,

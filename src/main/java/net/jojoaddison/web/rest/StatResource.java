@@ -229,6 +229,7 @@ public class StatResource {
     @GetMapping("")
     public List<Stat> getAllStats(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Stats for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.OBSERVATION);
         return patientScope.findScoped(patientId, statRepository::findAll, statRepository::findByPatientId);
     }
 
@@ -241,6 +242,7 @@ public class StatResource {
     @GetMapping("/{id}")
     public ResponseEntity<Stat> getStat(@PathVariable("id") String id) {
         log.debug("REST request to get Stat : {}", id);
+        patientScope.requireRead(ClinicalDomain.OBSERVATION);
         Optional<Stat> stat = statRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(stat);
     }

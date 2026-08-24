@@ -192,6 +192,7 @@ public class VisitationResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Visitations for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.ENCOUNTER);
         Page<Visitation> page = patientScope.findScopedPage(
             patientId,
             pageable,
@@ -211,6 +212,7 @@ public class VisitationResource {
     @GetMapping("/{id}")
     public ResponseEntity<Visitation> getVisitation(@PathVariable("id") String id) {
         log.debug("REST request to get Visitation : {}", id);
+        patientScope.requireRead(ClinicalDomain.ENCOUNTER);
         Optional<Visitation> visitation = visitationService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(visitation);
     }

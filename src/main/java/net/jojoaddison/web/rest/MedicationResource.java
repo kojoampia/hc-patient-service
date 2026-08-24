@@ -242,6 +242,7 @@ public class MedicationResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Medications for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.MEDICATION);
         Page<Medication> page = patientScope.findScopedPage(
             patientId,
             pageable,
@@ -261,6 +262,7 @@ public class MedicationResource {
     @GetMapping("/{id}")
     public ResponseEntity<Medication> getMedication(@PathVariable("id") String id) {
         log.debug("REST request to get Medication : {}", id);
+        patientScope.requireRead(ClinicalDomain.MEDICATION);
         Optional<Medication> medication = medicationRepository
             .findById(id)
             .filter(current -> patientScope.isVisible(current.getPatientId()));

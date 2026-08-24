@@ -215,6 +215,7 @@ public class ConditionResource {
     @GetMapping("")
     public List<Condition> getAllConditions(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Conditions for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         return patientScope.findScoped(patientId, conditionRepository::findAll, conditionRepository::findByPatientId);
     }
 
@@ -227,6 +228,7 @@ public class ConditionResource {
     @GetMapping("/{id}")
     public ResponseEntity<Condition> getCondition(@PathVariable("id") String id) {
         log.debug("REST request to get Condition : {}", id);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         Optional<Condition> condition = conditionRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(condition);
     }
