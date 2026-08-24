@@ -34,12 +34,19 @@ class ScopeOfPracticeReadsIT {
 
     @Test
     @WithMockUser(username = "pharm", authorities = { "ROLE_PHARMACIST" })
-    void aPharmacistMayNotReadDiagnoses() throws Exception {
-        // The headline case. ScopeOfPractice gives a pharmacist DIAGNOSIS *reads* — see the table — but not
-        // CARE_PLAN or OBSERVATION, so the pair below is what proves reads are filtered at all rather than
-        // uniformly allowed.
+    void aPharmacistIsFilteredToWhatBearsOnDispensing() throws Exception {
+        // Renamed 2026-08-24. It was aPharmacistMayNotReadDiagnoses, which was wrong from the day it was written:
+        // a pharmacist has always read diagnoses, because dispensing safely means knowing what a medicine is for.
+        // The name survived because nothing asserted it.
+        mockMvc.perform(get("/api/conditions")).andExpect(status().isOk());
+
+        // Observations became readable on 2026-08-24: renal function and weight set a safe dose, and a pharmacist
+        // who cannot see them is checking a prescription with a third of the information.
+        mockMvc.perform(get("/api/stats")).andExpect(status().isOk());
+
+        // The care plan is still refused, and it is what proves reads are filtered at all rather than uniformly
+        // allowed. A pharmacist has no part in what the patient is meant to do day to day.
         mockMvc.perform(get("/api/care-plan-items")).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/stats")).andExpect(status().isForbidden());
     }
 
     @Test

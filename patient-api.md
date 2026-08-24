@@ -59,8 +59,39 @@ each changes what the code should say and none of them is in it yet.
       is the one place a nurse touches a `DIAGNOSIS`-adjacent act, and `CareDelegationResourceIT`
       coverage for doctor-declares/nurse-countersigns and for nurse-cannot-declare.
 
-- [ ] **`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
-      than provisional.** The table says at its top that it is a starting position written from the
+- [x] **Reviewed and three rows changed, 2026-08-24.** Carer gained `DIAGNOSIS` reads — a carer alone
+      with a patient at home who does not know they are diabetic or epileptic may not recognise what
+      they are watching happen, and that was judged to outweigh the disclosure. Therapist gained
+      `MEDICATION` reads, which was an omission rather than a decision: anticoagulants and beta
+      blockers change what is safe to do and how a pulse should be read. Paramedic gained `MEDICATION`
+      writes, so a drug given in an emergency can be recorded rather than leaving the next clinician
+      to prescribe against an incomplete history. **All three widened**, which is the direction this
+      table's bias predicts: it refuses when unsure, so its errors accumulate where a clinician
+      notices within minutes rather than where nobody ever does.
+- [x] **A chemist is a _dispensing_ chemist, and that row was wrong. Fixed 2026-08-24.** It had been
+      written as a copy of the technician's on the assumption that "chemist" meant a laboratory role,
+      which left somebody who hands medicines to patients unable to read the medication record or the
+      allergies — and nothing failed, they simply saw an empty list. `ClinicalDomain.MEDICATION` groups
+      allergies with medications for precisely this case, in its own words: anyone who may dispense
+      must be able to see what would harm the patient. Now reads and writes `MEDICATION`; the
+      technician's row is unchanged, so the two finally differ.
+- [x] **A dispensing chemist reads the diagnosis too, confirmed 2026-08-24.** Same reason the
+      pharmacist does: dispensing safely means knowing what the medicine is _for_, and a dispenser who
+      cannot see the indication cannot catch a medicine that is wrong for the condition. Reads only —
+      dispensing is not diagnosing.
+- [x] **A pharmacist reads observations, confirmed 2026-08-24, and that closes the inconsistency.**
+      Renal function and weight set a safe dose; a pharmacist who could see neither was checking a
+      prescription with a third of the information. The two dispensing roles now read the same four
+      domains, which is right rather than merely symmetrical — both dispense, so both need the
+      indication, the interactions and the numbers behind the dose.
+- [ ] **The two dispensing roles still differ on writes, and nobody has argued for it.** A chemist may
+      record an observation and a pharmacist may not. That asymmetry is inherited from the days the
+      chemist's row was a copy of the technician's, not from a decision. If a pharmacy takes blood
+      pressures too, the pharmacist should have it. Pinned by a test so resolving it is deliberate.
+- [ ] **The model has no notion of a doctor's specialty** — a dermatologist and a psychiatrist are the
+      same row, and both hold the whole record. The largest simplification left in the table.
+- [x] ~~**`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
+      than provisional.**~~ The table says at its top that it is a starting position written from the
       shape of the data rather than from anybody's scope of practice, and names carer, paramedic and
       pharmacist as the rows most likely wrong. Somebody with the standing to rule on scope of practice
       reviews all eight rows. **Deliverable for that review: one page per row — what it grants, what it

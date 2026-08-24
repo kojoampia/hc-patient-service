@@ -85,11 +85,73 @@ class ScopeOfPracticeUnitTest {
     }
 
     @Test
+    void theRowsChangedByTheClinicalReviewHoldTheirNewGrants() {
+        // Reviewed 2026-08-24. Asserted explicitly rather than left to the table, because each of these was a
+        // decision with a reason and a silent revert would look like a tidy-up.
+
+        // A carer alone with a patient at home has to be able to recognise what they are watching happen.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CARER), ClinicalDomain.DIAGNOSIS)).isTrue();
+        // Reads only. A carer never asserts what is wrong with somebody.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.CARER), ClinicalDomain.DIAGNOSIS)).isFalse();
+
+        // Anticoagulants and beta blockers change what is safe to do and how a pulse should be read.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.THERAPIST), ClinicalDomain.MEDICATION)).isTrue();
+        // A therapist does not prescribe.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.THERAPIST), ClinicalDomain.MEDICATION)).isFalse();
+
+        // A paramedic who gave something in an emergency has to be able to record it, or the next clinician
+        // prescribes against an incomplete history.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.PARAMEDIC), ClinicalDomain.MEDICATION)).isTrue();
+    }
+
+    @Test
+    void aDispensingChemistIsNotALaboratoryRole() {
+        // Confirmed 2026-08-24: "chemist" here means a DISPENSING chemist, a community medicine outlet. The row had
+        // been a copy of the technician's, which left somebody who hands medicines to patients unable to see the
+        // medication record or the allergies -- and nothing failed, they simply saw an empty list.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.MEDICATION)).isTrue();
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.MEDICATION)).isTrue();
+
+        // A technician does not dispense, and did not change.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.MEDICATION)).isFalse();
+
+        // Reads the diagnosis for the same reason the pharmacist does: dispensing safely means knowing what the
+        // medicine is FOR, and a dispenser who cannot see the indication cannot catch a medicine that is wrong for
+        // the condition.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.DIAGNOSIS)).isTrue();
+
+        // Still never a diagnosis WRITER. Dispensing is not diagnosing.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.DIAGNOSIS)).isFalse();
+    }
+
+    @Test
+    void theTwoDispensingRolesReadTheSameThings() {
+        // Settled 2026-08-24, and it closes an inconsistency rather than creating one: the chemist briefly held
+        // more than the pharmacist, which had the less qualified role reading more. Both dispense, so both need the
+        // indication, the interactions and the numbers that set a dose.
+        for (ClinicalDomain domain : ClinicalDomain.values()) {
+            assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), domain))
+                .as("chemist and pharmacist should read alike -- %s diverged", domain)
+                .isEqualTo(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), domain));
+        }
+
+        // Renal function and weight set a safe dose. A pharmacist who cannot see them is checking a prescription
+        // with a third of the information.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.OBSERVATION)).isTrue();
+
+        // They still differ on writes, and that is the last unexamined thing in this pair. The chemist's
+        // OBSERVATION write is inherited from the days its row was a copy of the technician's; nobody has said
+        // whether a pharmacy takes blood pressures too. Pinned so that resolving it is a decision.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.OBSERVATION)).isTrue();
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.OBSERVATION)).isFalse();
+    }
+
+    @Test
     void aLabRoleCannotReadWhatThePatientIsBeingTreatedFor() {
         // A technician runs a test. Being able to read the diagnosis alongside it is a disclosure nobody would
-        // notice, which is the direction this table is meant to fail in.
+        // notice, which is the direction this table is meant to fail in. Chemist used to be asserted here too, and
+        // is not any more -- see aDispensingChemistIsNotALaboratoryRole for why it was never a lab role.
         assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.DIAGNOSIS)).isFalse();
-        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.DIAGNOSIS)).isFalse();
         assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
     }
 
@@ -102,7 +164,11 @@ class ScopeOfPracticeUnitTest {
             AuthoritiesConstants.NURSE,
             AuthoritiesConstants.CARER,
             AuthoritiesConstants.PARAMEDIC,
-            AuthoritiesConstants.PHARMACIST
+            AuthoritiesConstants.PHARMACIST,
+            // Added by the 2026-08-24 review: a therapist works the patient's body and must know what is in it,
+            // and a dispensing chemist hands over the medicines this domain exists to make safe.
+            AuthoritiesConstants.THERAPIST,
+            AuthoritiesConstants.CHEMIST
         )) {
             assertThat(ScopeOfPractice.canRead(of(authority), ClinicalDomain.MEDICATION)).as("%s reading allergies", authority).isTrue();
         }
