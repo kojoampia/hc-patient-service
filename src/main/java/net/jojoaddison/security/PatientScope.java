@@ -86,9 +86,11 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * <p>Until care delegation existed this class said, correctly, that {@code ROLE_ANGEL} was scoped exactly like a
  * patient because no delegation was recorded anywhere in the platform. One is recorded now.</p>
  *
- * <p>{@code ROLE_PROFESSIONAL} and {@code ROLE_ADMIN} remain unrestricted, which is the point of naming them —
- * cross-patient access is something a role grants, not something you get when nobody remembers to write a check. They
- * ignore the header: it exists to narrow a caller to one patient, and they are not narrowed to begin with.</p>
+ * <p>{@code ROLE_ADMIN} and any of the eight clinical disciplines remain unrestricted, which is the point of naming
+ * them — cross-patient access is something a role grants, not something you get when nobody remembers to write a
+ * check. They ignore the header: it exists to narrow a caller to one patient, and they are not narrowed to begin
+ * with. Note that "unrestricted" here means only <em>whose</em> records; {@link ScopeOfPractice} still decides what
+ * kind, so a pharmacist is unrestricted across patients and still has no business in a diagnosis.</p>
  *
  * <h2>What is deliberately not solved here</h2>
  *

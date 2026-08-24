@@ -296,7 +296,7 @@ class CareDelegationResourceIT {
     private static RequestPostProcessor professional(String login) {
         return jwt()
             .jwt(builder -> builder.subject(login).claim(SecurityUtils.EMAIL_KEY, login + "@clinic.test"))
-            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.PROFESSIONAL));
+            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.DOCTOR));
     }
 
     private static RequestPostProcessor admin() {

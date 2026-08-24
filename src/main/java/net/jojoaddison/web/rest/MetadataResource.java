@@ -49,7 +49,7 @@ public class MetadataResource {
     // patient could rewrite the clinical staff directory, retitle a clinical recommendation or delete a
     // care team outright, because the only rule anywhere was "is authenticated".
     @PostMapping("")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Metadata> createMetadata(@RequestBody Metadata metadata) throws URISyntaxException {
         log.debug("REST request to save Metadata : {}", metadata);
         if (metadata.getId() != null) {
@@ -73,7 +73,7 @@ public class MetadataResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Metadata> updateMetadata(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Metadata metadata
@@ -109,7 +109,7 @@ public class MetadataResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Metadata> partialUpdateMetadata(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Metadata metadata
@@ -186,7 +186,7 @@ public class MetadataResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Void> deleteMetadata(@PathVariable("id") String id) {
         log.debug("REST request to delete Metadata : {}", id);
         metadataRepository.deleteById(id);

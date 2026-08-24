@@ -49,7 +49,7 @@ public class ShiftResource {
     // rule Professional and Team carry, and for the same reason. Who is on duty is not something a
     // patient gets to rewrite.
     @PostMapping("")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Shift> createShift(@RequestBody Shift shift) throws URISyntaxException {
         log.debug("REST request to save Shift : {}", shift);
         if (shift.getId() != null) {
@@ -73,7 +73,7 @@ public class ShiftResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Shift> updateShift(@PathVariable(value = "id", required = false) final String id, @RequestBody Shift shift)
         throws URISyntaxException {
         log.debug("REST request to update Shift : {}, {}", id, shift);
@@ -107,7 +107,7 @@ public class ShiftResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Shift> partialUpdateShift(
         @PathVariable(value = "id", required = false) final String id,
         @RequestBody Shift shift
@@ -211,7 +211,7 @@ public class ShiftResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', '" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.ADMIN + "', " + AuthoritiesConstants.CLINICAL_AUTHORITIES + ")")
     public ResponseEntity<Void> deleteShift(@PathVariable("id") String id) {
         log.debug("REST request to delete Shift : {}", id);
         shiftRepository.deleteById(id);

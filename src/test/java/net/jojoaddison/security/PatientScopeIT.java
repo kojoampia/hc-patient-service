@@ -343,7 +343,7 @@ class PatientScopeIT {
         // when nobody remembers to write a check.
         RequestPostProcessor professional = jwt()
             .jwt(builder -> builder.claim(SecurityUtils.EMAIL_KEY, "doctor@example.com"))
-            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.PROFESSIONAL));
+            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.DOCTOR));
 
         restMockMvc.perform(get("/api/allergies").with(professional)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
     }

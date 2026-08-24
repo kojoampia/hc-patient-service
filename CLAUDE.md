@@ -164,7 +164,8 @@ excludes archived cases unless `includeArchived=true`; `GET /{id}` still returns
 
 `DutyRoster` and `Shift` are the newest (2026-08-11) and are what `ClinicalCase.assignedRosterId` points at; it
 named nothing until they existed. Both are **staff reference data**, so they follow `Team`/`Professional` rather than
-the patient entities: readable by any authenticated caller, writable only by `ROLE_ADMIN`/`ROLE_PROFESSIONAL`, no
+the patient entities: readable by any authenticated caller, writable only by `ROLE_ADMIN` or any clinical
+discipline (`AuthoritiesConstants.CLINICAL`), no
 `patientId` and no `PatientScope`. `ShiftStatus` (ACTIVE/UPCOMING/COMPLETED) is deliberately not `ScheduleStatus`,
 which is an appointment's lifecycle. One caveat: `DutyRoster.subscribedProfessionalIds` is a `Set<String>` that
 **does not exist in `patient.jdl`** — JDL has no list-of-scalars type — so regenerating that entity drops it. The
@@ -189,8 +190,7 @@ Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the con
 - **Patient data is never deleted.** Sixteen resources require `ROLE_ADMIN` for `DELETE`. Archiving — the
   professional-only replacement — **exists for `ClinicalCase` since 2026-08-22** and for nothing else yet:
   `POST /api/clinical-cases/{id}/archive` and `/unarchive`, a reason required, and a **clinical** authority —
-  `ROLE_PROFESSIONAL` or `ROLE_DOCTOR` (added 2026-08-24, because `hc-professional`'s gateway mints no
-  `ROLE_PROFESSIONAL` and every clinician arriving from that stack was getting a 403). `ROLE_ADMIN` is excluded on
+  `ROLE_DOCTOR` alone (2026-08-24). `ROLE_ADMIN` is excluded on
   purpose, which is why this is `@PreAuthorize` and not `requireWrite(DIAGNOSIS)` — `PatientScope` returns true for
   an admin before it consults `ScopeOfPractice`. It is a
   transition endpoint rather than a `PATCH` for the reason `CareDelegation` has none — a `PATCH` over `archivedAt`
@@ -201,11 +201,16 @@ Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the con
   mapping `ROLE_DOCTOR`/`NURSE`/`CARER`/`PARAMEDIC`/`PHARMACIST`/`THERAPIST`/`CHEMIST`/`TECHNICIAN` onto six
   `ClinicalDomain`s. **It is a starting position rather than a clinical ruling** and says so at the top; correcting
   it is a two-line change in one file, deliberately.
-  - This service issues none of those roles. **`hc-professional`'s gateway does, and has no `ROLE_PROFESSIONAL` at
-    all** — and the two stacks share a JWT signing key, so its tokens reach here. Before this, a doctor signing in
-    there failed every `ROLE_PROFESSIONAL` check, resolved to no patient, and was served empty lists rather than a
-    refusal.
-  - `ROLE_PROFESSIONAL` still means everything. Narrowing it would change thirty checks at once, silently.
+  - This service issues none of those roles. **`hc-professional`'s gateway does** — and the two stacks share a JWT
+    signing key, so its tokens reach here. Before 2026-08-22 a doctor signing in there failed every check, resolved
+    to no patient, and was served empty lists rather than a refusal.
+  - **`ROLE_PROFESSIONAL` no longer exists** (removed 2026-08-24). It was a blanket clinical authority that only
+    `hc-patient`'s own gateway ever minted and only this service ever checked, so every check naming it was a check
+    no clinician from the portal that owns the case queue could pass. The twenty-four reference-data checks now take
+    `ROLE_ADMIN` or any of `AuthoritiesConstants.CLINICAL`; archive, unarchive and the two `CareDelegation`
+    signatures take `ROLE_DOCTOR`, because those turn on a judgement `ScopeOfPractice` grants to doctor alone.
+    Two spellings of the set exist — `CLINICAL` for Java, `CLINICAL_AUTHORITIES` for `@PreAuthorize`, which cannot
+    read a `Set` — and `AuthoritiesConstantsUnitTest` is what stops them drifting apart.
   - It composes with `PatientScope` and never replaces it: that decides _whose_ records, this decides _what kind_,
     and whose is settled first. Wired into the write paths of eleven resources; **reads are not filtered yet** —
     `canRead`/`requireRead` exist and are tested but nothing calls them.

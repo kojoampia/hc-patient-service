@@ -152,6 +152,6 @@ class ReferenceDataIT {
     private static RequestPostProcessor professionalCaller() {
         return jwt()
             .jwt(builder -> builder.claim(SecurityUtils.EMAIL_KEY, "doctor@example.com"))
-            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.PROFESSIONAL));
+            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.TECHNICIAN));
     }
 }

@@ -75,7 +75,7 @@ class ScopeOfPracticeIT {
     }
 
     @Test
-    @WithMockUser(username = "doctor", authorities = { "ROLE_PROFESSIONAL" })
+    @WithMockUser(username = "doctor", authorities = { "ROLE_DOCTOR" })
     void theBlanketRoleStillWritesEverything() throws Exception {
         // Thirty existing checks gate on this role. If any of them narrowed, it happened here.
         expectPost("/api/clinical-cases", CASE, 201);

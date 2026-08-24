@@ -100,7 +100,7 @@ public class ClinicalCaseService {
                     existingClinicalCase.setAssignedRosterId(clinicalCase.getAssignedRosterId());
                 }
                 // archivedAt, archivedById and archiveReason are deliberately absent from this merge, and must stay
-                // absent. They are set by /archive and /unarchive, which are ROLE_PROFESSIONAL and stamp the caller;
+                // absent. They are set by /archive and /unarchive, which are ROLE_DOCTOR and stamp the caller;
                 // merging them here would let anyone who may edit a case archive it by sending a field, and let them
                 // choose whose name was on it. This is the same rule that keeps CareDelegation off a generic PATCH.
 

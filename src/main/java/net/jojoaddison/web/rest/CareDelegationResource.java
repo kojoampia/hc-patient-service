@@ -157,14 +157,21 @@ public class CareDelegationResource {
     }
 
     /**
-     * {@code POST /api/care-delegations/:id/activate} : a professional declares the patient incapacitated.
+     * {@code POST /api/care-delegations/:id/activate} : a doctor declares the patient incapacitated.
      *
      * <p>The first of two signatures. It grants nothing on its own — see {@link #countersign}.</p>
+     *
+     * <p><strong>{@code ROLE_DOCTOR}, not {@link AuthoritiesConstants#CLINICAL}.</strong> This read
+     * {@code ROLE_PROFESSIONAL} until 2026-08-24, and replacing a blanket role with a blanket set would have kept
+     * the same defect under a new name. Declaring a patient incapacitated is an assertion about the patient's
+     * capacity — a diagnosis, in {@code ScopeOfPractice}'s terms — and that table grants {@code DIAGNOSIS} writes to
+     * doctor alone. The consequence to accept deliberately: two signatures means two <em>doctors</em>, which in a
+     * home-healthcare setting may prove impractical. Widen it here, in one place, if it does.</p>
      *
      * @param body must carry a {@code reason}: the incapacity declaration, stored rather than merely logged.
      */
     @PostMapping("/{id}/activate")
-    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.DOCTOR + "')")
     public ResponseEntity<CareDelegation> activate(@PathVariable("id") String id, @RequestBody Map<String, String> body) {
         log.debug("REST request to activate standby CareDelegation : {}", id);
         String reason = body == null ? null : body.get("reason");
@@ -174,12 +181,14 @@ public class CareDelegationResource {
     /**
      * {@code POST /api/care-delegations/:id/countersign} : a second professional confirms.
      *
-     * <p>Restricted to {@code ROLE_PROFESSIONAL} and, in the service, to somebody other than the professional who
-     * declared the incapacity. Administrators are deliberately <em>not</em> accepted here: the countersignature is a
-     * clinical judgement about a patient's capacity, and {@code ROLE_ADMIN} is an operational role.</p>
+     * <p>Restricted to {@code ROLE_DOCTOR} and, in the service, to somebody other than the professional who declared
+     * the incapacity. Administrators are deliberately <em>not</em> accepted here: the countersignature is a clinical
+     * judgement about a patient's capacity, and {@code ROLE_ADMIN} is an operational role.</p>
+     *
+     * <p>Doctor rather than any clinician — see {@link #activate} for why the two signatures name one discipline.</p>
      */
     @PostMapping("/{id}/countersign")
-    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.PROFESSIONAL + "')")
+    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.DOCTOR + "')")
     public ResponseEntity<CareDelegation> countersign(@PathVariable("id") String id) {
         log.debug("REST request to countersign CareDelegation : {}", id);
         return ResponseEntity.ok(careDelegationService.countersign(id, professionalId()));
