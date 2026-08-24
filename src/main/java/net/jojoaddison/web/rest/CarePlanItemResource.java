@@ -187,6 +187,7 @@ public class CarePlanItemResource {
     @GetMapping("")
     public List<CarePlanItem> getAllCarePlanItems(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all CarePlanItems for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.CARE_PLAN);
         return patientScope.findScoped(patientId, carePlanItemRepository::findAll, carePlanItemRepository::findByPatientId);
     }
 
@@ -199,6 +200,7 @@ public class CarePlanItemResource {
     @GetMapping("/{id}")
     public ResponseEntity<CarePlanItem> getCarePlanItem(@PathVariable("id") String id) {
         log.debug("REST request to get CarePlanItem : {}", id);
+        patientScope.requireRead(ClinicalDomain.CARE_PLAN);
         Optional<CarePlanItem> carePlanItem = carePlanItemService
             .findOne(id)
             .filter(current -> patientScope.isVisible(current.getPatientId()));

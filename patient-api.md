@@ -69,7 +69,14 @@ each changes what the code should say and none of them is in it yet.
       vitals is discovered in minutes, a technician wrongly able to read diagnoses is a disclosure
       nobody notices.
 
-- [ ] **Reads get filtered before archiving is extended**, and both are ahead of the rest of this
+- [x] **Reads are filtered as of 2026-08-24.** `requireRead` is wired into all 23 GET endpoints of the
+      eleven scoped resources, each on the domain that resource already used for writes.
+      `ScopeOfPracticeReadsIT` asserts the endpoints rather than the table — a test saying "a
+      pharmacist cannot read DIAGNOSIS" against `ScopeOfPractice` restates the table in more words,
+      while one saying `GET /api/clinical-cases` returns 403 is the thing that would have failed
+      before. 559 ITs green. **Archiving is still outstanding**, and is the second half below.
+
+- [ ] ~~**Reads get filtered before archiving is extended**~~, and both are ahead of the rest of this
       backlog. They are the two cross-cutting authorization items here rather than features. Reads
       first because it is the disclosure risk: `canRead`/`requireRead` exist and are tested and
       **nothing calls them**, so the scope-of-practice model is enforced on writes only and a

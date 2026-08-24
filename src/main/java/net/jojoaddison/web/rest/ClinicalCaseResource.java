@@ -191,6 +191,7 @@ public class ClinicalCaseResource {
         @RequestParam(name = "includeArchived", required = false, defaultValue = "false") boolean includeArchived
     ) {
         log.debug("REST request to get a page of ClinicalCases for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         // Archived cases are excluded unless asked for. This is the half of archiving that clients actually see: the
         // point of retiring a case is that the working queue stops showing it, and a default of "everything" would
         // leave every caller to remember to filter — which is what the dashboard was doing in a client-side Set.
@@ -230,6 +231,7 @@ public class ClinicalCaseResource {
     @GetMapping("/{id}")
     public ResponseEntity<ClinicalCase> getClinicalCase(@PathVariable("id") String id) {
         log.debug("REST request to get ClinicalCase : {}", id);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         Optional<ClinicalCase> clinicalCase = clinicalCaseService
             .findOne(id)
             .filter(current -> patientScope.isVisible(current.getPatientId()));

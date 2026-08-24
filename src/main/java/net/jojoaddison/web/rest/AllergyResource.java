@@ -192,6 +192,7 @@ public class AllergyResource {
     @GetMapping("")
     public List<Allergy> getAllAllergies(@RequestParam(required = false) String patientId) {
         log.debug("REST request to get all Allergys for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.MEDICATION);
         return patientScope.findScoped(patientId, allergyRepository::findAll, allergyRepository::findByPatientId);
     }
 
@@ -204,6 +205,7 @@ public class AllergyResource {
     @GetMapping("/{id}")
     public ResponseEntity<Allergy> getAllergy(@PathVariable("id") String id) {
         log.debug("REST request to get Allergy : {}", id);
+        patientScope.requireRead(ClinicalDomain.MEDICATION);
         Optional<Allergy> allergy = allergyService.findOne(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(allergy);
     }

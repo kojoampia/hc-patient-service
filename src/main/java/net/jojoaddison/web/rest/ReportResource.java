@@ -239,6 +239,7 @@ public class ReportResource {
         @org.springdoc.core.annotations.ParameterObject Pageable pageable
     ) {
         log.debug("REST request to get a page of Reports for patient {}", patientId);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         Page<Report> page = patientScope.findScopedPage(patientId, pageable, reportRepository::findAll, reportRepository::findByPatientId);
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());
@@ -253,6 +254,7 @@ public class ReportResource {
     @GetMapping("/{id}")
     public ResponseEntity<Report> getReport(@PathVariable("id") String id) {
         log.debug("REST request to get Report : {}", id);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         Optional<Report> report = reportRepository.findById(id).filter(current -> patientScope.isVisible(current.getPatientId()));
         return ResponseUtil.wrapOrNotFound(report);
     }
@@ -328,6 +330,7 @@ public class ReportResource {
     @GetMapping("/{id}/file")
     public ResponseEntity<Resource> downloadReportFile(@PathVariable("id") String id) {
         log.debug("REST request to download the file of Report : {}", id);
+        patientScope.requireRead(ClinicalDomain.DIAGNOSIS);
         return reportRepository
             .findById(id)
             .filter(current -> patientScope.isVisible(current.getPatientId()))
