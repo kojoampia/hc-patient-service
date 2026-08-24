@@ -68,12 +68,20 @@ each changes what the code should say and none of them is in it yet.
       to prescribe against an incomplete history. **All three widened**, which is the direction this
       table's bias predicts: it refuses when unsure, so its errors accumulate where a clinician
       notices within minutes rather than where nobody ever does.
-- [ ] **Two limits recorded rather than closed.** The model has no notion of a doctor's specialty — a
-      dermatologist and a psychiatrist are the same row — and `CHEMIST` and `TECHNICIAN` are identical
-      rows. Differentiating the lab roles was agreed in principle but **needs somebody to say how they
-      differ in this service**; inventing a difference in a table whose bias is to refuse when unsure
-      is the wrong way to resolve it. A test pins them as identical so the day they diverge, somebody
-      has to say so.
+- [x] **A chemist is a _dispensing_ chemist, and that row was wrong. Fixed 2026-08-24.** It had been
+      written as a copy of the technician's on the assumption that "chemist" meant a laboratory role,
+      which left somebody who hands medicines to patients unable to read the medication record or the
+      allergies — and nothing failed, they simply saw an empty list. `ClinicalDomain.MEDICATION` groups
+      allergies with medications for precisely this case, in its own words: anyone who may dispense
+      must be able to see what would harm the patient. Now reads and writes `MEDICATION`; the
+      technician's row is unchanged, so the two finally differ.
+- [ ] **Does a dispensing chemist read the diagnosis?** Deliberately not granted — that is where this
+      row stops short of the pharmacist's, whose diagnosis read exists because dispensing a
+      prescription safely means knowing what it is for. If chemists here dispense against
+      prescriptions rather than over the counter, this row should follow the pharmacist. Pinned by a
+      test so changing it is a decision rather than a drift.
+- [ ] **The model has no notion of a doctor's specialty** — a dermatologist and a psychiatrist are the
+      same row, and both hold the whole record. The largest simplification left in the table.
 - [x] ~~**`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
       than provisional.**~~ The table says at its top that it is a starting position written from the
       shape of the data rather than from anybody's scope of practice, and names carer, paramedic and

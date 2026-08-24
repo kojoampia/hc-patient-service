@@ -39,10 +39,9 @@ import java.util.Set;
  * row, and both hold the whole record. This is the largest simplification here, and closing it would make every
  * {@code DIAGNOSIS} check specialty-dependent.</p>
  *
- * <p><strong>{@code CHEMIST} and {@code TECHNICIAN} are identical rows</strong>, so the model does not distinguish
- * them at all. That has been accepted as a known limit rather than corrected, because correcting it needs somebody
- * to say <em>how</em> they differ in this service — and inventing a difference in a table whose stated bias is to
- * refuse when unsure is exactly the wrong way to resolve it.</p>
+ * <p><strong>{@code CHEMIST} and {@code TECHNICIAN} were identical rows until 2026-08-24</strong>, when it was
+ * confirmed that a chemist here is a <em>dispensing</em> chemist rather than a laboratory one. They now differ, and
+ * the row's own comment explains what that cost while it was wrong.</p>
  */
 public final class ScopeOfPractice {
 
@@ -138,12 +137,40 @@ public final class ScopeOfPractice {
             EnumSet.of(ClinicalDomain.CARE_PLAN, ClinicalDomain.ENCOUNTER)
         );
 
-        // A chemist and a technician run and record tests. They produce observations; they do not interpret them,
-        // and they have no reason to read what the patient is being treated for.
-        Set<ClinicalDomain> labReads = EnumSet.of(ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY);
-        Set<ClinicalDomain> labWrites = EnumSet.of(ClinicalDomain.OBSERVATION);
-        grant(AuthoritiesConstants.CHEMIST, labReads, labWrites);
-        grant(AuthoritiesConstants.TECHNICIAN, labReads, labWrites);
+        // A technician runs and records tests. They produce observations; they do not interpret them, and they have
+        // no reason to read what the patient is being treated for.
+        grant(
+            AuthoritiesConstants.TECHNICIAN,
+            EnumSet.of(ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
+            EnumSet.of(ClinicalDomain.OBSERVATION)
+        );
+
+        // A chemist is a DISPENSING chemist — a community medicine outlet — and not a laboratory role. Confirmed
+        // 2026-08-24, and it made this row wrong in the direction nobody notices.
+        //
+        // It had been written as a copy of the technician's on the assumption that "chemist" meant laboratory
+        // chemist, which left somebody who hands medicines to patients unable to see the medication record or the
+        // allergies. {@link ClinicalDomain#MEDICATION} groups allergies WITH medications for exactly this reason,
+        // in its own words: anyone who may dispense must be able to see what would harm the patient. A dispensing
+        // chemist could not, and nothing failed — they simply saw an empty list.
+        //
+        // Writes as well as reads, on the paramedic's reasoning: a record that cannot hold what was dispensed
+        // leaves the next clinician prescribing against an incomplete history.
+        //
+        // DIAGNOSIS is deliberately NOT granted, which is where this row stops short of the pharmacist's. A
+        // pharmacist reads the diagnosis because dispensing a prescription safely means knowing what it is for; a
+        // dispensing chemist works a narrower, largely over-the-counter counter, and the full diagnostic record is
+        // more than that needs. This is the row's remaining open question rather than a settled one — if chemists
+        // here dispense against prescriptions, it should follow the pharmacist.
+        //
+        // OBSERVATION is kept. It was granted for the wrong reason, but community outlets do take blood pressures,
+        // and removing it would lock somebody out of work they really do — the error this table's own note says is
+        // discovered in minutes and complained about, rather than the silent kind.
+        grant(
+            AuthoritiesConstants.CHEMIST,
+            EnumSet.of(ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
+            EnumSet.of(ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION)
+        );
     }
 
     private ScopeOfPractice() {}
