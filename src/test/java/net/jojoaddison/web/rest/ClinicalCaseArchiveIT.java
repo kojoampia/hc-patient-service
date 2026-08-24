@@ -26,8 +26,11 @@ import org.springframework.test.web.servlet.MockMvc;
  * Archiving a clinical case.
  *
  * <p>Separate from {@link ClinicalCaseResourceIT} because that class runs as {@code ROLE_ADMIN} to exercise CRUD
- * mechanics, and archiving is {@code ROLE_PROFESSIONAL} — the role is part of what is under test here rather than
+ * mechanics, and archiving needs a clinical authority — the role is part of what is under test here rather than
  * scaffolding to be worked around.</p>
+ *
+ * <p>The class default is {@code ROLE_PROFESSIONAL}; {@link #aDoctorMayArchive()} and its neighbours override it,
+ * because who may archive is exactly what changed on 2026-08-24 and a default nobody contradicts proves nothing.</p>
  */
 @IntegrationTest
 @AutoConfigureMockMvc
@@ -257,5 +260,57 @@ class ClinicalCaseArchiveIT {
         assertThat(mongoTemplate.findById("legacy-1", Document.class, "clinicalcase")).doesNotContainKey("archived_at");
 
         mockMvc.perform(get(API + "?patientId=" + PATIENT_ID)).andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value("legacy-1"));
+    }
+
+    @Test
+    @WithMockUser(username = "dr-adjei", authorities = { "ROLE_DOCTOR" })
+    void aDoctorMayArchive() throws Exception {
+        // The reason this endpoint moved. This service issues no authorities: hc-professional's gateway mints the
+        // nine disciplines and has no ROLE_PROFESSIONAL at all, so before this every clinician arriving from that
+        // stack got 403 and archiving was unreachable from the portal that owns the case queue.
+        mockMvc
+            .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("Episode closed")))
+            .andExpect(status().isOk());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().getArchivedAt()).isNotNull();
+    }
+
+    @Test
+    @WithMockUser(username = "dr-adjei", authorities = { "ROLE_DOCTOR" })
+    void aDoctorMayUnarchiveToo() throws Exception {
+        // Archiving without the way back is a delete with extra steps, so the two authorities must match.
+        mockMvc
+            .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("x")))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post(API + "/{id}/unarchive", live.getId())).andExpect(status().isOk());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().getArchivedAt()).isNull();
+    }
+
+    @Test
+    @WithMockUser(username = "ward-admin", authorities = { "ROLE_ADMIN" })
+    void anAdminMayNotArchive() throws Exception {
+        // Deliberate, and the reason this is a PreAuthorize rather than requireWrite(DIAGNOSIS): PatientScope
+        // returns true for ROLE_ADMIN before it consults ScopeOfPractice at all, so requireWrite would quietly
+        // admit the operational role this endpoint's javadoc excludes on purpose.
+        mockMvc
+            .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("x")))
+            .andExpect(status().isForbidden());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().getArchivedAt()).isNull();
+    }
+
+    @Test
+    @WithMockUser(username = "nurse-ama", authorities = { "ROLE_NURSE" })
+    void aNurseMayNotArchive() throws Exception {
+        // ScopeOfPractice grants a nurse everything except DIAGNOSIS — "asserting what is wrong with the patient is
+        // not a nursing act" — and ClinicalDomain maps ClinicalCase to DIAGNOSIS. Widening to the other disciplines
+        // would say something this model does not.
+        mockMvc
+            .perform(post(API + "/{id}/archive", live.getId()).contentType(MediaType.APPLICATION_JSON).content(reason("x")))
+            .andExpect(status().isForbidden());
+
+        assertThat(clinicalCaseRepository.findById(live.getId()).orElseThrow().getArchivedAt()).isNull();
     }
 }
