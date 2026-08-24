@@ -79,12 +79,15 @@ each changes what the code should say and none of them is in it yet.
       pharmacist does: dispensing safely means knowing what the medicine is _for_, and a dispenser who
       cannot see the indication cannot catch a medicine that is wrong for the condition. Reads only —
       dispensing is not diagnosing.
-- [ ] **The chemist is now wider than the pharmacist, and that is the next thing to be wrong.** The
-      chemist holds everything the pharmacist holds _and_ observations, so the less qualified role is
-      the wider one. **The fault is almost certainly on the pharmacist's side**: renal function and
-      weight change dosing, and a pharmacist can currently see neither. A test fails the day somebody
-      fixes it, deliberately — widening the pharmacist is a clinical decision, not a symmetry
-      argument, and it should not happen silently.
+- [x] **A pharmacist reads observations, confirmed 2026-08-24, and that closes the inconsistency.**
+      Renal function and weight set a safe dose; a pharmacist who could see neither was checking a
+      prescription with a third of the information. The two dispensing roles now read the same four
+      domains, which is right rather than merely symmetrical — both dispense, so both need the
+      indication, the interactions and the numbers behind the dose.
+- [ ] **The two dispensing roles still differ on writes, and nobody has argued for it.** A chemist may
+      record an observation and a pharmacist may not. That asymmetry is inherited from the days the
+      chemist's row was a copy of the technician's, not from a decision. If a pharmacy takes blood
+      pressures too, the pharmacist should have it. Pinned by a test so resolving it is deliberate.
 - [ ] **The model has no notion of a doctor's specialty** — a dermatologist and a psychiatrist are the
       same row, and both hold the whole record. The largest simplification left in the table.
 - [x] ~~**`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
