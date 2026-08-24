@@ -125,15 +125,25 @@ class ScopeOfPracticeUnitTest {
     }
 
     @Test
-    void theChemistIsNowWiderThanThePharmacistAndThatIsTheNextThingToBeWrong() {
-        // Not an approval -- a tripwire. The chemist holds everything the pharmacist holds and observations too, so
-        // the less qualified role is the wider one. The fault is almost certainly on the pharmacist's side: renal
-        // function and weight change dosing and a pharmacist can see neither. This fails the day somebody fixes
-        // that, which is the point -- it should not be fixed silently by symmetry.
-        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.OBSERVATION)).isTrue();
-        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.OBSERVATION))
-            .as("if a pharmacist can now read observations, delete this test and the note beside the chemist row")
-            .isFalse();
+    void theTwoDispensingRolesReadTheSameThings() {
+        // Settled 2026-08-24, and it closes an inconsistency rather than creating one: the chemist briefly held
+        // more than the pharmacist, which had the less qualified role reading more. Both dispense, so both need the
+        // indication, the interactions and the numbers that set a dose.
+        for (ClinicalDomain domain : ClinicalDomain.values()) {
+            assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), domain))
+                .as("chemist and pharmacist should read alike -- %s diverged", domain)
+                .isEqualTo(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), domain));
+        }
+
+        // Renal function and weight set a safe dose. A pharmacist who cannot see them is checking a prescription
+        // with a third of the information.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.OBSERVATION)).isTrue();
+
+        // They still differ on writes, and that is the last unexamined thing in this pair. The chemist's
+        // OBSERVATION write is inherited from the days its row was a copy of the technician's; nobody has said
+        // whether a pharmacy takes blood pressures too. Pinned so that resolving it is a decision.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.OBSERVATION)).isTrue();
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.OBSERVATION)).isFalse();
     }
 
     @Test

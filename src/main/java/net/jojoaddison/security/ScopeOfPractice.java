@@ -109,11 +109,13 @@ public final class ScopeOfPractice {
             EnumSet.of(ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.ENCOUNTER)
         );
 
-        // A pharmacist: the medication record, and the conditions that bear on it. Writes medications and nothing
-        // else.
+        // A pharmacist: the medication record, the conditions that bear on it, and — since 2026-08-24 — the
+        // observations that bear on the dose. Renal function and weight change what a safe dose is, and a
+        // pharmacist who cannot see either is checking a prescription with a third of the information. Writes
+        // medications and nothing else.
         grant(
             AuthoritiesConstants.PHARMACIST,
-            EnumSet.of(ClinicalDomain.DIAGNOSIS, ClinicalDomain.MEDICATION, ClinicalDomain.IDENTITY),
+            EnumSet.of(ClinicalDomain.DIAGNOSIS, ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
             EnumSet.of(ClinicalDomain.MEDICATION)
         );
 
@@ -165,12 +167,12 @@ public final class ScopeOfPractice {
         // and removing it would lock somebody out of work they really do — the error this table's own note says is
         // discovered in minutes and complained about, rather than the silent kind.
         //
-        // NOTE THE INCONSISTENCY THIS LEAVES, because it is the next thing to be wrong here: the chemist now holds
-        // everything the pharmacist holds AND observations, so the less qualified role is the wider one. The fault
-        // is almost certainly on the pharmacist's side rather than this one — renal function and weight change
-        // dosing, and a pharmacist can currently see neither. Raised in docs/scope-of-practice-review.md and
-        // deliberately not fixed here, because widening the pharmacist is a clinical decision and not a symmetry
-        // argument.
+        // The chemist and the pharmacist now READ exactly the same four domains, which is right: both dispense, and
+        // both need the indication, the interactions and the numbers that set a dose. They differ on writes — the
+        // chemist records an observation, the pharmacist does not — and that asymmetry is the last unexamined thing
+        // in this pair. It survives because it was never argued for: the chemist's OBSERVATION write is inherited
+        // from the days this row was a copy of the technician's. If a pharmacy takes blood pressures too, the
+        // pharmacist should have it; nobody has said.
         grant(
             AuthoritiesConstants.CHEMIST,
             EnumSet.of(ClinicalDomain.DIAGNOSIS, ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
