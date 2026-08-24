@@ -6,6 +6,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.stream.Stream;
 import net.jojoaddison.IntegrationTest;
+import net.jojoaddison.domain.Allergy;
+import net.jojoaddison.domain.Condition;
+import net.jojoaddison.repository.AllergyRepository;
+import net.jojoaddison.repository.ConditionRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -35,6 +41,18 @@ class ArchiveEveryClinicalRecordIT {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AllergyRepository allergyRepository;
+
+    @Autowired
+    private ConditionRepository conditionRepository;
+
+    @BeforeEach
+    void clear() {
+        allergyRepository.deleteAll();
+        conditionRepository.deleteAll();
+    }
 
     /** Every path that gained archiving, with a discipline that may write its domain and one that may not. */
     private static Stream<Arguments> clinicalRecords() {
@@ -110,5 +128,96 @@ class ArchiveEveryClinicalRecordIT {
         // Archiving without an unarchive is a delete with extra steps -- the one thing a clinician could do that
         // nobody could undo. 404 rather than 405: the route is mapped, the record simply is not there.
         mockMvc.perform(post(path + "/{id}/unarchive", "no-such-id")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(username = "nurse-ama", authorities = { "ROLE_NURSE" })
+    void aRecordCanBeArchivedAndBroughtBack() throws Exception {
+        // The happy path, and the one the refusal tests above say nothing about. A service-backed entity
+        // (Allergy) rather than a repository-direct one, so the delegation through the service layer is
+        // exercised too -- Condition below covers the other shape.
+        Allergy allergy = allergyRepository.save(new Allergy().patientId("p-archive").name("peanuts"));
+
+        mockMvc
+            .perform(
+                post("/api/allergies/{id}/archive", allergy.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"reason\":\"resolved on review\"}")
+            )
+            .andExpect(status().isOk());
+
+        Allergy archived = allergyRepository.findById(allergy.getId()).orElseThrow();
+        assertThat(archived.getArchivedAt()).isNotNull();
+        assertThat(archived.getArchiveReason()).isEqualTo("resolved on review");
+        // Stamped from the caller, never from the payload: this answers "who retired this patient's data".
+        assertThat(archived.getArchivedById()).isEqualTo("nurse-ama");
+
+        mockMvc.perform(post("/api/allergies/{id}/unarchive", allergy.getId())).andExpect(status().isOk());
+
+        Allergy restored = allergyRepository.findById(allergy.getId()).orElseThrow();
+        assertThat(restored.getArchivedAt()).isNull();
+        assertThat(restored.getArchivedById()).isNull();
+        assertThat(restored.getArchiveReason()).isNull();
+        // The record itself survives. Archiving is not a soft delete of the data, only of its place in a list.
+        assertThat(restored.getName()).isEqualTo("peanuts");
+    }
+
+    @Test
+    @WithMockUser(username = "dr-adjei", authorities = { "ROLE_DOCTOR" })
+    void archivingTwiceIsRefusedRatherThanIgnored() throws Exception {
+        // Idempotent by refusal, not by silence. Answering 200 to the second call would overwrite the first
+        // archiver's name and reason with the second's, quietly rewriting who retired the record and why --
+        // which is the whole thing these three fields exist to record. Repository-direct entity this time.
+        Condition condition = conditionRepository.save(new Condition().patientId("p-archive").name("asthma"));
+
+        mockMvc
+            .perform(
+                post("/api/conditions/{id}/archive", condition.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"reason\":\"first\"}")
+            )
+            .andExpect(status().isOk());
+
+        mockMvc
+            .perform(
+                post("/api/conditions/{id}/archive", condition.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"reason\":\"second\"}")
+            )
+            .andExpect(status().isBadRequest());
+
+        assertThat(conditionRepository.findById(condition.getId()).orElseThrow().getArchiveReason()).isEqualTo("first");
+
+        // And unarchiving something that is not archived is refused for the mirror-image reason.
+        mockMvc.perform(post("/api/conditions/{id}/unarchive", condition.getId())).andExpect(status().isOk());
+        mockMvc.perform(post("/api/conditions/{id}/unarchive", condition.getId())).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "dr-adjei", authorities = { "ROLE_DOCTOR" })
+    void aPutCannotReachTheArchiveFields() throws Exception {
+        // The bypass this change had to close on all ten at once. A PUT replaces the document wholesale, so
+        // without the carry-over any caller who may edit a record could archive it by sending a field -- and
+        // choose whose name went on it.
+        Condition condition = conditionRepository.save(new Condition().patientId("p-archive").name("asthma"));
+
+        Condition forged = new Condition().patientId("p-archive").name("asthma");
+        forged.setId(condition.getId());
+        forged.setArchivedAt(java.time.Instant.parse("2020-01-01T00:00:00Z"));
+        forged.setArchivedById("somebody-else");
+        forged.setArchiveReason("smuggled in through a PUT");
+
+        mockMvc
+            .perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .put("/api/conditions/{id}", condition.getId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(TestUtil.convertObjectToJsonBytes(forged))
+            )
+            .andExpect(status().isOk());
+
+        assertThat(conditionRepository.findById(condition.getId()).orElseThrow().getArchivedAt())
+            .as("a PUT must not be able to archive a record")
+            .isNull();
     }
 }
