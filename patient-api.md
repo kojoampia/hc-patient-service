@@ -39,6 +39,40 @@ lists rather than a refusal — silent, and indistinguishable from a patient wit
 from the code, pinned by a test, and since demonstrated on the quality stack once
 `hc-patient-quality` seeded an account per discipline.
 
+### Decisions taken 2026-08-24, not yet built
+
+Answers given by the architect on the day of the `ROLE_PROFESSIONAL` removal. Recorded here because
+each changes what the code should say and none of them is in it yet.
+
+- [ ] **A nurse may countersign an incapacity declaration; only a doctor may declare one.**
+      `/activate` stays `ROLE_DOCTOR`, `/countersign` widens to doctor **or** nurse. The reasoning is
+      the one this file already records under the removal: requiring two doctors is clinically
+      strictest and practically unobtainable in home healthcare, where a second doctor may not be
+      reachable at all. The diagnosis judgement — asserting the patient lacks capacity — stays with a
+      doctor; the second signature confirms it rather than makes it. **The service check must stay
+      "somebody other than the declarer"**, which is what makes two signatures mean two people.
+      One line in `CareDelegationResource` plus a note in `ScopeOfPractice` explaining why countersign
+      is the one place a nurse touches a `DIAGNOSIS`-adjacent act, and `CareDelegationResourceIT`
+      coverage for doctor-declares/nurse-countersigns and for nurse-cannot-declare.
+
+- [ ] **`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
+      than provisional.** The table says at its top that it is a starting position written from the
+      shape of the data rather than from anybody's scope of practice, and names carer, paramedic and
+      pharmacist as the rows most likely wrong. Somebody with the standing to rule on scope of practice
+      reviews all eight rows. **Deliverable for that review: one page per row — what it grants, what it
+      refuses, and the concrete consequence of each being wrong in either direction**, because the two
+      directions are not symmetric and the table's own note says so: a nurse wrongly locked out of
+      vitals is discovered in minutes, a technician wrongly able to read diagnoses is a disclosure
+      nobody notices.
+
+- [ ] **Reads get filtered before archiving is extended**, and both are ahead of the rest of this
+      backlog. They are the two cross-cutting authorization items here rather than features. Reads
+      first because it is the disclosure risk: `canRead`/`requireRead` exist and are tested and
+      **nothing calls them**, so the scope-of-practice model is enforced on writes only and a
+      pharmacist can read a diagnosis today. Archiving second because it is a usability gap rather than
+      an exposure — the DELETE lockdown covers sixteen resources and archiving replaces the delete for
+      exactly one. Two PRs, reads then archiving.
+
 ### `ROLE_PROFESSIONAL` removed from the platform (2026-08-24)
 
 - [x] **The blanket clinical authority is gone.** It was minted by `hc-patient`'s gateway alone and
