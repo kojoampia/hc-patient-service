@@ -157,18 +157,23 @@ public final class ScopeOfPractice {
         // Writes as well as reads, on the paramedic's reasoning: a record that cannot hold what was dispensed
         // leaves the next clinician prescribing against an incomplete history.
         //
-        // DIAGNOSIS is deliberately NOT granted, which is where this row stops short of the pharmacist's. A
-        // pharmacist reads the diagnosis because dispensing a prescription safely means knowing what it is for; a
-        // dispensing chemist works a narrower, largely over-the-counter counter, and the full diagnostic record is
-        // more than that needs. This is the row's remaining open question rather than a settled one — if chemists
-        // here dispense against prescriptions, it should follow the pharmacist.
+        // DIAGNOSIS reads too, confirmed 2026-08-24. The same reason the pharmacist has them: dispensing safely
+        // means knowing what the medicine is FOR, and a dispenser who cannot see the indication cannot catch a
+        // medicine that is wrong for the condition — which is a large part of what the role is for.
         //
         // OBSERVATION is kept. It was granted for the wrong reason, but community outlets do take blood pressures,
         // and removing it would lock somebody out of work they really do — the error this table's own note says is
         // discovered in minutes and complained about, rather than the silent kind.
+        //
+        // NOTE THE INCONSISTENCY THIS LEAVES, because it is the next thing to be wrong here: the chemist now holds
+        // everything the pharmacist holds AND observations, so the less qualified role is the wider one. The fault
+        // is almost certainly on the pharmacist's side rather than this one — renal function and weight change
+        // dosing, and a pharmacist can currently see neither. Raised in docs/scope-of-practice-review.md and
+        // deliberately not fixed here, because widening the pharmacist is a clinical decision and not a symmetry
+        // argument.
         grant(
             AuthoritiesConstants.CHEMIST,
-            EnumSet.of(ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
+            EnumSet.of(ClinicalDomain.DIAGNOSIS, ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
             EnumSet.of(ClinicalDomain.MEDICATION, ClinicalDomain.OBSERVATION)
         );
     }

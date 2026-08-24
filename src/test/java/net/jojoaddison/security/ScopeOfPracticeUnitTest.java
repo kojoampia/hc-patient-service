@@ -115,11 +115,25 @@ class ScopeOfPracticeUnitTest {
         // A technician does not dispense, and did not change.
         assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.MEDICATION)).isFalse();
 
-        // Where the chemist stops short of the pharmacist. A pharmacist reads the diagnosis because dispensing a
-        // prescription safely means knowing what it is for; a dispensing chemist works a narrower counter. This is
-        // the row's remaining open question, pinned so that changing it is a decision rather than a drift.
-        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.DIAGNOSIS)).isFalse();
-        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.DIAGNOSIS)).isTrue();
+        // Reads the diagnosis for the same reason the pharmacist does: dispensing safely means knowing what the
+        // medicine is FOR, and a dispenser who cannot see the indication cannot catch a medicine that is wrong for
+        // the condition.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.DIAGNOSIS)).isTrue();
+
+        // Still never a diagnosis WRITER. Dispensing is not diagnosing.
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.DIAGNOSIS)).isFalse();
+    }
+
+    @Test
+    void theChemistIsNowWiderThanThePharmacistAndThatIsTheNextThingToBeWrong() {
+        // Not an approval -- a tripwire. The chemist holds everything the pharmacist holds and observations too, so
+        // the less qualified role is the wider one. The fault is almost certainly on the pharmacist's side: renal
+        // function and weight change dosing and a pharmacist can see neither. This fails the day somebody fixes
+        // that, which is the point -- it should not be fixed silently by symmetry.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.CHEMIST), ClinicalDomain.OBSERVATION)).isTrue();
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.PHARMACIST), ClinicalDomain.OBSERVATION))
+            .as("if a pharmacist can now read observations, delete this test and the note beside the chemist row")
+            .isFalse();
     }
 
     @Test

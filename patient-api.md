@@ -75,11 +75,16 @@ each changes what the code should say and none of them is in it yet.
       allergies with medications for precisely this case, in its own words: anyone who may dispense
       must be able to see what would harm the patient. Now reads and writes `MEDICATION`; the
       technician's row is unchanged, so the two finally differ.
-- [ ] **Does a dispensing chemist read the diagnosis?** Deliberately not granted — that is where this
-      row stops short of the pharmacist's, whose diagnosis read exists because dispensing a
-      prescription safely means knowing what it is for. If chemists here dispense against
-      prescriptions rather than over the counter, this row should follow the pharmacist. Pinned by a
-      test so changing it is a decision rather than a drift.
+- [x] **A dispensing chemist reads the diagnosis too, confirmed 2026-08-24.** Same reason the
+      pharmacist does: dispensing safely means knowing what the medicine is _for_, and a dispenser who
+      cannot see the indication cannot catch a medicine that is wrong for the condition. Reads only —
+      dispensing is not diagnosing.
+- [ ] **The chemist is now wider than the pharmacist, and that is the next thing to be wrong.** The
+      chemist holds everything the pharmacist holds _and_ observations, so the less qualified role is
+      the wider one. **The fault is almost certainly on the pharmacist's side**: renal function and
+      weight change dosing, and a pharmacist can currently see neither. A test fails the day somebody
+      fixes it, deliberately — widening the pharmacist is a clinical decision, not a symmetry
+      argument, and it should not happen silently.
 - [ ] **The model has no notion of a doctor's specialty** — a dermatologist and a psychiatrist are the
       same row, and both hold the whole record. The largest simplification left in the table.
 - [x] ~~**`ScopeOfPractice` goes for clinical review, and until then it is treated as blocking rather
