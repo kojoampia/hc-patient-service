@@ -44,7 +44,11 @@ from the code, pinned by a test, and since demonstrated on the quality stack onc
 Answers given by the architect on the day of the `ROLE_PROFESSIONAL` removal. Recorded here because
 each changes what the code should say and none of them is in it yet.
 
-- [ ] **A nurse may countersign an incapacity declaration; only a doctor may declare one.**
+- [x] **A nurse may countersign an incapacity declaration; only a doctor may declare one.** Built
+      2026-08-24. `CareDelegationResourceIT` covers both directions and the identity rule; 16 tests
+      green. The javadoc says explicitly not to "fix" the apparent inconsistency by granting nurses
+      `DIAGNOSIS` writes in `ScopeOfPractice` — that would let them author diagnoses everywhere,
+      which is what the table refuses, and a countersignature is not a data-access question at all.
       `/activate` stays `ROLE_DOCTOR`, `/countersign` widens to doctor **or** nurse. The reasoning is
       the one this file already records under the removal: requiring two doctors is clinically
       strictest and practically unobtainable in home healthcare, where a second doctor may not be

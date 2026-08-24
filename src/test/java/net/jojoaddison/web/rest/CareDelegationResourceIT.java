@@ -272,6 +272,35 @@ class CareDelegationResourceIT {
         return careDelegationRepository.findById(delegation.getId()).orElseThrow();
     }
 
+    @Test
+    void aNurseMayCountersignButMayNotDeclare() throws Exception {
+        // The asymmetry decided on 2026-08-24, and the whole point of the pair: declaring an incapacity is an
+        // assertion about the patient's capacity and stays with a doctor; countersigning confirms an assertion
+        // somebody else already made, which a nurse is competent to do. Requiring two doctors was the stricter
+        // reading and the unworkable one -- in home healthcare the second doctor is often not reachable, and a
+        // delegation that cannot be activated protects nobody.
+        CareDelegation standby = standby(true);
+
+        restMockMvc.perform(activate(standby, "unresponsive on admission").with(nurse("nurse-ama"))).andExpect(status().isForbidden());
+        restMockMvc.perform(activate(standby, "unresponsive on admission").with(professional("dr-one"))).andExpect(status().isOk());
+        restMockMvc.perform(post(API + "/{id}/countersign", standby.getId()).with(nurse("nurse-ama"))).andExpect(status().isOk());
+
+        assertThat(reload(standby).getStatus()).isEqualTo(DelegationStatus.PENDING);
+    }
+
+    @Test
+    void aNurseCountersigningIsStillNotTheDeclarer() throws Exception {
+        // Widening the role without this would have let one person sign twice, which is the two-signature rule
+        // defeated by the change meant to make it workable. The service check is on identity, not on authority.
+        CareDelegation standby = standby(true);
+
+        restMockMvc.perform(activate(standby, "unresponsive").with(professional("dr-one"))).andExpect(status().isOk());
+        restMockMvc.perform(post(API + "/{id}/countersign", standby.getId()).with(nurse("dr-one"))).andExpect(status().isBadRequest());
+
+        assertThat(reload(standby).getStatus()).isEqualTo(DelegationStatus.AWAITING_COUNTERSIGNATURE);
+        assertThat(reload(standby).getCountersignedById()).isNull();
+    }
+
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder activate(
         CareDelegation delegation,
         String reason
@@ -297,6 +326,13 @@ class CareDelegationResourceIT {
         return jwt()
             .jwt(builder -> builder.subject(login).claim(SecurityUtils.EMAIL_KEY, login + "@clinic.test"))
             .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.DOCTOR));
+    }
+
+    /** A nurse: may countersign an incapacity declaration since 2026-08-24, may never declare one. */
+    private static RequestPostProcessor nurse(String login) {
+        return jwt()
+            .jwt(builder -> builder.subject(login).claim(SecurityUtils.EMAIL_KEY, login + "@clinic.test"))
+            .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.NURSE));
     }
 
     private static RequestPostProcessor admin() {

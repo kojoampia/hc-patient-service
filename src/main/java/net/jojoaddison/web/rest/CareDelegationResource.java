@@ -165,8 +165,8 @@ public class CareDelegationResource {
      * {@code ROLE_PROFESSIONAL} until 2026-08-24, and replacing a blanket role with a blanket set would have kept
      * the same defect under a new name. Declaring a patient incapacitated is an assertion about the patient's
      * capacity — a diagnosis, in {@code ScopeOfPractice}'s terms — and that table grants {@code DIAGNOSIS} writes to
-     * doctor alone. The consequence to accept deliberately: two signatures means two <em>doctors</em>, which in a
-     * home-healthcare setting may prove impractical. Widen it here, in one place, if it does.</p>
+     * doctor alone. The second signature is <em>not</em> held to the same standard — see {@link #countersign}, which
+     * accepts a nurse as well, because confirming somebody else's assertion is a different act from making it.</p>
      *
      * @param body must carry a {@code reason}: the incapacity declaration, stored rather than merely logged.
      */
@@ -181,14 +181,29 @@ public class CareDelegationResource {
     /**
      * {@code POST /api/care-delegations/:id/countersign} : a second professional confirms.
      *
-     * <p>Restricted to {@code ROLE_DOCTOR} and, in the service, to somebody other than the professional who declared
-     * the incapacity. Administrators are deliberately <em>not</em> accepted here: the countersignature is a clinical
-     * judgement about a patient's capacity, and {@code ROLE_ADMIN} is an operational role.</p>
+     * <p>Restricted to {@code ROLE_DOCTOR} <strong>or {@code ROLE_NURSE}</strong> and, in the service, to somebody
+     * other than the professional who declared the incapacity. Administrators are deliberately <em>not</em> accepted
+     * here: the countersignature is a clinical judgement about a patient's capacity, and {@code ROLE_ADMIN} is an
+     * operational role.</p>
      *
-     * <p>Doctor rather than any clinician — see {@link #activate} for why the two signatures name one discipline.</p>
+     * <p><strong>Wider than {@link #activate} on purpose, decided 2026-08-24.</strong> Declaring the incapacity is
+     * the assertion — a diagnosis about capacity — and stays with a doctor. Countersigning <em>confirms</em> an
+     * assertion somebody else made, which is a different act and one a nurse is competent to make. Requiring two
+     * doctors was the stricter reading and the unworkable one: in home healthcare a second doctor is often not
+     * reachable, and a delegation that cannot be activated protects nobody.</p>
+     *
+     * <p>This is the one place a nurse touches a {@code DIAGNOSIS}-adjacent decision, which is why it is a
+     * {@code @PreAuthorize} here rather than a row in {@link net.jojoaddison.security.ScopeOfPractice}: that table
+     * answers what kind of data a discipline may read and write, and a countersignature is neither. Do not "fix" the
+     * apparent inconsistency by granting nurses {@code DIAGNOSIS} writes — that would let them author diagnoses
+     * everywhere, which is exactly what the table refuses.</p>
+     *
+     * <p><strong>The service-side rule that the countersigner differs from the declarer is what makes two signatures
+     * mean two people</strong>, and it is untouched by this widening. Without it, widening the role would simply let
+     * one person sign twice.</p>
      */
     @PostMapping("/{id}/countersign")
-    @PreAuthorize("hasAuthority('" + AuthoritiesConstants.DOCTOR + "')")
+    @PreAuthorize("hasAnyAuthority('" + AuthoritiesConstants.DOCTOR + "', '" + AuthoritiesConstants.NURSE + "')")
     public ResponseEntity<CareDelegation> countersign(@PathVariable("id") String id) {
         log.debug("REST request to countersign CareDelegation : {}", id);
         return ResponseEntity.ok(careDelegationService.countersign(id, professionalId()));
