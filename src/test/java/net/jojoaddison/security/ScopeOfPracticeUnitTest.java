@@ -147,6 +147,29 @@ class ScopeOfPracticeUnitTest {
     }
 
     @Test
+    void aLaboratoryTechnicianKeepsTheNarrowestRowInTheTable() {
+        // Reviewed and CONFIRMED 2026-08-25: a technician here is a laboratory technician, so the row is right --
+        // which it had not been shown to be before, since its reasoning was borrowed from a chemist/technician pair
+        // that turned out not to exist. The grants did not move; what changed is that they are now argued for.
+        //
+        // The assay result is the observation, and a sample must be matched to its patient. Everything else is
+        // refused because running a test does not require knowing what the patient is being treated for.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.IDENTITY)).isTrue();
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
+        for (ClinicalDomain domain : java.util.EnumSet.of(
+            ClinicalDomain.DIAGNOSIS,
+            ClinicalDomain.MEDICATION,
+            ClinicalDomain.CARE_PLAN,
+            ClinicalDomain.ENCOUNTER
+        )) {
+            assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), domain))
+                .as("%s became readable for a laboratory technician -- that needs an argument, not a widening", domain)
+                .isFalse();
+        }
+    }
+
+    @Test
     void aLabRoleCannotReadWhatThePatientIsBeingTreatedFor() {
         // A technician runs a test. Being able to read the diagnosis alongside it is a disclosure nobody would
         // notice, which is the direction this table is meant to fail in. Chemist used to be asserted here too, and
