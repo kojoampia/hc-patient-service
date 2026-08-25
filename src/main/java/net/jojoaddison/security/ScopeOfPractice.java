@@ -139,23 +139,32 @@ public final class ScopeOfPractice {
             EnumSet.of(ClinicalDomain.CARE_PLAN, ClinicalDomain.ENCOUNTER)
         );
 
-        // A technician runs and records tests. They produce observations; they do not interpret them, and they have
-        // no reason to read what the patient is being treated for.
+        // A LABORATORY technician: receives samples, runs the assay, records the number. Confirmed 2026-08-25,
+        // and the confirmation is what makes this row's reasoning its own for the first time.
         //
-        // READ THAT SENTENCE AS WITHDRAWN, not as this row's justification. It was written about a pair — "a
-        // chemist and a technician run and record tests" — and both roles shared the same two permission sets in
-        // this file. On 2026-08-24 the chemist turned out never to have been a laboratory role at all, the sets
-        // were split, and the sentence stayed here by default. Nobody has argued for this row on its own.
+        // It used to share both its sentence and its literal permission sets with the chemist — "a chemist and a
+        // technician run and record tests", as labReads and labWrites. When the chemist turned out never to have
+        // been a laboratory role at all, that argument was withdrawn and this row was left standing on a premise
+        // half of which was false. It happens to have been standing in the right place.
         //
-        // That leaves the tightest row in the table resting on a premise half of which was false, and makes the
-        // technician the only role that cannot read what the patient is being treated for — a distinction acquired
-        // as a side effect of correcting a different row rather than by any decision about this one.
+        // Why the grants are what they are, argued for a laboratory technician alone rather than for a pair:
         //
-        // Do not read the narrowness as caution. It might be right, and it might also be a role that draws blood
-        // without being able to see that the patient is anticoagulated. The question that settles it is
-        // definitional and not clinical, exactly as it was for the chemist: what a "technician" does here. See
-        // docs/scope-of-practice-review.md, addendum. Unchanged until that is answered, because guessing the
-        // direction is what produced the chemist defect.
+        //   OBSERVATION read+write   the assay result IS the observation. This is the whole job.
+        //   IDENTITY read            a sample has to be matched to the patient it came from, and a lab that cannot
+        //                            do that is the one failure mode worse than a wrong result.
+        //   DIAGNOSIS refused        running an assay does not require knowing what the patient is being treated
+        //                            for. The original sentence was right about this even though it was written
+        //                            about the wrong pair: reading the diagnosis alongside a test result is the
+        //                            disclosure nobody would ever notice.
+        //   MEDICATION refused       arguable and deliberately refused. Some drugs interfere with some assays, but
+        //                            that arrives on the request form, from the clinician who ordered it — it is
+        //                            not a reason to open the medication record to the laboratory.
+        //   CARE_PLAN, ENCOUNTER     no bearing on running a test.
+        //
+        // ONE RESIDUAL QUESTION, narrow and worth asking if this is ever revisited: if technicians here also COLLECT
+        // samples rather than only receiving them, the phlebotomy argument applies and MEDICATION reads become a
+        // safety matter — an anticoagulated patient bleeds differently, and latex allergy lives in that domain.
+        // Refused here on the reading that a laboratory technician works from samples that arrive.
         grant(
             AuthoritiesConstants.TECHNICIAN,
             EnumSet.of(ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),

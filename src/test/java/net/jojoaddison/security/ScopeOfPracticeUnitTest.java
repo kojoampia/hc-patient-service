@@ -147,11 +147,13 @@ class ScopeOfPracticeUnitTest {
     }
 
     @Test
-    void theTechnicianRowIsUnreviewedAndPinnedUntilItIs() {
-        // Not an endorsement of these grants -- a record that they are unexamined. The technician's stated
-        // reasoning was written about a chemist/technician pair that turned out not to exist, so this row is the
-        // tightest in the table on a premise half of which was false. Pinned so that changing it is a decision
-        // following the addendum in docs/scope-of-practice-review.md, rather than a drift or a symmetry argument.
+    void aLaboratoryTechnicianKeepsTheNarrowestRowInTheTable() {
+        // Reviewed and CONFIRMED 2026-08-25: a technician here is a laboratory technician, so the row is right --
+        // which it had not been shown to be before, since its reasoning was borrowed from a chemist/technician pair
+        // that turned out not to exist. The grants did not move; what changed is that they are now argued for.
+        //
+        // The assay result is the observation, and a sample must be matched to its patient. Everything else is
+        // refused because running a test does not require knowing what the patient is being treated for.
         assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
         assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.IDENTITY)).isTrue();
         assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
@@ -162,7 +164,7 @@ class ScopeOfPracticeUnitTest {
             ClinicalDomain.ENCOUNTER
         )) {
             assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), domain))
-                .as("%s became readable for a technician -- answer the addendum first", domain)
+                .as("%s became readable for a laboratory technician -- that needs an argument, not a widening", domain)
                 .isFalse();
         }
     }
