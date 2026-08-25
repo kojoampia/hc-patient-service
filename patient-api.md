@@ -496,6 +496,53 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 - `[ ]` Remove or ignore the gitignored stale `bin/` copy of the project so it stops appearing in searches and IDE indexes.
 - `[ ]` Revisit the `api-docs` profile gate: OpenAPI is disabled unless that profile is active, which means no schema is published in normal dev runs.
 
+## Deletion requests — 2026-08-25
+
+`DeletionRequest`, `PatientErasureService`, `/api/deletion-requests`. Built because Google Play
+requires an app that lets people create accounts to offer account deletion from inside the app, and
+`hc-patient-app` added registration on 2026-08-23.
+
+It is the thing `ProfileResource.delete`'s comment has been pointing at since patient data became
+undeletable: **a patient raises a request, an administrator carries out the erasure.** Nothing a
+patient-facing client can call deletes anything.
+
+- `POST /api/deletion-requests` — the patient's own, scoped from their token. Refused for a care
+  angel acting via `X-Acting-As` (a delegation is not a mandate to end the record), for an
+  unrestricted caller with a patient open (an administrator must not be able to manufacture the
+  patient's consent), and for an account with no profile. One `PENDING` per patient.
+- `GET /api/deletion-requests/mine` — `204` when there is none, deliberately: having no pending
+  deletion is the ordinary state of every account and must not travel as an error.
+- `POST /api/deletion-requests/{id}/cancel` — the patient's, while pending. What makes the fourteen
+  days a cooling-off period rather than only a deadline.
+- `GET /api/deletion-requests`, `POST …/{id}/complete`, `POST …/{id}/reject` — `ROLE_ADMIN` only.
+
+`DeletionRequestService.WINDOW` is fourteen days and `dueAt` is **stored, never recomputed** — the
+published policy promises a patient a date, and a date derived at read time from a constant would
+move if the constant did. Changing the window is a four-place change: that constant, the policy text
+at `abofonsa.com/privacy`, and both clients' i18n bundles.
+
+`PatientErasureService` deletes across the sixteen `patient_id` collections and the GridFS bucket,
+plus any delegation this person held over _another_ patient (keyed by `angel_email`, so the
+by-patient sweep cannot see it). It is **not atomic** — Mongo transactions need a replica set — so
+the request is marked `COMPLETED` only after the erasure returns, and every delete is keyed on
+`patientId` alone so re-running removes what the first run did not and nothing else. A half-finished
+erasure is a job still on the queue.
+
+`PatientErasureServiceIT.everyPatientScopedCollectionIsInTheList` asserts `PATIENT_SCOPED` against
+the domain package by reflection. That is the test that matters: a seventeenth patient-scoped
+collection added later and not added there breaks nothing, reports success, and leaves a patient who
+was told they were forgotten not forgotten.
+
+- `[x]` Entity, service, resource, 28 integration tests.
+- `[ ]` **The gateway account is not closed by `complete`.** This service runs `skipUserManagement`
+  and holds no `User`; the login, password and authorities are the gateway's. Today that is a second
+  manual step against `hc-patient-gateway`'s `/api/admin/users/{login}`, and until it is done the
+  person can still sign in — they resolve to no patient and see an empty portal, which is correct but
+  is not the same thing as being gone. Worth automating, and it needs a decision about how this
+  service is permitted to call the gateway.
+- `[ ]` No notification. A patient is told the date on screen and then hears nothing; an
+  administrator sees the queue only by opening it. Both want mail.
+
 ## Working agreement for items above
 
 - Every new entity ships as a full slice: `.jhipster` config, document, repository, resource, `*ResourceIT` with the complete CRUD/validation matrix from `.github/instructions/backend-tests.instructions.md`.
