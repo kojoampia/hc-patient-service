@@ -11,10 +11,12 @@ import java.util.stream.Collectors;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.domain.CareDelegation;
+import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.DelegationStatus;
 import net.jojoaddison.repository.AllergyRepository;
 import net.jojoaddison.repository.CareDelegationRepository;
+import net.jojoaddison.repository.PaymentOptionRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +52,9 @@ class PatientErasureServiceIT {
     private ProfileRepository profileRepository;
 
     @Autowired
+    private PaymentOptionRepository paymentOptionRepository;
+
+    @Autowired
     private AllergyRepository allergyRepository;
 
     @Autowired
@@ -80,9 +85,29 @@ class PatientErasureServiceIT {
         assertThat(listed)
             .as(
                 "PatientErasureService.PATIENT_SCOPED must name every @Document with a patient_id field. " +
-                "Add the new collection to it, or a patient told they were erased will not have been."
+                "Add the new collection to it, or a patient told they were erased will not have been. " +
+                "NOTE this guard sees only patient_id -- PaymentOption stores the same value under user_id and " +
+                "was missed for exactly that reason; see aPaymentOptionIsErasedEvenThoughItKeysOnUserId."
             )
             .isEqualTo(patientScopedInDomain);
+    }
+
+    @Test
+    void aPaymentOptionIsErasedEvenThoughItKeysOnUserId() {
+        // The gap the guard above cannot see. PaymentOption is patient data -- it is DELETE-locked like the rest and
+        // ClinicalDomain counts it as IDENTITY -- but its field is user_id, not patient_id, so a scan for patient_id
+        // will never name it. The value is the same: PaymentOptionResource sets it from requirePatientIdForWrite.
+        //
+        // Without this, a patient's payment details outlived the erasure they asked for, which is the one failure
+        // this whole feature exists to prevent.
+        PaymentOption mine = paymentOptionRepository.save(new PaymentOption().type("card").userID(PATIENT_ID));
+        PaymentOption theirs = paymentOptionRepository.save(new PaymentOption().type("card").userID(OTHER_PATIENT_ID));
+
+        Map<String, Long> counts = patientErasureService.erase(PATIENT_ID, PATIENT_EMAIL);
+
+        assertThat(paymentOptionRepository.findById(mine.getId())).as("the erased patient's payment details").isEmpty();
+        assertThat(counts).containsEntry("payment_option", 1L);
+        assertThat(paymentOptionRepository.findById(theirs.getId())).as("somebody else's are untouched").isPresent();
     }
 
     @Test

@@ -498,6 +498,18 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 
 ## Deletion requests — 2026-08-25
 
+> **One gap found before this merged: payment details survived erasure.** `PaymentOption` is patient data — it is
+> DELETE-locked like the rest and `ClinicalDomain` counts it as `IDENTITY` — but it stores the patientId under
+> `user_id` rather than `patient_id`, so the erasure loop could not see it. `PaymentOptionResource` sets that field
+> from `requirePatientIdForWrite`, so it is the same value wearing another name.
+>
+> **The existing guard could not have caught it.** `everyPatientScopedCollectionIsInTheList` scans the domain for
+> `patient_id` and asserts the list matches — which is a good test and blind to precisely this case. Found by
+> comparing the erasure list against the sixteen resources the DELETE lockdown covers, and now pinned by
+> `aPaymentOptionIsErasedEvenThoughItKeysOnUserId`.
+>
+> `Metadata` was checked at the same time and is genuinely not patient-scoped: it has no patient link at all.
+
 `DeletionRequest`, `PatientErasureService`, `/api/deletion-requests`. Built because Google Play
 requires an app that lets people create accounts to offer account deletion from inside the app, and
 `hc-patient-app` added registration on 2026-08-23.

@@ -15,6 +15,7 @@ import net.jojoaddison.domain.Condition;
 import net.jojoaddison.domain.Emergency;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.domain.Membership;
+import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.domain.PersonalDocument;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.Report;
@@ -140,6 +141,24 @@ public class PatientErasureService {
             long removed = mongoTemplate.remove(byPatient, type).getDeletedCount();
             counts.put(mongoTemplate.getCollectionName(type), removed);
         }
+
+        // PaymentOption is patient data and is NOT in the list above, because it does not key on patient_id: its
+        // field is user_id. The value is the same -- PaymentOptionResource sets it from
+        // patientScope.requirePatientIdForWrite -- so it is the patientId wearing another name, and the loop above
+        // simply cannot see it.
+        //
+        // Missing this meant a patient's payment details outliving the erasure they asked for, which is precisely
+        // the failure this whole feature exists to prevent. Found by comparing this list against the sixteen
+        // resources the DELETE lockdown covers rather than by anything failing.
+        //
+        // Handled separately rather than by teaching PATIENT_SCOPED about field names, because a list of types that
+        // all key the same way is readable at a glance and a list of type-plus-field pairs is not -- and the value
+        // of that list is that an omission is visible when reading it.
+        Query byUserId = Query.query(Criteria.where("user_id").is(patientId));
+        counts.put(
+            mongoTemplate.getCollectionName(PaymentOption.class),
+            mongoTemplate.remove(byUserId, PaymentOption.class).getDeletedCount()
+        );
 
         // This person may also have been acting for somebody ELSE. Those rows are keyed by angel_email, not by
         // patient_id, so the loop above cannot see them — and leaving them would mean a deleted account still holding
