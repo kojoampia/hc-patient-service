@@ -147,6 +147,27 @@ class ScopeOfPracticeUnitTest {
     }
 
     @Test
+    void theTechnicianRowIsUnreviewedAndPinnedUntilItIs() {
+        // Not an endorsement of these grants -- a record that they are unexamined. The technician's stated
+        // reasoning was written about a chemist/technician pair that turned out not to exist, so this row is the
+        // tightest in the table on a premise half of which was false. Pinned so that changing it is a decision
+        // following the addendum in docs/scope-of-practice-review.md, rather than a drift or a symmetry argument.
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
+        assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.IDENTITY)).isTrue();
+        assertThat(ScopeOfPractice.canWrite(of(AuthoritiesConstants.TECHNICIAN), ClinicalDomain.OBSERVATION)).isTrue();
+        for (ClinicalDomain domain : java.util.EnumSet.of(
+            ClinicalDomain.DIAGNOSIS,
+            ClinicalDomain.MEDICATION,
+            ClinicalDomain.CARE_PLAN,
+            ClinicalDomain.ENCOUNTER
+        )) {
+            assertThat(ScopeOfPractice.canRead(of(AuthoritiesConstants.TECHNICIAN), domain))
+                .as("%s became readable for a technician -- answer the addendum first", domain)
+                .isFalse();
+        }
+    }
+
+    @Test
     void aLabRoleCannotReadWhatThePatientIsBeingTreatedFor() {
         // A technician runs a test. Being able to read the diagnosis alongside it is a disclosure nobody would
         // notice, which is the direction this table is meant to fail in. Chemist used to be asserted here too, and

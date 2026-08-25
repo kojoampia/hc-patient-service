@@ -141,6 +141,21 @@ public final class ScopeOfPractice {
 
         // A technician runs and records tests. They produce observations; they do not interpret them, and they have
         // no reason to read what the patient is being treated for.
+        //
+        // READ THAT SENTENCE AS WITHDRAWN, not as this row's justification. It was written about a pair — "a
+        // chemist and a technician run and record tests" — and both roles shared the same two permission sets in
+        // this file. On 2026-08-24 the chemist turned out never to have been a laboratory role at all, the sets
+        // were split, and the sentence stayed here by default. Nobody has argued for this row on its own.
+        //
+        // That leaves the tightest row in the table resting on a premise half of which was false, and makes the
+        // technician the only role that cannot read what the patient is being treated for — a distinction acquired
+        // as a side effect of correcting a different row rather than by any decision about this one.
+        //
+        // Do not read the narrowness as caution. It might be right, and it might also be a role that draws blood
+        // without being able to see that the patient is anticoagulated. The question that settles it is
+        // definitional and not clinical, exactly as it was for the chemist: what a "technician" does here. See
+        // docs/scope-of-practice-review.md, addendum. Unchanged until that is answered, because guessing the
+        // direction is what produced the chemist defect.
         grant(
             AuthoritiesConstants.TECHNICIAN,
             EnumSet.of(ClinicalDomain.OBSERVATION, ClinicalDomain.IDENTITY),
