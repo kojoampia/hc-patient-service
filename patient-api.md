@@ -21,8 +21,31 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
   given at scene (no). Correcting it is a two-line change in one file, deliberately.
 - [ ] **Reads are not filtered.** `canRead`/`requireRead` exist and are tested; nothing calls them, so
       today the table restricts writing only.
-- [ ] `RecommendationResource` is not wired — it has no `patientId` and no `PatientScope`, being
-      reference data joined to a case rather than a patient record.
+- [x] **`RecommendationResource` stays unscoped, and that was the right answer — settled 2026-08-31.**
+      It has no `patientId` and no `PatientScope` because it is a catalogue: measured on quality, 39
+      rows of the shape `{label: "HbA1c blood test", category: "diagnostic"}`, shared across every
+      patient. Its two GETs carry no `@PreAuthorize` either, which matches `Team`, `Professional` and
+      `DutyRoster` exactly. Scoping it would have been wrong — a patient reading a list of test names
+      learns nothing about anybody.
+
+      **But the entity carried a disclosure channel, and closing it is what this item became.**
+      `Recommendation.clinicalCases` is the inverse side of the many-to-many, populated by nothing in
+      this service — and a `ClinicalCase` carries `patientId`, a title and clinical notes. On an
+      endpoint any authenticated caller may read. There is a live write path: `POST`/`PUT` here take
+      a whole `Recommendation` body and a clinical caller controls it, so the day anything sets that
+      field, `GET /api/recommendations` starts handing every patient a list of other patients' cases.
+
+      **`@JsonIgnoreProperties(value = { "recommendations" })` was not a control and reads like one.**
+      It suppresses the nested `recommendations` field on each case — it is there to break the
+      serialization cycle — and leaves the `ClinicalCase` objects themselves fully in the response.
+      Now `@JsonIgnore`, in both directions. Nothing is lost: the relationship is navigable from the
+      case, which is where a caller allowed to see it already is, and every client reads the owning
+      side (`case.recommendations`) — the portal's case detail and the generated case form both do.
+
+      `RecommendationDisclosureIT` **populates the inverse side deliberately** and then asserts the
+      field is absent. That matters more than the assertion: against the seeded data the test passes
+      whatever the annotation says, because every `clinicalCases` array is empty. A control and an
+      empty collection look identical until you write something into it.
 
 The request was to _port_ hc-professional's gateway authority rules. **There were none to port.** That
 gateway defines the nine roles and seeds them as Authority documents, and nothing anywhere enforces
