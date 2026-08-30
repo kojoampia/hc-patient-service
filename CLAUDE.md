@@ -188,9 +188,13 @@ Built 2026-08-19. `docs/onboarding.md` is the plan of record and §16 is the con
   delegation, never `Profile.careAngelEmail`, which is a display cache — reading the cache would keep granting access
   after a revocation. Which patient an angel acts for arrives in an `X-Acting-As` header, re-checked per request.
 - **Patient data is never deleted.** Sixteen resources require `ROLE_ADMIN` for `DELETE`. Archiving — the
-  professional-only replacement — **exists for `ClinicalCase` since 2026-08-22** and for nothing else yet:
-  `POST /api/clinical-cases/{id}/archive` and `/unarchive`, a reason required, and a **clinical** authority —
-  `ROLE_DOCTOR` alone (2026-08-24). `ROLE_ADMIN` is excluded on
+  professional-only replacement — reached `ClinicalCase` on 2026-08-22 and **the other ten `ClinicalDomain`-mapped
+  resources on 2026-08-24** (`87a63a3`): `POST /api/{resource}/{id}/archive` and `/unarchive`, a reason required,
+  and a **clinical** authority. This entry said "for nothing else yet" until 2026-08-30; eleven resources have it.
+  The behaviour lives once in `ArchiveSupport` behind an `Archivable` interface rather than in ten copies of the
+  same forty lines, and the required authority is **derived from each entity's `ClinicalDomain`** rather than named
+  per resource — so a new archivable entity gets the right authority by declaring its domain, and cannot get a
+  different one by being written carelessly. For `ClinicalCase` that derives `ROLE_DOCTOR`. `ROLE_ADMIN` is excluded on
   purpose, which is why this is `@PreAuthorize` and not `requireWrite(DIAGNOSIS)` — `PatientScope` returns true for
   an admin before it consults `ScopeOfPractice`. It is a
   transition endpoint rather than a `PATCH` for the reason `CareDelegation` has none — a `PATCH` over `archivedAt`

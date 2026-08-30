@@ -19,8 +19,12 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
   be wrong, flagged rather than buried: whether a carer may read the diagnosis (currently no),
   whether a therapist may write observations (no), whether a paramedic should write medications
   given at scene (no). Correcting it is a two-line change in one file, deliberately.
-- [ ] **Reads are not filtered.** `canRead`/`requireRead` exist and are tested; nothing calls them, so
-      today the table restricts writing only.
+- [x] **Reads are filtered — done 2026-08-24, `ec9886f`.** `requireRead` guards all **23** GET
+      endpoints across the eleven scoped resources, each on the domain that resource already used for
+      writes and in the same position, so the two read alike. Re-counted 2026-08-30: 23 GETs, 23
+      guards, no resource holding one without the other. **This box stayed open for six days after the
+      work landed**, next to a paragraph in this same file describing `ScopeOfPracticeReadsIT` passing
+      — the entry and its own evidence disagreeing, one screen apart.
 - [ ] `RecommendationResource` is not wired — it has no `patientId` and no `PatientScope`, being
       reference data joined to a case rather than a patient record.
 
@@ -105,15 +109,25 @@ each changes what the code should say and none of them is in it yet.
       `ScopeOfPracticeReadsIT` asserts the endpoints rather than the table — a test saying "a
       pharmacist cannot read DIAGNOSIS" against `ScopeOfPractice` restates the table in more words,
       while one saying `GET /api/clinical-cases` returns 403 is the thing that would have failed
-      before. 559 ITs green. **Archiving is still outstanding**, and is the second half below.
+      before. 559 ITs green. Archiving followed the same day and is the second half below.
 
-- [ ] ~~**Reads get filtered before archiving is extended**~~, and both are ahead of the rest of this
-      backlog. They are the two cross-cutting authorization items here rather than features. Reads
-      first because it is the disclosure risk: `canRead`/`requireRead` exist and are tested and
-      **nothing calls them**, so the scope-of-practice model is enforced on writes only and a
-      pharmacist can read a diagnosis today. Archiving second because it is a usability gap rather than
-      an exposure — the DELETE lockdown covers sixteen resources and archiving replaces the delete for
-      exactly one. Two PRs, reads then archiving.
+- [x] ~~**Reads get filtered before archiving is extended**~~ — **both done 2026-08-24**, in that
+      order, as two PRs: `ec9886f` then `87a63a3`. They were the two cross-cutting authorization items
+      here rather than features. Reads first because it was the disclosure risk — `canRead`/
+      `requireRead` were written on 2026-08-22, unit tested, and called by nothing, so a pharmacist
+      who may write medications and nothing else could read every diagnosis in the database. The
+      builds were green throughout, because the unit tests exercise the _table_ rather than the
+      _endpoints_: the model was correct and simply unasked.
+
+      **That is the failure mode to carry forward.** A security control with passing tests and no call
+      site is worse than an absent one, because the tests report it working. What closed the gap was
+      not more table tests but `ScopeOfPracticeReadsIT`, which asserts a 403 from a URL.
+
+      Archiving second because it was a usability gap rather than an exposure: the DELETE lockdown
+      covers sixteen resources and archiving replaced the delete for exactly one. Ten more got it in
+      `87a63a3` — every resource that maps to a `ClinicalDomain` — behind one `ArchiveSupport` and an
+      `Archivable` interface rather than ten copies of the same forty lines, and with the authority
+      *derived* from each entity's domain rather than named per resource.
 
 ### `ROLE_PROFESSIONAL` removed from the platform (2026-08-24)
 
@@ -382,8 +396,25 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
   free-text `recommendations` string into `Recommendation` documents plus `@DBRef`s, and drop
   `closeDate`/`category`/audit fields. `openedAt` can come from `open_date`, and `brief` has no
   source at all. If the deployed database has no `med_case` documents worth keeping — check before
-  assuming — dropping the collection is the cheaper answer. This service still has no migration
-  framework (Phase B tracks that).
+  assuming — dropping the collection is the cheaper answer. ~~This service still has no migration
+  framework (Phase B tracks that).~~ **It has Mongock; see Phase B, corrected 2026-08-30.**
+
+  **Checked, half of it: quality has no `med_case` collection.** Its 22 collections are the current
+  model plus `mongockChangeLog`/`mongockLock`, so there is nothing there to migrate and the "cheaper
+  answer" applies. `grep` also finds no `med_case` or `MedCase` anywhere in `src/`, so the _code_ has
+  no residue either.
+
+  `[ ]` **Production is still unchecked** and is the only reading that decides this. Blocked here
+  rather than skipped — the command is available to anyone with ssh:
+
+  ```bash
+  ssh webserver 'docker exec hc-patient-mongodb mongosh --quiet \
+    --eval "db.getSiblingDB(\"hcPatientService\").getCollectionNames().sort()"'
+  ```
+
+  Expect no `med_case`. If that holds, this entry closes as a drop rather than a migration, and the
+  four hard mapping decisions above never have to be made.
+
 - `[ ]` Decide whether `Stat` is the home for vitals or whether `VitalStatistic` (Phase C) supersedes it — do this before adding more fields to either.
 
 ### `Profile` vs the blueprint spec
@@ -452,7 +483,7 @@ Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscri
 - `[ ]` Consume the `SubscriptionPlanCreated` Kafka event emitted by `hc-admin-ms` and project it into `SubscriptionPlan`. Requires a real topic/binding — today the only configured binding is the generated `sse-topic`. Agree the topic name, payload schema, and idempotency rules with the admin service first.
 - `[ ]` `PatientSubscription` document mapping a `Profile` to its active plan (effective dates, status).
 - `[ ]` Seed the default plans — blocked on decision 1.
-- `[ ]` Introduce a migration mechanism. This service has none (the gateway uses Mongock); pick Mongock or a documented startup seeder before writing seed logic.
+- `[x]` ~~Introduce a migration mechanism.~~ **This service has had one all along — corrected 2026-08-30.** Mongock 5.5.1 is in `pom.xml`, `mongock:` is configured in `application.yml`, and `config/dbmigrations/AddressAsDocumentMigration` is a real `@ChangeUnit` that has run: `mongockChangeLog` and `mongockLock` are both present in the quality database. That migration's own javadoc says it plainly — _"Mongock has been a dependency and `migration-scan-package` has pointed here all along; the package simply had nothing in it."_ An empty package is not an absent mechanism, and this entry read the empty package.
 - `[ ]` REST surface for plan lookup and subscribe/change-plan, following the resource conventions in `.github/instructions/rest-patterns.instructions.md`.
 - `[x]` ~~A unified onboarding endpoint~~ — built 2026-08-19, but **not** as one call. Five named
   endpoints with a DTO each, because the steps carry genuinely different payloads and one handler
@@ -488,7 +519,7 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
   `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` the other was not. `deploy/prod-server/observability/hc-patient-rules.yaml`
   already alerts on the 401 pattern that produces, and says to compare the variable across both containers first.
 
-- `[ ]` Paginate the generated `getAll*` endpoints that can grow unbounded (`Stat`, `Report`, `ClinicalCase`, `Metadata` first) — they currently return unpaged `List<Entity>`.
+- `[~]` Paginate the generated `getAll*` endpoints that can grow unbounded. **Half done, and the half that is left is the wrong half — measured 2026-08-30.** `Report` and `ClinicalCase` take a `Pageable` and go through `findScopedPage`; **`Stat` and `Metadata` do neither** and still return an unpaged `List<Entity>`. `Stat` is the one that matters: it is where vital-sign readings land, so it is the collection in this service with no natural ceiling at all, and it is the one still unbounded. Pagination arrived alongside scoping rather than as its own pass, which is why it followed the resources that needed scoping rather than the ones that grow.
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
 - `[ ]` Decide on caching: `cacheProvider` is `"no"`; if read load justifies it, add Spring Cache deliberately rather than per-service ad hoc.
 - `[ ]` Rate limiting / abuse monitoring is not implemented in this service. Decide whether it belongs here or at the gateway.
