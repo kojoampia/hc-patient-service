@@ -503,12 +503,35 @@ for the people the portal is for.
 
 Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscription`, or related repository/resource in any repo.
 
-- `[ ]` `SubscriptionPlan` document (`name` ∈ {Pear, Melon, Pawpaw}, `monthlyPrice`, `weeklyVisits`, `includedServices`).
-- `[ ]` Consume the `SubscriptionPlanCreated` Kafka event emitted by `hc-admin-ms` and project it into `SubscriptionPlan`. Requires a real topic/binding — today the only configured binding is the generated `sse-topic`. Agree the topic name, payload schema, and idempotency rules with the admin service first.
-- `[ ]` `PatientSubscription` document mapping a `Profile` to its active plan (effective dates, status).
-- `[ ]` Seed the default plans — blocked on decision 1.
-- `[ ]` Introduce a migration mechanism. This service has none (the gateway uses Mongock); pick Mongock or a documented startup seeder before writing seed logic.
-- `[ ]` REST surface for plan lookup and subscribe/change-plan, following the resource conventions in `.github/instructions/rest-patterns.instructions.md`.
+> **Re-examined 2026-08-31, and the premise has partly lapsed. Read this before building any of it.**
+>
+> This phase was written when nobody owned pricing. Two things have happened since. **The 2026-08-19 onboarding
+> decision put plan selection outside this service on purpose** — it is "a portal surface fed by Abofonsa, so a
+> patient is never blocked mid-onboarding by another product being down" (`docs/onboarding.md` §16). And the
+> portal now does exactly that: `GET /api/plans` is proxied by the gateway to Abofonsa's
+> `/api/v1/content/plans`, which answers today with PEAR 3,000 GHS, PAWPAW 5,000 and MELON 8,000, each
+> carrying its own `priceNote`.
+>
+> So **a `SubscriptionPlan` document here would be a second source of plan data, duplicating the product that
+> authors it** — and the failure mode of two catalogues is the one this subsystem has met repeatedly: they
+> agree until they quietly do not, and nothing fails when they stop. The Kafka projection from `hc-admin-ms`
+> would be the mechanism that keeps the copy in step, which is a lot of moving parts to hold a copy nobody
+> asked for.
+>
+> **What survives the re-examination is `PatientSubscription`** — _which_ plan a patient is on, with effective
+> dates and status. That is patient data, this service owns patient data, and today it is a bare `String` on
+> `Profile.membership` alongside `contacts` and `team`. If any of this is built, build that.
+>
+> The three items below marked `[~]` are the ones whose premise is in question. They are not struck through,
+> because "Abofonsa owns the catalogue" is itself a decision somebody should confirm rather than inherit from
+> a proxy route.
+
+- `[~]` `SubscriptionPlan` document (`name` ∈ {Pear, Melon, Pawpaw}, `monthlyPrice`, `weeklyVisits`, `includedServices`). **Premise in question** — Abofonsa serves this catalogue today and the portal reads it. Confirm a second copy is wanted before writing one.
+- `[~]` Consume the `SubscriptionPlanCreated` Kafka event emitted by `hc-admin-ms` and project it into `SubscriptionPlan`. **Falls with the item above** — this is the machinery that would keep a duplicate catalogue in step, so it is only worth agreeing a topic name, payload schema and idempotency rules if the duplicate is wanted. Note the binding does not exist: `patient-events` is configured, `sse-topic` is the generated leftover.
+- `[ ]` `PatientSubscription` document mapping a `Profile` to its active plan (effective dates, status). **This is the item that survives the re-examination above** — which plan a patient is on is patient data, and it is currently a bare `String` on `Profile.membership`. It can reference Abofonsa's plan `code` (`PEAR`/`PAWPAW`/`MELON`) without this service storing the catalogue.
+- `[~]` Seed the default plans — blocked on decision 1, **and on whether this service should hold plans at all**. If Abofonsa remains the catalogue, there is nothing here to seed.
+- `[x]` ~~Introduce a migration mechanism.~~ **This service has had Mongock all along** — 5.5.1 in `pom.xml`, `mongock:` configured, `AddressAsDocumentMigration` a real `@ChangeUnit` that has run. Corrected 2026-08-31; this was the _second_ copy of that claim in this file, and the first was corrected earlier the same day. Two copies of a wrong fact are how it survives being fixed once.
+- `[ ]` REST surface for **subscribe/change-plan**, following the resource conventions in `.github/instructions/rest-patterns.instructions.md`. Plan _lookup_ is struck: the gateway already proxies `/api/plans` to Abofonsa and the portal already reads it, so a lookup endpoint here would answer a question already answered one hop away.
 - `[x]` ~~A unified onboarding endpoint~~ — built 2026-08-19, but **not** as one call. Five named
   endpoints with a DTO each, because the steps carry genuinely different payloads and one handler
   taking five shapes could only be typed as a map. There is no transaction to make a single call
