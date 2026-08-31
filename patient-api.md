@@ -232,7 +232,9 @@ unwired**; a case retired there is still in every other clinician's queue and re
 - [x] `ProfileSearch.escape`. The term is interpolated into a `$regex`, which makes it code rather
       than data: unescaped, `.*` returns the whole directory, `(a+)+$` backtracks exponentially over
       every profile, and `(024) 555` — how people write phone numbers — arrives as a syntax error.
-- [ ] No index. A regex scan is fine at the current size and will not stay fine; a text index or a
+- [ ] **No index, and it is not one line.** A regex scan is fine at the current size and will not stay fine — but `GET /api/profiles?search=` does **case-insensitive substring** matching across six fields, and a leading-wildcard regex cannot use a btree index at all. Adding one changes nothing.
+
+      So the decision is what the search *means*: a text index or a prefix-anchored regex would make it indexable and would stop "ojo" matching "kojo", which is what an administrator typing a fragment of a name expects today. That is a product change wearing an index's clothes, and it should be taken as one.
       normalised search field is the next step if the directory keeps growing.
 
 ### Patient onboarding, care delegation and the first domain events (2026-08-19)
@@ -310,7 +312,8 @@ Open, and deliberately left so:
       holds every other cross-entity reference as a bare String id. The field carries a comment
       saying it must be re-added by hand; if the domain ever grows a second such field, revisit this
       rather than repeat it.
-- [ ] **Two demo fields are not seeded.** A patient's `lastActivityAt` (`ActivityLog` is the real
+- [ ] **Two demo fields are not seeded** — confirmed still true 2026-08-31: `db.profile.findOne({_id:"patient-kojo"}).last_activity_at` is undefined. A patient's `lastActivityAt` (`ActivityLog` is the real source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
+      case with no `caseNumber` in the file is stored without one.
       source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
       case with no `caseNumber` in the file is stored without one.
 
@@ -435,9 +438,16 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 
 The blueprint asked for first/last name, mobile, email, **long-lat**, **digital address**, **street address**, **ID type ∈ {PASSPORT, GHANA_CARD}**, and ID number. The current document (`.jhipster/Profile.json`) has `firstName`, `middleNames`, `lastName`, `membership`, `birthDate`, `sex`, `mobilePhone`, `phoneNumber`, `email`, `cardType`, `cardNumber`, `contacts`, `address`, `team` — all `String` except `birthDate`, and no relationships.
 
-- `[ ]` Model identification properly: `cardType` is a free-text `String`, not an enum. If `{PASSPORT, GHANA_CARD}` is the real domain, add a `domain/enumeration` type (the pattern already exists for `CaseCategory`/`CaseStatus`) and migrate existing values.
-- `[ ]` Decide the address shape: one `address` string today versus the blueprint's separate street address, digital address (e.g. Ghana Post GPS), and long-lat. Geo coordinates in particular need a real field type if they are ever queried.
-- `[ ]` Reconcile the string references (`membership`, `team`, `contacts`, `address`) with the standalone `Membership`, `Team`, and `Address` documents — decide whether these are ids, denormalized labels, or should become relationships, and write the answer down. Do this before Phase B links `PatientSubscription` to `Profile`.
+- `[ ]` **Model identification properly** — still open, and the window to do it cheaply is now. `Profile.cardType` is a free-text `String` that onboarding _requires_ (`OnboardingService:325` rejects a blank ID type), so every patient who onboards writes one.
+
+  **Nothing has written one yet.** `db.profile.distinct("card_type")` on quality returns `[]`, and the seeded profiles were written directly rather than through onboarding. So an enum could land today with no migration and no reconciliation of "Ghana Card" against "ghana card" against "National ID" — and that stops being true the first time a real patient onboards in production.
+
+  What makes it a decision rather than a typing exercise: `{PASSPORT, GHANA_CARD}` closes the set, and Ghana also issues driver's licences, voter IDs and NHIS cards. Which documents count as proof of identity is a compliance question, not a modelling one. **Whoever answers it should know the answer is free this week and not next.**
+
+- `[x]` **Address shape decided and built — 2026-08-19, ticked 2026-08-31.** `Profile.address` is an `Address` document by `@DBRef`, not a string, and `Address` carries `digitalAddress`, `streetAddress`, `areaCode`, `town`, `city`, `district`, `state`, `region` and `country` — the blueprint's separate street address, digital address, town and region, and then some. Onboarding is what forced it: a digital address, a town and a region cannot be recovered from "5 Ankobra River Street". `AddressAsDocumentMigration` moved the existing free-text values.
+- `[~]` **Reconcile the string references** — narrowed 2026-08-31. `address` is off this list: it became a real `@DBRef` on 2026-08-19. What remains is `Profile.membership`, `Profile.contacts` and `Profile.team`, still `String` while `Membership` and `Team` are standalone documents.
+
+  Worth noting the precedent the address set rather than treating these as the same question: it became a document because _onboarding needed structure inside it_. None of these three has a use that needs structure yet, and the workspace rule stands — a third relationship should be argued for rather than assumed.
 
 ## Phase E — what the portal is blocked on (2026-08-16)
 
