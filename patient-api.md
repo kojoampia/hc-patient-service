@@ -340,14 +340,46 @@ into MongoDB on startup, and the two things in it the domain could not express n
 
 Open, and deliberately left so:
 
-- [ ] **`DutyRoster.subscribedProfessionalIds` is not in `patient.jdl`.** JDL has no list-of-scalars
-      type, so regenerating that entity silently drops the field. The alternative — a `@DBRef`
-      many-to-many to `Professional` — was rejected as the second relationship in a domain that
-      holds every other cross-entity reference as a bare String id. The field carries a comment
-      saying it must be re-added by hand; if the domain ever grows a second such field, revisit this
-      rather than repeat it.
-- [ ] **Two demo fields are not seeded** — confirmed still true 2026-08-31: `db.profile.findOne({_id:"patient-kojo"}).last_activity_at` is undefined. A patient's `lastActivityAt` (`ActivityLog` is the real source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
-      case with no `caseNumber` in the file is stored without one.
+- [~] **`DutyRoster.subscribedProfessionalIds` is not in `patient.jdl`, and now fails loudly instead of
+  silently.** JDL has no list-of-scalars type, so regenerating that entity drops the field. The
+  alternative — a `@DBRef` many-to-many to `Professional` — was rejected as the third relationship in
+  a domain that holds every other cross-entity reference as a bare String id.
+
+      **A comment was the only guard until 2026-08-31, and a comment is read by somebody who already
+      suspects a problem.** Whoever regenerates the entity is by definition not that person: they run the
+      generator, the build passes, the tests pass, and the field is gone — the data goes with it on the
+      next write, because Spring Data maps what the class declares and nothing else. This workspace has
+      the precedent: a warning about a wrong deploy script outlived the script by nineteen days.
+
+      `DutyRosterRegenerationGuardTest` now pins four things, each naming the loss it prevents — the
+      field's presence and `Set<String>` type; `@Field("subscribed_professional_ids")`, without which
+      Spring Data maps the camelCase key and **every existing document reads back empty** while the
+      application reports no subscribers; the three accessors including the null-coalescing setter; and
+      the javadoc paragraph itself, so a re-add that deletes the explanation still fails.
+
+      `[ ]` What stays open is the underlying modelling question, not the loss: if the domain ever grows a
+      **second** list-of-scalars field, revisit the JDL decision rather than repeat this guard.
+
+- [ ] **"Two demo fields are not seeded" was the wrong description, corrected 2026-08-31 — `Profile`
+      declares neither field, so this is a design question rather than a seeding task.**
+
+      Measured rather than re-read: `grep` finds no `lastActivityAt`, `isChild`, `last_activity` or
+      `is_child` in `domain/Profile.java`. The only references anywhere in `src/` are a comment in
+      `DemoDataInitializer` explaining they are absent, and two lines in `DemoDataTest` exercising a
+      generic `DemoData.bool()` helper on a literal — not on a `Profile`.
+      `professional-dashboard-demo-data.json` does carry them, so the seed document holds data the
+      domain cannot receive. No client reads either field.
+
+      **The question is whether `Profile` should carry them at all, and both are the kind of field that
+      is cheap to add and expensive to keep true.** `lastActivityAt` would be a denormalised cache of
+      what `ActivityLog` owns — the same shape as `Profile.careAngelEmail`, which this service already
+      treats as a display cache that must never be read for authorization, because reading the cache
+      keeps granting access after a revocation. `isChild` is derivable from `dateOfBirth` and becomes
+      wrong on the patient's eighteenth birthday, with nothing to recompute it.
+
+      Recommended: do not add either until a screen asks for it, and when one does, prefer computing it
+      in the query over storing it. Nothing was invented to fill a gap here — a case with no
+      `caseNumber` in the file is stored without one, and the same restraint applies.
 
 ### Patient-context entities (branch `feature/patient-context-entities`, 2026-08-03)
 
@@ -445,7 +477,7 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 - `[x]` Generate `PaymentOption` from `.jhipster/PaymentOption.json`: document, repository, resource, `PaymentOptionResourceIT`. (2026-08-03)
 - `[~]` Generate `PersonalDocument` from `.jhipster/PersonalDocument.json` (same set) — generated 2026-08-03. Still open: whether document _content_ lives in Mongo or an object store. `url` is a placeholder for whichever is chosen.
 - `[x]` Refresh the stale `entities` array in `.yo-rc.json` — now lists all twenty-two entities, `DutyRoster` and `Shift` included. (2026-08-03, extended 2026-08-11)
-- `[ ]` Coordinate the rename with the dashboard: it still ships `hc-credential` and `hc-pay-option` CRUD screens. Track in `patient-web.md`.
+- `[x]` ~~Coordinate the rename with the dashboard: it still ships `hc-credential` and `hc-pay-option` CRUD screens.~~ **Done on the dashboard side, ticked here 2026-08-31.** `entities/patientMS/` holds `payment-option` and `personal-document`, both routed in `entity.routes.ts`; `grep` finds no `hc-credential`, `hc-pay-option`, `hcCredential` or `hcPayOption` anywhere under `src/main/webapp`. Closed by `web` #49 and left open here for a week — the fifth entry in this file found describing code that had already moved, which is why the check was a directory listing and a route lookup rather than a re-read of this line.
 - `[x]` **`MedCase` replaced by `ClinicalCase`** — a different entity, not a rename. The shape is the one
   the professional dashboard generates against
   (`hc-professional/web/.jhipster/ClinicalCase.json`): added `patientId`, `openedAt`, `brief`,
