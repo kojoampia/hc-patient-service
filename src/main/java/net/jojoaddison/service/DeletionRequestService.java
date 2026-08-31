@@ -2,11 +2,14 @@ package net.jojoaddison.service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import net.jojoaddison.domain.DeletionRequest;
 import net.jojoaddison.domain.enumeration.DeletionRequestStatus;
 import net.jojoaddison.repository.DeletionRequestRepository;
+import net.jojoaddison.service.event.PatientEventPublisher;
+import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -59,10 +62,16 @@ public class DeletionRequestService {
 
     private final DeletionRequestRepository deletionRequestRepository;
     private final PatientErasureService patientErasureService;
+    private final PatientEventPublisher events;
 
-    public DeletionRequestService(DeletionRequestRepository deletionRequestRepository, PatientErasureService patientErasureService) {
+    public DeletionRequestService(
+        DeletionRequestRepository deletionRequestRepository,
+        PatientErasureService patientErasureService,
+        PatientEventPublisher events
+    ) {
         this.deletionRequestRepository = deletionRequestRepository;
         this.patientErasureService = patientErasureService;
+        this.events = events;
     }
 
     /**
@@ -93,7 +102,9 @@ public class DeletionRequestService {
             .dueAt(now.plus(WINDOW));
 
         LOG.info("Deletion requested for patient {} — due by {}", patientId, request.getDueAt());
-        return deletionRequestRepository.save(request);
+        DeletionRequest saved = deletionRequestRepository.save(request);
+        announce(saved, "RAISED");
+        return saved;
     }
 
     /**
@@ -108,7 +119,9 @@ public class DeletionRequestService {
         request.setStatus(DeletionRequestStatus.CANCELLED);
         request.setCancelledAt(Instant.now());
         LOG.info("Deletion request {} withdrawn for patient {}", request.getId(), request.getPatientId());
-        return deletionRequestRepository.save(request);
+        DeletionRequest saved = deletionRequestRepository.save(request);
+        announce(saved, "CANCELLED");
+        return saved;
     }
 
     /**
@@ -133,7 +146,9 @@ public class DeletionRequestService {
         request.setCompletedByLogin(adminLogin);
         request.setErasedCounts(erased);
         LOG.info("Deletion request {} completed by {} for patient {}", request.getId(), adminLogin, request.getPatientId());
-        return deletionRequestRepository.save(request);
+        DeletionRequest saved = deletionRequestRepository.save(request);
+        announce(saved, "COMPLETED");
+        return saved;
     }
 
     /**
@@ -156,7 +171,50 @@ public class DeletionRequestService {
         request.setRejectedByLogin(adminLogin);
         request.setDecisionReason(decisionReason.trim());
         LOG.info("Deletion request {} rejected by {} for patient {}", request.getId(), adminLogin, request.getPatientId());
-        return deletionRequestRepository.save(request);
+        DeletionRequest saved = deletionRequestRepository.save(request);
+        announce(saved, "REJECTED");
+        return saved;
+    }
+
+    /**
+     * Says on {@code patient-events} that a deletion request moved, so the gateway can write to the patient.
+     *
+     * <p><b>This service can neither send mail nor close an account</b>, and both are owed. Until 2026-08-31 a
+     * patient raised a request and then heard nothing at all — not when it was carried out, not when it was
+     * refused — which for the one irreversible thing they can ask for is the worst place in the product to be
+     * silent. Same shape as {@code CareDelegationChanged}: this service knows what happened, only the gateway can
+     * tell anybody.</p>
+     *
+     * <p><b>The email is read off the request, never looked up.</b> For {@code COMPLETED} the erasure has already
+     * taken the {@code Profile}, so there is nothing left to resolve — {@code requestedByEmail} was stored at
+     * {@link #raise} precisely so this still works afterwards. Publishing before the erasure instead would have
+     * announced a completion that could still fail.</p>
+     *
+     * <p><b>What is deliberately not carried.</b> No {@code erasedCounts}: how many medications a patient had is a
+     * fact about their record, and §8.4 says an event reports that something happened, never what it said. No
+     * {@code decisionReason} either — an administrator's free text is unbounded and could hold anything, and the
+     * patient can read it on their own request through {@code GET /api/deletion-requests/mine}. The mail says a
+     * decision was made and points them at it.</p>
+     *
+     * <p>Failure posture is {@link PatientEventPublisher}'s: publishing never fails the operation. Worth restating
+     * here because this is the case where it is most tempting to "fix" into a bug — by the time this runs the
+     * erasure has happened and the request is saved. <b>The record is already gone; the event is a notification,
+     * never the mechanism.</b> A mail failure must not resurrect it.</p>
+     */
+    private void announce(DeletionRequest request, String change) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("requestId", request.getId());
+        data.put("change", change);
+        if (request.getDueAt() != null) {
+            data.put("dueAt", request.getDueAt().toString());
+        }
+        events.publish(
+            PatientEventType.DELETION_REQUEST_CHANGED,
+            request.getRequestedByEmail(),
+            request.getRequestedByLogin(),
+            request.getPatientId(),
+            data
+        );
     }
 
     /** This patient's open request, if they have one. What the clients ask on sign-in. */

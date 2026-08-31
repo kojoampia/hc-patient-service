@@ -18,10 +18,15 @@ import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
+import tech.jhipster.web.util.PaginationUtil;
 import tech.jhipster.web.util.ResponseUtil;
 
 /**
@@ -243,11 +248,30 @@ public class StatResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of stats in body.
      * @param patientId when present, restricts the result to that patient's records.
      */
+    /**
+     * A page of readings.
+     *
+     * <p><b>Paginated later than its siblings, and deliberately last.</b> {@code Stat} is the collection in this
+     * service with no natural ceiling — a patient's cases and reports are counted in dozens over years, their
+     * vital-sign readings in hundreds over months, and telemetry would make that continuous. It was also the only
+     * one still returning an unbounded {@code List}, which is the wrong way round.</p>
+     *
+     * <p>The order mattered because the clients read this. {@code PortalDataService} in both the dashboard and the
+     * mobile app used to send no {@code size}, so Spring's default of 20 applied — and until those were fixed to
+     * read every page, adding a {@code Pageable} here would have silently cut a patient's vitals panel from
+     * whatever they had to twenty, with a 200 and no error. <b>Both clients must be deployed before this
+     * ships</b>, not merely merged.</p>
+     */
     @GetMapping("")
-    public List<Stat> getAllStats(@RequestParam(required = false) String patientId) {
-        log.debug("REST request to get all Stats for patient {}", patientId);
+    public ResponseEntity<List<Stat>> getAllStats(
+        @RequestParam(required = false) String patientId,
+        @org.springdoc.core.annotations.ParameterObject Pageable pageable
+    ) {
+        log.debug("REST request to get a page of Stats for patient {}", patientId);
         patientScope.requireRead(ClinicalDomain.OBSERVATION);
-        return patientScope.findScoped(patientId, statRepository::findAll, statRepository::findByPatientId);
+        Page<Stat> page = patientScope.findScopedPage(patientId, pageable, statRepository::findAll, statRepository::findByPatientId);
+        HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
+        return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
 
     /**

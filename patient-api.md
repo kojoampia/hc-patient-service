@@ -204,7 +204,7 @@ each changes what the code should say and none of them is in it yet.
       authority is **derived** from each entity's domain rather than named per endpoint, so archiving
       can never be wider than editing, and `ArchiveEveryClinicalRecordIT` asserts that property for
       all ten.
-- [~] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
+- [~] **Four of the five administrative resources are deliberately not done; `PaymentOption` now is**: `Address`, `Membership`,
   `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
   one is a different act — archiving a `Profile` deactivates a patient, archiving a
   `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
@@ -229,9 +229,30 @@ each changes what the code should say and none of them is in it yet.
       | `PaymentOption` | **none** | The clearest case for archiving, and the only one with no field that could stand in |
       | `Profile` | `onboardingStatus` | Probably **not** archiving at all: ending a patient relationship already has a verb — `DeletionRequest` and `PatientErasureService`. A second one that deactivates rather than erases needs to justify itself against that, not against the clinical pattern |
 
-      Answering those five is the work. `ArchiveSupport` and `Archivable` already exist from
-      `87a63a3`, so implementing whichever get a yes is small; deriving the authority from a
-      `ClinicalDomain` is the one part that will not transfer, since none of them has one.
+      **Answered for one of them, 2026-08-31: `PaymentOption` archives; the other four do not.** It was the
+      only one with nothing that could stand in — `Membership` has `status`, `PersonalDocument` has
+      `expiresOn`, an `Address` a patient has moved away from is history rather than something retired, and
+      ending a `Profile` already has a verb in `DeletionRequest`. An expired card had no way to stop
+      appearing beside a live one.
+
+      Two things about how it was built differ from the clinical entities, and both follow from these
+      resources mapping to no `ClinicalDomain`:
+
+      **It is guarded by `PatientScope` alone, not by a discipline and not by `ROLE_ADMIN`.** Every other
+      archive endpoint here requires a clinician because the thing being retired is clinical. A payment
+      option is billing housekeeping on somebody's own record, so the person whose card expired is exactly
+      who should retire it — requiring an administrator would make the feature useless to the only person
+      who routinely needs it. `PaymentOptionArchiveIT` runs as a patient deliberately, so that anyone
+      "tightening" this for consistency with the clinical endpoints has to argue past a test.
+
+      **It is not `requireWrite`**, because that takes a `ClinicalDomain` and there is none. The
+      scope-of-practice table has nothing to say about a card, which is the whole reason these five sat
+      outside the earlier archiving work.
+
+      The list excludes archived options unless `includeArchived=true`, matching `ClinicalCase` — retiring a
+      card is pointless if it still shows — while `GET /{id}` still returns one, so a link keeps working.
+
+      `[ ]` The other four stay open, with the questions above unchanged.
 
 Archiving had been the _named_ replacement for that lockdown since it landed, and had never existed —
 `PatientScopeEveryEndpointIT` said so in a comment, and `hc-professional/web` implemented it in a
@@ -246,7 +267,9 @@ unwired**; a case retired there is still in every other clinician's queue and re
 - [x] `ProfileSearch.escape`. The term is interpolated into a `$regex`, which makes it code rather
       than data: unescaped, `.*` returns the whole directory, `(a+)+$` backtracks exponentially over
       every profile, and `(024) 555` — how people write phone numbers — arrives as a syntax error.
-- [ ] No index. A regex scan is fine at the current size and will not stay fine; a text index or a
+- [ ] **No index, and it is not one line.** A regex scan is fine at the current size and will not stay fine — but `GET /api/profiles?search=` does **case-insensitive substring** matching across six fields, and a leading-wildcard regex cannot use a btree index at all. Adding one changes nothing.
+
+      So the decision is what the search *means*: a text index or a prefix-anchored regex would make it indexable and would stop "ojo" matching "kojo", which is what an administrator typing a fragment of a name expects today. That is a product change wearing an index's clothes, and it should be taken as one.
       normalised search field is the next step if the directory keeps growing.
 
 ### Patient onboarding, care delegation and the first domain events (2026-08-19)
@@ -324,7 +347,8 @@ Open, and deliberately left so:
       holds every other cross-entity reference as a bare String id. The field carries a comment
       saying it must be re-added by hand; if the domain ever grows a second such field, revisit this
       rather than repeat it.
-- [ ] **Two demo fields are not seeded.** A patient's `lastActivityAt` (`ActivityLog` is the real
+- [ ] **Two demo fields are not seeded** — confirmed still true 2026-08-31: `db.profile.findOne({_id:"patient-kojo"}).last_activity_at` is undefined. A patient's `lastActivityAt` (`ActivityLog` is the real source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
+      case with no `caseNumber` in the file is stored without one.
       source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
       case with no `caseNumber` in the file is stored without one.
 
@@ -466,9 +490,16 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 
 The blueprint asked for first/last name, mobile, email, **long-lat**, **digital address**, **street address**, **ID type ∈ {PASSPORT, GHANA_CARD}**, and ID number. The current document (`.jhipster/Profile.json`) has `firstName`, `middleNames`, `lastName`, `membership`, `birthDate`, `sex`, `mobilePhone`, `phoneNumber`, `email`, `cardType`, `cardNumber`, `contacts`, `address`, `team` — all `String` except `birthDate`, and no relationships.
 
-- `[ ]` Model identification properly: `cardType` is a free-text `String`, not an enum. If `{PASSPORT, GHANA_CARD}` is the real domain, add a `domain/enumeration` type (the pattern already exists for `CaseCategory`/`CaseStatus`) and migrate existing values.
-- `[ ]` Decide the address shape: one `address` string today versus the blueprint's separate street address, digital address (e.g. Ghana Post GPS), and long-lat. Geo coordinates in particular need a real field type if they are ever queried.
-- `[ ]` Reconcile the string references (`membership`, `team`, `contacts`, `address`) with the standalone `Membership`, `Team`, and `Address` documents — decide whether these are ids, denormalized labels, or should become relationships, and write the answer down. Do this before Phase B links `PatientSubscription` to `Profile`.
+- `[ ]` **Model identification properly** — still open, and the window to do it cheaply is now. `Profile.cardType` is a free-text `String` that onboarding _requires_ (`OnboardingService:325` rejects a blank ID type), so every patient who onboards writes one.
+
+  **Nothing has written one yet.** `db.profile.distinct("card_type")` on quality returns `[]`, and the seeded profiles were written directly rather than through onboarding. So an enum could land today with no migration and no reconciliation of "Ghana Card" against "ghana card" against "National ID" — and that stops being true the first time a real patient onboards in production.
+
+  What makes it a decision rather than a typing exercise: `{PASSPORT, GHANA_CARD}` closes the set, and Ghana also issues driver's licences, voter IDs and NHIS cards. Which documents count as proof of identity is a compliance question, not a modelling one. **Whoever answers it should know the answer is free this week and not next.**
+
+- `[x]` **Address shape decided and built — 2026-08-19, ticked 2026-08-31.** `Profile.address` is an `Address` document by `@DBRef`, not a string, and `Address` carries `digitalAddress`, `streetAddress`, `areaCode`, `town`, `city`, `district`, `state`, `region` and `country` — the blueprint's separate street address, digital address, town and region, and then some. Onboarding is what forced it: a digital address, a town and a region cannot be recovered from "5 Ankobra River Street". `AddressAsDocumentMigration` moved the existing free-text values.
+- `[~]` **Reconcile the string references** — narrowed 2026-08-31. `address` is off this list: it became a real `@DBRef` on 2026-08-19. What remains is `Profile.membership`, `Profile.contacts` and `Profile.team`, still `String` while `Membership` and `Team` are standalone documents.
+
+  Worth noting the precedent the address set rather than treating these as the same question: it became a document because _onboarding needed structure inside it_. None of these three has a use that needs structure yet, and the workspace rule stands — a third relationship should be argued for rather than assumed.
 
 ## Phase E — what the portal is blocked on (2026-08-16)
 
@@ -524,12 +555,35 @@ for the people the portal is for.
 
 Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscription`, or related repository/resource in any repo.
 
-- `[ ]` `SubscriptionPlan` document (`name` ∈ {Pear, Melon, Pawpaw}, `monthlyPrice`, `weeklyVisits`, `includedServices`).
-- `[ ]` Consume the `SubscriptionPlanCreated` Kafka event emitted by `hc-admin-ms` and project it into `SubscriptionPlan`. Requires a real topic/binding — today the only configured binding is the generated `sse-topic`. Agree the topic name, payload schema, and idempotency rules with the admin service first.
-- `[ ]` `PatientSubscription` document mapping a `Profile` to its active plan (effective dates, status).
-- `[ ]` Seed the default plans — blocked on decision 1.
-- `[x]` ~~Introduce a migration mechanism.~~ **This service has had one all along — corrected 2026-08-30.** Mongock 5.5.1 is in `pom.xml`, `mongock:` is configured in `application.yml`, and `config/dbmigrations/AddressAsDocumentMigration` is a real `@ChangeUnit` that has run: `mongockChangeLog` and `mongockLock` are both present in the quality database. That migration's own javadoc says it plainly — _"Mongock has been a dependency and `migration-scan-package` has pointed here all along; the package simply had nothing in it."_ An empty package is not an absent mechanism, and this entry read the empty package.
-- `[ ]` REST surface for plan lookup and subscribe/change-plan, following the resource conventions in `.github/instructions/rest-patterns.instructions.md`.
+> **Re-examined 2026-08-31, and the premise has partly lapsed. Read this before building any of it.**
+>
+> This phase was written when nobody owned pricing. Two things have happened since. **The 2026-08-19 onboarding
+> decision put plan selection outside this service on purpose** — it is "a portal surface fed by Abofonsa, so a
+> patient is never blocked mid-onboarding by another product being down" (`docs/onboarding.md` §16). And the
+> portal now does exactly that: `GET /api/plans` is proxied by the gateway to Abofonsa's
+> `/api/v1/content/plans`, which answers today with PEAR 3,000 GHS, PAWPAW 5,000 and MELON 8,000, each
+> carrying its own `priceNote`.
+>
+> So **a `SubscriptionPlan` document here would be a second source of plan data, duplicating the product that
+> authors it** — and the failure mode of two catalogues is the one this subsystem has met repeatedly: they
+> agree until they quietly do not, and nothing fails when they stop. The Kafka projection from `hc-admin-ms`
+> would be the mechanism that keeps the copy in step, which is a lot of moving parts to hold a copy nobody
+> asked for.
+>
+> **What survives the re-examination is `PatientSubscription`** — _which_ plan a patient is on, with effective
+> dates and status. That is patient data, this service owns patient data, and today it is a bare `String` on
+> `Profile.membership` alongside `contacts` and `team`. If any of this is built, build that.
+>
+> The three items below marked `[~]` are the ones whose premise is in question. They are not struck through,
+> because "Abofonsa owns the catalogue" is itself a decision somebody should confirm rather than inherit from
+> a proxy route.
+
+- `[~]` `SubscriptionPlan` document (`name` ∈ {Pear, Melon, Pawpaw}, `monthlyPrice`, `weeklyVisits`, `includedServices`). **Premise in question** — Abofonsa serves this catalogue today and the portal reads it. Confirm a second copy is wanted before writing one.
+- `[~]` Consume the `SubscriptionPlanCreated` Kafka event emitted by `hc-admin-ms` and project it into `SubscriptionPlan`. **Falls with the item above** — this is the machinery that would keep a duplicate catalogue in step, so it is only worth agreeing a topic name, payload schema and idempotency rules if the duplicate is wanted. Note the binding does not exist: `patient-events` is configured, `sse-topic` is the generated leftover.
+- `[ ]` `PatientSubscription` document mapping a `Profile` to its active plan (effective dates, status). **This is the item that survives the re-examination above** — which plan a patient is on is patient data, and it is currently a bare `String` on `Profile.membership`. It can reference Abofonsa's plan `code` (`PEAR`/`PAWPAW`/`MELON`) without this service storing the catalogue.
+- `[~]` Seed the default plans — blocked on decision 1, **and on whether this service should hold plans at all**. If Abofonsa remains the catalogue, there is nothing here to seed.
+- `[x]` ~~Introduce a migration mechanism.~~ **This service has had Mongock all along** — 5.5.1 in `pom.xml`, `mongock:` configured, `AddressAsDocumentMigration` a real `@ChangeUnit` that has run. Corrected 2026-08-31; this was the _second_ copy of that claim in this file, and the first was corrected earlier the same day. Two copies of a wrong fact are how it survives being fixed once.
+- `[ ]` REST surface for **subscribe/change-plan**, following the resource conventions in `.github/instructions/rest-patterns.instructions.md`. Plan _lookup_ is struck: the gateway already proxies `/api/plans` to Abofonsa and the portal already reads it, so a lookup endpoint here would answer a question already answered one hop away.
 - `[x]` ~~A unified onboarding endpoint~~ — built 2026-08-19, but **not** as one call. Five named
   endpoints with a DTO each, because the steps carry genuinely different payloads and one handler
   taking five shapes could only be typed as a map. There is no transaction to make a single call
@@ -541,10 +595,34 @@ Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscri
 
 Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can be agreed in parallel.
 
-- `[ ]` `VitalStatistic` model (`patientId`, `timestamp`, `metricType` ∈ {BP, HR, GLUCOSE}, `value`), indexed for time-range queries per patient.
-- `[ ]` `TelemetryService` to validate and persist incoming readings, with an ingest endpoint or Kafka inbound binding (decide which; the dashboard's metric panels currently read from `Stat`).
-- `[ ]` Publish `IoTDataReceivedEvent` to a `raw-telemetry` topic on each saved reading, so the professional service can react. Define the payload schema and topic configuration.
-- `[ ]` Load expectations: document expected reading volume per patient per day before choosing collection design or retention.
+> **Re-examined 2026-08-31. The model in the first item is a step backwards, and the fourth item should be
+> the first.**
+>
+> `VitalStatistic` is specified as `(patientId, timestamp, metricType ∈ {BP, HR, GLUCOSE}, value)`. `Stat`
+> already exists and holds `patientId`, `type`, `name`, `value`, **`secondaryValue`**, `unit`,
+> `referenceLow`, `referenceHigh`, `flag`, `note`, `recordedAt`, `source`, `recordedById` — and archiving.
+> Live on quality with four types: `blood-pressure`, `blood-sugar`, `heart-rate`, `temperature`.
+>
+> So the proposed model is a **strict subset of the existing one, and cruder in a way that matters**: with no
+> `secondaryValue`, a blood pressure cannot be represented at all without a hack, and BP is the first metric
+> on its own list. It also drops the reference range and the flag, which are what make a reading readable as
+> normal or not.
+>
+> **The real distinction Phase C is reaching for is ingestion volume, not shape** — a device writing
+> continuously against a clinician recording a reading. That is a question about collection design and
+> retention, which is exactly what the fourth item asks for and nobody has answered. **Answer it first**: it
+> decides whether this is a second collection, a capped one, a time-series collection, or simply `Stat` with
+> an index and a retention policy.
+>
+> One measured input for that decision, from the pagination work: **`Stat` is the only collection in this
+> service with no pagination and no natural ceiling** — 24 rows for one seeded patient, and
+> `GET /api/stats` returns all of them. If telemetry lands in `Stat` as it stands, that endpoint is the first
+> thing to break.
+
+- `[~]` ~~`VitalStatistic` model (`patientId`, `timestamp`, `metricType` ∈ {BP, HR, GLUCOSE}, `value`)~~ — **do not build this shape.** It is a subset of `Stat` and cannot express a blood pressure. What is genuinely wanted is the indexing half: a time-range index per patient, on whichever collection the volume answer picks.
+- `[ ]` `TelemetryService` to validate and persist incoming readings, with an ingest endpoint or Kafka inbound binding (decide which; the dashboard's metric panels currently read from `Stat`, so a second store means changing `web` too).
+- `[ ]` Publish `IoTDataReceivedEvent` to a `raw-telemetry` topic on each saved reading, so the professional service can react. Define the payload schema and topic configuration. Note `patient-events` already exists as a working pattern — envelope, key, idempotency — and a second topic should justify not reusing it.
+- `[ ]` **Load expectations first, not fourth.** Document expected reading volume per patient per day before choosing collection design or retention. Every other item here is downstream of the answer.
 - `[ ]` Integration tests using the existing Testcontainers Kafka setup, asserting both persistence and the emitted event.
 
 ## Phase D — platform hardening
@@ -564,13 +642,30 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
   `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` the other was not. `deploy/prod-server/observability/hc-patient-rules.yaml`
   already alerts on the 401 pattern that produces, and says to compare the variable across both containers first.
 
-- `[~]` Paginate the generated `getAll*` endpoints that can grow unbounded. **Half done, and the half that is left is the wrong half — measured 2026-08-30.** `Report` and `ClinicalCase` take a `Pageable` and go through `findScopedPage`; **`Stat` and `Metadata` do neither** and still return an unpaged `List<Entity>`. `Stat` is the one that matters: it is where vital-sign readings land, so it is the collection in this service with no natural ceiling at all, and it is the one still unbounded. Pagination arrived alongside scoping rather than as its own pass, which is why it followed the resources that needed scoping rather than the ones that grow.
+- `[x]` **Paginated — 2026-08-31. `Stat` and `Metadata` were the last two, and `Stat` was the one that mattered.** `Report` and `ClinicalCase` had it already; these two still returned an unbounded `List<Entity>`.
+
+  `Stat` is the collection in this service with **no natural ceiling** — a patient's cases and reports are counted in dozens over years, their vital-sign readings in hundreds over months, and Phase C telemetry would make it continuous. It was the last one unpaginated, which is the wrong way round. `Metadata` grows by accretion rather than by any patient doing anything, which is the kind of growth nobody watches.
+
+  **The order was the whole difficulty, and it is a cross-repo constraint rather than a preference.** `PortalDataService` in both the dashboard and the mobile app sent no `size`, so Spring's default of 20 applied to every paginated endpoint they read. Adding a `Pageable` here first would have cut a patient's vitals panel to twenty rows — with a 200, no error and nothing in the console, and it would have bitten immediately, since `Stat` already holds 24 for one seeded patient. Both clients now page through. **This must not ship until both are deployed**, not merely merged; that warning is on `StatResource` itself as well as here.
+
+  `StatResourceIT` 16 tests, `MetadataResourceIT` 15, all green. A `verify` selecting only those two reports `BUILD FAILURE` — that is the JaCoCo coverage gate reacting to a two-test subset with unit tests skipped, not a test failure.
+
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
-- `[ ]` Decide on caching: `cacheProvider` is `"no"`; if read load justifies it, add Spring Cache deliberately rather than per-service ad hoc.
-- `[ ]` Rate limiting / abuse monitoring is not implemented in this service. Decide whether it belongs here or at the gateway.
+- `[x]` **Caching decided: no, and not on load grounds — 2026-08-31.** `cacheProvider` stays `"no"`.
+
+  The read load does not justify one: every clinical query here is already narrowed to a single patient's record by `PatientScope`, so the working set of a request is one person's documents rather than a shared hot set. There is nothing a cache would be amortising.
+
+  **The reason to keep refusing is stronger than that.** A cache in front of a patient-scoped API is a correctness hazard shaped exactly like this service's worst failure mode. Scope is resolved per request from the token _and_ the `X-Acting-As` header, which is deliberately not in the token so a revoked angel loses access immediately — so a cache key that omitted the acting-as scope would serve one patient's records under another patient's name, and would do it with a 200 and no error. If read load ever does justify a cache, **the key is the design**, not the provider.
+
+- `[x]` **Rate limiting is implemented, at the edge — corrected 2026-08-31.** It is not in this service and should not be; the entry asked where it belongs and the answer had already been built one layer out. `deploy/prod-server/hc-patient-rum.conf` declares five `limit_req` zones: login at 1r/s, the account endpoints at 10r/m, the username lookahead at 20r/m, RUM at 2r/s and CSP reports at 2r/s.
+
+  The edge is the right layer for the reason those zones are keyed the way they are — nginx sees the address before Spring sees a thread, so a flood costs a connection rather than a JVM. Note the http-scope trap recorded in that file: `limit_req_zone` is only valid in nginx's `http` context, so the zones live in a separate file from the vhost and installing one without the other fails `nginx -t` for **every** site on the host.
+
+  What is genuinely absent is _abuse monitoring_ — nothing alerts on a client being rate-limited. That belongs with `deploy/TODO.md`'s observability items rather than here.
+
 - `[x]` **CI is wired and has been since 2026-08-05** (`19349a3`) — corrected 2026-08-31, having read `.github/workflows/` rather than this entry. `build.yml` runs `./mvnw verify` and a dependency scan on every push and pull request; `release.yml` publishes to GHCR on push to main, which is the choice this entry asked somebody to make. `.github/workflows/` was empty when this was written and has not been for four weeks.
 
-  What is still true is the smaller half: `ci:backend:test` and the `ci:e2e:*` scripts are unused entry points, because the workflow calls `./mvnw` directly. `[ ]` Decide whether they are wired up or deleted — an npm script nothing calls is a third description of how this repo is built, after the workflow and the pom.
+  What is still true is the smaller half: `ci:backend:test` and the `ci:e2e:*` scripts are unused entry points, because the workflow calls `./mvnw` directly. `[x]` **Decided 2026-08-31: left alone, and the workflow is authoritative.** Deleting them buys one less way to describe the build and costs the next regeneration putting them straight back — they are generator output, not something anybody here wrote. The rule instead: **`.github/workflows/build.yml` is what builds this repository**; if an `npm run ci:*` script disagrees with it, the script is wrong.
 
 - `[x]` **Deleted the stale `bin/` copy — 2026-08-31, and it was not only clutter.** 2.4 MB of Eclipse output: `.class` files mirroring the source tree, plus stale copies of `pom.xml`, `mvnw` and `README.md`. Already gitignored (`/bin/`), which is why "or ignore" was half-satisfied and the directory still turned up in every plain `grep` and IDE index.
 
@@ -641,14 +736,60 @@ collection added later and not added there breaks nothing, reports success, and 
 was told they were forgotten not forgotten.
 
 - `[x]` Entity, service, resource, 28 integration tests.
-- `[ ]` **The gateway account is not closed by `complete`.** This service runs `skipUserManagement`
-  and holds no `User`; the login, password and authorities are the gateway's. Today that is a second
-  manual step against `hc-patient-gateway`'s `/api/admin/users/{login}`, and until it is done the
-  person can still sign in — they resolve to no patient and see an empty portal, which is correct but
-  is not the same thing as being gone. Worth automating, and it needs a decision about how this
-  service is permitted to call the gateway.
-- `[ ]` No notification. A patient is told the date on screen and then hears nothing; an
-  administrator sees the queue only by opening it. Both want mail.
+- `[~]` **The gateway account is not closed by `complete`, and the event that will close it now exists.**
+  This service runs `skipUserManagement` and holds no `User`; the login, password and authorities are the
+  gateway's. Today that is a second manual step against `hc-patient-gateway`'s `/api/admin/users/{login}`,
+  and until it is done the person can still sign in — they resolve to no patient and see an empty portal,
+  which is correct but is not the same thing as being gone.
+
+  **The original entry's own answer was wrong**, and worth correcting rather than deleting: it said this
+  "needs a decision about how this service is permitted to call the gateway". It should not call the
+  gateway at all. That would be a synchronous cross-service call in the one place where the caller has
+  already destroyed the data — if it failed, the record would be gone and the account would not, with no
+  queue holding the remainder. The direction of the existing arrangement is right and this follows it:
+  **this service says what happened; the gateway decides what to do about it**, exactly as
+  `CareDelegationChanged` already works.
+
+  `[x]` **Done in the gateway, 2026-08-31: it deactivates.** `DeletionAccountCloser` consumes
+  `DeletionRequestChanged` where `change == COMPLETED` and sets `activated = false`. Decided by the
+  architect against deleting the `User`.
+
+  The reasoning, because it constrains this service too: deleting is what the patient literally asked for
+  and would remove their email; deactivating keeps the audit trail, since the `DeletionRequest` this
+  service retains names a login, and a login resolving to nothing is a weaker record than one resolving
+  to a closed account. **The price is that an email address survives the erasure** — the one piece of
+  personal data removed everywhere else in this flow. That is a stated cost, not an oversight, and
+  changing it changes the privacy policy and the Play data-safety declaration with it.
+
+  Two things worth keeping here rather than only there. **This service still must not call the gateway** —
+  the direction is right and the original entry had it backwards. And **ordering stopped mattering** once
+  the answer was deactivation: a delete would have had to follow the notification mail, because the mail
+  resolves its recipient by looking the account up.
+
+- `[x]` **The silence is fixed on this side — 2026-08-31.** `DeletionRequestChanged` is published on all four
+  transitions (`RAISED`, `CANCELLED`, `COMPLETED`, `REJECTED`) with a `change` discriminator, one type on one
+  topic so ordering per patient holds — a `COMPLETED` overtaking its own `RAISED` would tell somebody their
+  record is gone before telling them it was going.
+
+  Three things in it are load-bearing and are pinned by `DeletionRequestAnnouncementTest`:
+
+  **The email is read off the request, never looked up.** For `COMPLETED` the erasure has already taken the
+  `Profile`, so there is nothing left to resolve; `requestedByEmail` is stored at `raise` precisely so this
+  still works afterwards. Publishing _before_ the erasure instead would announce a completion that could
+  still fail.
+
+  **No `erasedCounts` and no `decisionReason`.** How many medications a patient had is a fact about their
+  record, and §8.4 says an event reports that something happened, never what it said —
+  `assertNothingClinical` would _not_ have caught this, because the offending key is `erasedCounts` rather
+  than a clinical word. An administrator's free text is unbounded for the same reason; the patient reads it
+  on their own request through `GET /api/deletion-requests/mine`.
+
+  **Publishing never fails the operation**, and this is the case where that is most tempting to "fix" into a
+  bug: by the time it runs, the erasure has happened and the request is saved. The record is already gone.
+  The event is a notification, never the mechanism.
+
+  `[ ]` The mail itself is the gateway's — only it can send. An administrator still sees the queue only by
+  opening it, which is a separate want.
 
 ## Working agreement for items above
 
