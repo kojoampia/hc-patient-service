@@ -12,10 +12,15 @@ import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
+import tech.jhipster.web.util.PaginationUtil;
 import tech.jhipster.web.util.ResponseUtil;
 
 /**
@@ -160,10 +165,20 @@ public class MetadataResource {
      *
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of metadata in body.
      */
+    /**
+     * A page of metadata.
+     *
+     * <p>Unscoped, unlike its neighbours — {@code Metadata} carries no {@code patientId} and is reference data.
+     * What it shares with {@code Stat} is the reason both were paginated together: they were the last two
+     * endpoints in this service returning an unbounded {@code List}, and this one grows by accretion rather than
+     * by any patient doing anything, which is the kind of growth nobody watches.</p>
+     */
     @GetMapping("")
-    public List<Metadata> getAllMetadata() {
-        log.debug("REST request to get all Metadata");
-        return metadataRepository.findAll();
+    public ResponseEntity<List<Metadata>> getAllMetadata(@org.springdoc.core.annotations.ParameterObject Pageable pageable) {
+        log.debug("REST request to get a page of Metadata");
+        Page<Metadata> page = metadataRepository.findAll(pageable);
+        HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
+        return ResponseEntity.ok().headers(headers).body(page.getContent());
     }
 
     /**

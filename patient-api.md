@@ -590,7 +590,14 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
   `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` the other was not. `deploy/prod-server/observability/hc-patient-rules.yaml`
   already alerts on the 401 pattern that produces, and says to compare the variable across both containers first.
 
-- `[ ]` Paginate the generated `getAll*` endpoints that can grow unbounded (`Stat`, `Report`, `ClinicalCase`, `Metadata` first) — they currently return unpaged `List<Entity>`.
+- `[x]` **Paginated — 2026-08-31. `Stat` and `Metadata` were the last two, and `Stat` was the one that mattered.** `Report` and `ClinicalCase` had it already; these two still returned an unbounded `List<Entity>`.
+
+  `Stat` is the collection in this service with **no natural ceiling** — a patient's cases and reports are counted in dozens over years, their vital-sign readings in hundreds over months, and Phase C telemetry would make it continuous. It was the last one unpaginated, which is the wrong way round. `Metadata` grows by accretion rather than by any patient doing anything, which is the kind of growth nobody watches.
+
+  **The order was the whole difficulty, and it is a cross-repo constraint rather than a preference.** `PortalDataService` in both the dashboard and the mobile app sent no `size`, so Spring's default of 20 applied to every paginated endpoint they read. Adding a `Pageable` here first would have cut a patient's vitals panel to twenty rows — with a 200, no error and nothing in the console, and it would have bitten immediately, since `Stat` already holds 24 for one seeded patient. Both clients now page through. **This must not ship until both are deployed**, not merely merged; that warning is on `StatResource` itself as well as here.
+
+  `StatResourceIT` 16 tests, `MetadataResourceIT` 15, all green. A `verify` selecting only those two reports `BUILD FAILURE` — that is the JaCoCo coverage gate reacting to a two-test subset with unit tests skipped, not a test failure.
+
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
 - `[x]` **Caching decided: no, and not on load grounds — 2026-08-31.** `cacheProvider` stays `"no"`.
 
