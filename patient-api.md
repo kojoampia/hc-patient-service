@@ -497,11 +497,38 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 
 The blueprint asked for first/last name, mobile, email, **long-lat**, **digital address**, **street address**, **ID type ∈ {PASSPORT, GHANA_CARD}**, and ID number. The current document (`.jhipster/Profile.json`) has `firstName`, `middleNames`, `lastName`, `membership`, `birthDate`, `sex`, `mobilePhone`, `phoneNumber`, `email`, `cardType`, `cardNumber`, `contacts`, `address`, `team` — all `String` except `birthDate`, and no relationships.
 
-- `[ ]` **Model identification properly** — still open, and the window to do it cheaply is now. `Profile.cardType` is a free-text `String` that onboarding _requires_ (`OnboardingService:325` rejects a blank ID type), so every patient who onboards writes one.
+- `[~]` **Model identification — the mechanism landed 2026-08-31; the accepted list is still a product question.** The window to do it cheaply was now, and it was taken. `Profile.cardType` is a free-text `String` that onboarding _requires_ (`OnboardingService:325` rejects a blank ID type), so every patient who onboards writes one.
 
   **Nothing has written one yet.** `db.profile.distinct("card_type")` on quality returns `[]`, and the seeded profiles were written directly rather than through onboarding. So an enum could land today with no migration and no reconciliation of "Ghana Card" against "ghana card" against "National ID" — and that stops being true the first time a real patient onboards in production.
 
-  What makes it a decision rather than a typing exercise: `{PASSPORT, GHANA_CARD}` closes the set, and Ghana also issues driver's licences, voter IDs and NHIS cards. Which documents count as proof of identity is a compliance question, not a modelling one. **Whoever answers it should know the answer is free this week and not next.**
+  **What was built.** `IdentificationType` in `domain/enumeration` — `GHANA_CARD`, `PASSPORT`, `VOTER_ID`,
+  `NHIS`, `DRIVERS_LICENCE` — each with a human label, and `canonicalise()` wired into
+  `OnboardingService.identification()`. Confirmed before writing it that quality holds **zero** values
+  (3 profiles, all `card_type: null`), so nothing needed migrating.
+
+  **Two deliberate restraints, and the second is the one to read before "finishing" this.**
+
+  `Profile.cardType` **stays a `String` on the document** rather than becoming the enum. A value already stored
+  that is not in the list must still _read_: binding the field to an enum makes an unrecognised legacy value throw
+  during deserialisation, turning a patient's profile screen into an error rather than an untidy string. Same trade
+  the archiving work made with `IsNull` over a boolean — tolerate what is written, constrain what is written next.
+
+  **`canonicalise()` never rejects, and that is what keeps this service deployable ahead of the clients.** The web
+  onboarding form is still a plain free-text `<input required>`; a strict service would answer 400 to every patient
+  finishing step 5, after a journey that returned 200 the whole way, with nothing in either client to explain it.
+  That is exactly the cross-repo ordering failure `Stat` pagination already cost this subsystem. Tightening to
+  strict rejection is a **later** change and is safe only once both clients ship a constrained control.
+
+  `[ ]` **The accepted list is a product and compliance question nobody has answered.** Those five are the ones in
+  common use in Ghana and are _proposed_. The enum says so at its top, taking the same posture `ScopeOfPractice`
+  takes about its table and for the same reason: adding or removing a constant must stay a one-line change, and
+  pretending the question is closed is how it stops being asked.
+
+  `[ ]` **The clients still send and render free text.** `onboarding.component.html` is an `<input>`, and
+  `portal/profile/profile.component.html` renders `person.cardType` raw — so a patient who picks Ghana Card is
+  shown `GHANA_CARD` until the label is used. Tracked in `patient-web.md`.
+
+  What made it a decision rather than a typing exercise: `{PASSPORT, GHANA_CARD}` closes the set, and Ghana also issues driver's licences, voter IDs and NHIS cards. Which documents count as proof of identity is a compliance question, not a modelling one. **Whoever answers it should know the answer is free this week and not next.**
 
 - `[x]` **Address shape decided and built — 2026-08-19, ticked 2026-08-31.** `Profile.address` is an `Address` document by `@DBRef`, not a string, and `Address` carries `digitalAddress`, `streetAddress`, `areaCode`, `town`, `city`, `district`, `state`, `region` and `country` — the blueprint's separate street address, digital address, town and region, and then some. Onboarding is what forced it: a digital address, a town and a region cannot be recovered from "5 Ankobra River Street". `AddressAsDocumentMigration` moved the existing free-text values.
 - `[~]` **Reconcile the string references** — narrowed 2026-08-31. `address` is off this list: it became a real `@DBRef` on 2026-08-19. What remains is `Profile.membership`, `Profile.contacts` and `Profile.team`, still `String` while `Membership` and `Team` are standalone documents.
