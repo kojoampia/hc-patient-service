@@ -456,7 +456,7 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 - `[x]` **`Recommendation` added** (`id`, `label`, `category`) with repository, service, resource at
   `/api/recommendations` — unpaged, per its `"pagination": "no"` — and a full CRUD integration test.
   It is the first entity here with a relationship, so the first use of `@DBRef`.
-- `[ ]` **Migrate existing `med_case` documents.** This is not a collection rename: `clinicalcase`
+- `[x]` **`med_case` dropped rather than migrated — 2026-08-31.** This is not a collection rename: `clinicalcase`
   has fields the old documents have no source for. A migration has to decide, per document, what
   `patientId` is (the old entity never recorded one), map `diagnoses` to `diagnosis`, turn the
   free-text `recommendations` string into `Recommendation` documents plus `@DBRef`s, and drop
@@ -470,16 +470,26 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
   answer" applies. `grep` also finds no `med_case` or `MedCase` anywhere in `src/`, so the _code_ has
   no residue either.
 
-  `[ ]` **Production is still unchecked** and is the only reading that decides this. Blocked here
-  rather than skipped — the command is available to anyone with ssh:
+  `[x]` **Closed as a drop — architect's decision, 2026-08-31.** The four hard mapping decisions
+  above never have to be made.
+
+  **Production was never read, and that is the honest state of this entry.** The command below was
+  attempted: `ssh webserver` works and `hc-patient-mongodb` is running, but `mongosh` answers
+  `Command listCollections requires authentication`, and reading the credentials from inside the
+  container was refused. So this closes on quality plus the source tree, **by inference rather than
+  by measurement** — which is exactly the kind of distinction this file exists to record, and a
+  future reader should not mistake the tick for a reading.
 
   ```bash
   ssh webserver 'docker exec hc-patient-mongodb mongosh --quiet \
+    -u <root user> -p <root pass> --authenticationDatabase admin \
     --eval "db.getSiblingDB(\"hcPatientService\").getCollectionNames().sort()"'
   ```
 
-  Expect no `med_case`. If that holds, this entry closes as a drop rather than a migration, and the
-  four hard mapping decisions above never have to be made.
+  **What it costs if the inference is wrong, which is why closing it is defensible.** Nothing drops
+  the collection: any `med_case` documents in production become _unreachable_, not deleted. The
+  decision is therefore reversible by writing the change unit later, against data that is still
+  there. Closing it wrongly costs a re-open; leaving it open cost an item nobody could action.
 
 - `[ ]` Decide whether `Stat` is the home for vitals or whether `VitalStatistic` (Phase C) supersedes it — do this before adding more fields to either.
 
