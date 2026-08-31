@@ -535,11 +535,21 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 
 - `[ ]` Paginate the generated `getAll*` endpoints that can grow unbounded (`Stat`, `Report`, `ClinicalCase`, `Metadata` first) — they currently return unpaged `List<Entity>`.
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
-- `[ ]` Decide on caching: `cacheProvider` is `"no"`; if read load justifies it, add Spring Cache deliberately rather than per-service ad hoc.
-- `[ ]` Rate limiting / abuse monitoring is not implemented in this service. Decide whether it belongs here or at the gateway.
+- `[x]` **Caching decided: no, and not on load grounds — 2026-08-31.** `cacheProvider` stays `"no"`.
+
+  The read load does not justify one: every clinical query here is already narrowed to a single patient's record by `PatientScope`, so the working set of a request is one person's documents rather than a shared hot set. There is nothing a cache would be amortising.
+
+  **The reason to keep refusing is stronger than that.** A cache in front of a patient-scoped API is a correctness hazard shaped exactly like this service's worst failure mode. Scope is resolved per request from the token _and_ the `X-Acting-As` header, which is deliberately not in the token so a revoked angel loses access immediately — so a cache key that omitted the acting-as scope would serve one patient's records under another patient's name, and would do it with a 200 and no error. If read load ever does justify a cache, **the key is the design**, not the provider.
+
+- `[x]` **Rate limiting is implemented, at the edge — corrected 2026-08-31.** It is not in this service and should not be; the entry asked where it belongs and the answer had already been built one layer out. `deploy/prod-server/hc-patient-rum.conf` declares five `limit_req` zones: login at 1r/s, the account endpoints at 10r/m, the username lookahead at 20r/m, RUM at 2r/s and CSP reports at 2r/s.
+
+  The edge is the right layer for the reason those zones are keyed the way they are — nginx sees the address before Spring sees a thread, so a flood costs a connection rather than a JVM. Note the http-scope trap recorded in that file: `limit_req_zone` is only valid in nginx's `http` context, so the zones live in a separate file from the vhost and installing one without the other fails `nginx -t` for **every** site on the host.
+
+  What is genuinely absent is _abuse monitoring_ — nothing alerts on a client being rate-limited. That belongs with `deploy/TODO.md`'s observability items rather than here.
+
 - `[x]` **CI is wired and has been since 2026-08-05** (`19349a3`) — corrected 2026-08-31, having read `.github/workflows/` rather than this entry. `build.yml` runs `./mvnw verify` and a dependency scan on every push and pull request; `release.yml` publishes to GHCR on push to main, which is the choice this entry asked somebody to make. `.github/workflows/` was empty when this was written and has not been for four weeks.
 
-  What is still true is the smaller half: `ci:backend:test` and the `ci:e2e:*` scripts are unused entry points, because the workflow calls `./mvnw` directly. `[ ]` Decide whether they are wired up or deleted — an npm script nothing calls is a third description of how this repo is built, after the workflow and the pom.
+  What is still true is the smaller half: `ci:backend:test` and the `ci:e2e:*` scripts are unused entry points, because the workflow calls `./mvnw` directly. `[x]` **Decided 2026-08-31: left alone, and the workflow is authoritative.** Deleting them buys one less way to describe the build and costs the next regeneration putting them straight back — they are generator output, not something anybody here wrote. The rule instead: **`.github/workflows/build.yml` is what builds this repository**; if an `npm run ci:*` script disagrees with it, the script is wrong.
 
 - `[x]` **Deleted the stale `bin/` copy — 2026-08-31, and it was not only clutter.** 2.4 MB of Eclipse output: `.class` files mirroring the source tree, plus stale copies of `pom.xml`, `mvnw` and `README.md`. Already gitignored (`/bin/`), which is why "or ignore" was half-satisfied and the directory still turned up in every plain `grep` and IDE index.
 
