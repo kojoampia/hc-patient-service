@@ -525,7 +525,18 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 
   **The lesson is about the order of operations, not the key** — which is self-signed, development-only and worth nothing. Deleting a file from a repository does not delete it from the machines that have it, and a build-output directory is exactly where a deleted file goes on surviving. Had this item been closed the obvious way — `rm -rf bin` without looking — the security cleanup would have been completed by accident, and nobody would have known it had been incomplete.
 
-- `[ ]` Revisit the `api-docs` profile gate: OpenAPI is disabled unless that profile is active, which means no schema is published in normal dev runs.
+- `[x]` **`api-docs` posture decided: both gates stay — 2026-08-31.** Settled once for this service and the gateway together, since a decision made in one and not the other is how the two come apart.
+
+  There are two independent gates and they are not redundant:
+
+  1. `springdoc.api-docs.enabled: false` under the `!api-docs` Spring profile — springdoc is not loaded at all unless somebody asks for it. `-Papi-docs` appends `,api-docs` to the active profiles.
+  2. `/v3/api-docs/**` requires `ROLE_ADMIN` in `SecurityConfiguration`, on top.
+
+  The first decides whether the schema _exists_; the second decides who may read it when it does. **Turning the profile on does not publish anything to the world**, which is the property that makes the opt-in cheap rather than a lock somebody will route around.
+
+  Kept because of what the schema is here: a complete map of every endpoint and payload over a patient's health record. Production runs without the profile, so there is nothing to protect; a developer who wants Swagger runs `./mvnw -Papi-docs` and signs in as `admin`. The cost is one flag, occasionally, against a document nobody outside this project should be able to enumerate.
+
+  The complaint in the original entry — "no schema is published in normal dev runs" — is the gate working. Left as it is rather than defaulted on in `dev`, because `dev` is also what a laptop on a café network runs.
 
 ## Deletion requests — 2026-08-25
 
