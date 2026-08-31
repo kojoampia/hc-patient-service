@@ -519,7 +519,12 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 
   What is still true is the smaller half: `ci:backend:test` and the `ci:e2e:*` scripts are unused entry points, because the workflow calls `./mvnw` directly. `[ ]` Decide whether they are wired up or deleted — an npm script nothing calls is a third description of how this repo is built, after the workflow and the pom.
 
-- `[ ]` Remove or ignore the gitignored stale `bin/` copy of the project so it stops appearing in searches and IDE indexes.
+- `[x]` **Deleted the stale `bin/` copy — 2026-08-31, and it was not only clutter.** 2.4 MB of Eclipse output: `.class` files mirroring the source tree, plus stale copies of `pom.xml`, `mvnw` and `README.md`. Already gitignored (`/bin/`), which is why "or ignore" was half-satisfied and the directory still turned up in every plain `grep` and IDE index.
+
+  **It also held the self-signed keystore that `977cf09` deleted for security on 2026-08-05.** `bin/src/main/resources/config/tls/keystore.p12` and `application-tls.yml`, byte-identical to the versions in history — verified by SHA-256 against `3ba67c7` before deleting anything, so nothing unique was lost. That commit removed a committed private key from the repository and the working copy survived it, unnoticed, for twenty-six days. Its own reasoning applies to a file on disk as much as to a file in git: _"a committed private key invites reuse, and reuse is how a worthless key becomes a real one."_
+
+  **The lesson is about the order of operations, not the key** — which is self-signed, development-only and worth nothing. Deleting a file from a repository does not delete it from the machines that have it, and a build-output directory is exactly where a deleted file goes on surviving. Had this item been closed the obvious way — `rm -rf bin` without looking — the security cleanup would have been completed by accident, and nobody would have known it had been incomplete.
+
 - `[ ]` Revisit the `api-docs` profile gate: OpenAPI is disabled unless that profile is active, which means no schema is published in normal dev runs.
 
 ## Deletion requests — 2026-08-25

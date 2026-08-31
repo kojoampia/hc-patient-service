@@ -235,5 +235,5 @@ Two things that will waste an afternoon if you meet them cold:
 - Do not convert this service to reactive (`Mono`/`Flux`); it's Spring MVC + MongoDB throughout.
 - Don't bypass the JHipster alert-header/exception-translation conventions in `web/rest/errors`.
 - Follow ArchUnit layer boundaries in `TechnicalStructureTest` — a change that makes `service` depend on `web`, for example, will fail the build.
-- `bin/` is a gitignored stale copy of the project (its own `pom.xml`, `README.md`, `src/`). Never edit or cite files under `bin/`.
+- `bin/` is gone (2026-08-31). It was a gitignored Eclipse output directory — `.class` files plus stale copies of `pom.xml`, `README.md` and `src/` — and it still held the self-signed `keystore.p12` that `977cf09` deleted from the repository for security on 2026-08-05. If it reappears, it is your IDE; delete it, and note that a file deleted from git survives in there.
 - **CI runs on every push and pull request** — `.github/workflows/build.yml` (`./mvnw verify` + dependency scan) and `release.yml` (GHCR publish on main), both since 2026-08-05. This line said no workflows existed until 2026-08-31. The `ci:*` npm scripts really are unused, though: the workflow calls `./mvnw` directly, so they are a third description of how this repo builds and nothing runs them.
