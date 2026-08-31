@@ -543,10 +543,34 @@ Blueprint prompt 2.1. Nothing exists yet: no `SubscriptionPlan`, `PatientSubscri
 
 Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can be agreed in parallel.
 
-- `[ ]` `VitalStatistic` model (`patientId`, `timestamp`, `metricType` ∈ {BP, HR, GLUCOSE}, `value`), indexed for time-range queries per patient.
-- `[ ]` `TelemetryService` to validate and persist incoming readings, with an ingest endpoint or Kafka inbound binding (decide which; the dashboard's metric panels currently read from `Stat`).
-- `[ ]` Publish `IoTDataReceivedEvent` to a `raw-telemetry` topic on each saved reading, so the professional service can react. Define the payload schema and topic configuration.
-- `[ ]` Load expectations: document expected reading volume per patient per day before choosing collection design or retention.
+> **Re-examined 2026-08-31. The model in the first item is a step backwards, and the fourth item should be
+> the first.**
+>
+> `VitalStatistic` is specified as `(patientId, timestamp, metricType ∈ {BP, HR, GLUCOSE}, value)`. `Stat`
+> already exists and holds `patientId`, `type`, `name`, `value`, **`secondaryValue`**, `unit`,
+> `referenceLow`, `referenceHigh`, `flag`, `note`, `recordedAt`, `source`, `recordedById` — and archiving.
+> Live on quality with four types: `blood-pressure`, `blood-sugar`, `heart-rate`, `temperature`.
+>
+> So the proposed model is a **strict subset of the existing one, and cruder in a way that matters**: with no
+> `secondaryValue`, a blood pressure cannot be represented at all without a hack, and BP is the first metric
+> on its own list. It also drops the reference range and the flag, which are what make a reading readable as
+> normal or not.
+>
+> **The real distinction Phase C is reaching for is ingestion volume, not shape** — a device writing
+> continuously against a clinician recording a reading. That is a question about collection design and
+> retention, which is exactly what the fourth item asks for and nobody has answered. **Answer it first**: it
+> decides whether this is a second collection, a capped one, a time-series collection, or simply `Stat` with
+> an index and a retention policy.
+>
+> One measured input for that decision, from the pagination work: **`Stat` is the only collection in this
+> service with no pagination and no natural ceiling** — 24 rows for one seeded patient, and
+> `GET /api/stats` returns all of them. If telemetry lands in `Stat` as it stands, that endpoint is the first
+> thing to break.
+
+- `[~]` ~~`VitalStatistic` model (`patientId`, `timestamp`, `metricType` ∈ {BP, HR, GLUCOSE}, `value`)~~ — **do not build this shape.** It is a subset of `Stat` and cannot express a blood pressure. What is genuinely wanted is the indexing half: a time-range index per patient, on whichever collection the volume answer picks.
+- `[ ]` `TelemetryService` to validate and persist incoming readings, with an ingest endpoint or Kafka inbound binding (decide which; the dashboard's metric panels currently read from `Stat`, so a second store means changing `web` too).
+- `[ ]` Publish `IoTDataReceivedEvent` to a `raw-telemetry` topic on each saved reading, so the professional service can react. Define the payload schema and topic configuration. Note `patient-events` already exists as a working pattern — envelope, key, idempotency — and a second topic should justify not reusing it.
+- `[ ]` **Load expectations first, not fourth.** Document expected reading volume per patient per day before choosing collection design or retention. Every other item here is downstream of the answer.
 - `[ ]` Integration tests using the existing Testcontainers Kafka setup, asserting both persistence and the emitted event.
 
 ## Phase D — platform hardening
