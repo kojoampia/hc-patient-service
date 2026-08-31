@@ -269,8 +269,7 @@ unwired**; a case retired there is still in every other clinician's queue and re
       every profile, and `(024) 555` — how people write phone numbers — arrives as a syntax error.
 - [ ] **No index, and it is not one line.** A regex scan is fine at the current size and will not stay fine — but `GET /api/profiles?search=` does **case-insensitive substring** matching across six fields, and a leading-wildcard regex cannot use a btree index at all. Adding one changes nothing.
 
-      So the decision is what the search *means*: a text index or a prefix-anchored regex would make it indexable and would stop "ojo" matching "kojo", which is what an administrator typing a fragment of a name expects today. That is a product change wearing an index's clothes, and it should be taken as one.
-      normalised search field is the next step if the directory keeps growing.
+      So the decision is what the search *means*: a text index or a prefix-anchored regex would make it indexable and would stop "ojo" matching "kojo", which is what an administrator typing a fragment of a name expects today. That is a product change wearing an index's clothes, and it should be taken as one. A normalised search field is the next step if the directory keeps growing.
 
 ### Patient onboarding, care delegation and the first domain events (2026-08-19)
 
@@ -348,8 +347,6 @@ Open, and deliberately left so:
       saying it must be re-added by hand; if the domain ever grows a second such field, revisit this
       rather than repeat it.
 - [ ] **Two demo fields are not seeded** — confirmed still true 2026-08-31: `db.profile.findOne({_id:"patient-kojo"}).last_activity_at` is undefined. A patient's `lastActivityAt` (`ActivityLog` is the real source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
-      case with no `caseNumber` in the file is stored without one.
-      source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
       case with no `caseNumber` in the file is stored without one.
 
 ### Patient-context entities (branch `feature/patient-context-entities`, 2026-08-03)
@@ -459,7 +456,7 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
 - `[x]` **`Recommendation` added** (`id`, `label`, `category`) with repository, service, resource at
   `/api/recommendations` — unpaged, per its `"pagination": "no"` — and a full CRUD integration test.
   It is the first entity here with a relationship, so the first use of `@DBRef`.
-- `[ ]` **Migrate existing `med_case` documents.** This is not a collection rename: `clinicalcase`
+- `[x]` **`med_case` dropped rather than migrated — 2026-08-31.** This is not a collection rename: `clinicalcase`
   has fields the old documents have no source for. A migration has to decide, per document, what
   `patientId` is (the old entity never recorded one), map `diagnoses` to `diagnosis`, turn the
   free-text `recommendations` string into `Recommendation` documents plus `@DBRef`s, and drop
@@ -473,16 +470,26 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
   answer" applies. `grep` also finds no `med_case` or `MedCase` anywhere in `src/`, so the _code_ has
   no residue either.
 
-  `[ ]` **Production is still unchecked** and is the only reading that decides this. Blocked here
-  rather than skipped — the command is available to anyone with ssh:
+  `[x]` **Closed as a drop — architect's decision, 2026-08-31.** The four hard mapping decisions
+  above never have to be made.
+
+  **Production was never read, and that is the honest state of this entry.** The command below was
+  attempted: `ssh webserver` works and `hc-patient-mongodb` is running, but `mongosh` answers
+  `Command listCollections requires authentication`, and reading the credentials from inside the
+  container was refused. So this closes on quality plus the source tree, **by inference rather than
+  by measurement** — which is exactly the kind of distinction this file exists to record, and a
+  future reader should not mistake the tick for a reading.
 
   ```bash
   ssh webserver 'docker exec hc-patient-mongodb mongosh --quiet \
+    -u <root user> -p <root pass> --authenticationDatabase admin \
     --eval "db.getSiblingDB(\"hcPatientService\").getCollectionNames().sort()"'
   ```
 
-  Expect no `med_case`. If that holds, this entry closes as a drop rather than a migration, and the
-  four hard mapping decisions above never have to be made.
+  **What it costs if the inference is wrong, which is why closing it is defensible.** Nothing drops
+  the collection: any `med_case` documents in production become _unreachable_, not deleted. The
+  decision is therefore reversible by writing the change unit later, against data that is still
+  there. Closing it wrongly costs a re-open; leaving it open cost an item nobody could action.
 
 - `[ ]` Decide whether `Stat` is the home for vitals or whether `VitalStatistic` (Phase C) supersedes it — do this before adding more fields to either.
 
