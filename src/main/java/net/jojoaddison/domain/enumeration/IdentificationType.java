@@ -14,13 +14,19 @@ import java.util.Optional;
  * somebody typed is what they and their care team then read back. The web form is a plain
  * {@code <input required>}; only its own spec ever used an enum-shaped value ({@code GHANA_CARD}).</p>
  *
- * <h2>This list is a starting position, not a legal ruling</h2>
+ * <h2>The Ghana Card, and nothing else — ruled 2026-08-31</h2>
  *
- * <p><b>Which documents BridgeCare accepts as identification is a product and compliance question, and nobody has
- * answered it.</b> These five are the ones in common use in Ghana and are proposed, not settled — the same posture
- * {@code ScopeOfPractice} takes about its table, and for the same reason: a wrong entry here should be a one-line
- * change, and pretending the question is closed is how it stops being asked. Adding or removing a constant is
- * exactly that one line.</p>
+ * <p>This was five constants and marked <em>proposed, not settled</em>. It is now one, and settled: <b>BridgeCare
+ * accepts the Ghana Card as identification and does not accept passports, voter IDs, NHIS cards or driving
+ * licences.</b></p>
+ *
+ * <p>The reasoning is worth keeping, because a single-constant enum looks like an oversight to anybody who meets it
+ * cold. The national ID is mandatory and universal, so <b>accepting alternatives buys nothing and invites ambiguity
+ * about what was actually verified</b> — two patients holding "verified identification" would mean two different
+ * things, and neither the record nor the person reading it could tell which.</p>
+ *
+ * <p>A single value is <em>not</em> a reason to collapse this back to a bare {@code String}. The type is what stops
+ * the next document type being added by somebody typing it into a form.</p>
  *
  * <h2>Deliberately tolerant on read, canonical on write</h2>
  *
@@ -36,15 +42,21 @@ import java.util.Optional;
  * the clients.</b> The web form still posts free text; a strict service would answer 400 to every new patient
  * completing step 5, with the clients none the wiser. That is precisely the cross-repo ordering failure the
  * {@code Stat} pagination work already cost this subsystem, so {@link #canonicalise(String)} normalises what it
- * recognises and passes through what it does not. Tightening to strict rejection is a later change, safe only once
- * both clients ship a constrained control.</p>
+ * recognises and passes through what it does not.</p>
+ *
+ * <p><b>Narrowing the list to one made that tolerance more load-bearing, not less</b> — which is the opposite of
+ * how it reads. Four constants were removed on 2026-08-31, so a patient who completed onboarding before then with
+ * a passport has {@code PASSPORT} stored on their profile. Binding the field to this enum, or rejecting values not
+ * in it, would turn that patient's own profile screen into an error. The value is no longer <em>accepted</em>; it
+ * is still <em>readable</em>, and those are different questions. Quality holds no such values (3 profiles, all
+ * {@code card_type} null) and production has never been readable from here, so this is written as a guarantee
+ * rather than as an assumption that none exist.</p>
+ *
+ * <p>Tightening to strict rejection therefore remains a later change, and one that would need a migration for any
+ * stored value that is no longer accepted — not merely a client that has caught up.</p>
  */
 public enum IdentificationType {
-    GHANA_CARD("Ghana Card"),
-    PASSPORT("Passport"),
-    VOTER_ID("Voter ID"),
-    NHIS("NHIS card"),
-    DRIVERS_LICENCE("Driver's licence");
+    GHANA_CARD("Ghana Card");
 
     private final String label;
 
@@ -78,9 +90,10 @@ public enum IdentificationType {
                 return Optional.of(type);
             }
         }
-        // "DRIVERS_LICENSE" — the American spelling, which somebody will type.
-        if ("DRIVERS_LICENSE".equals(key) || "DRIVING_LICENCE".equals(key) || "DRIVING_LICENSE".equals(key)) {
-            return Optional.of(DRIVERS_LICENCE);
+        // "NATIONAL_ID" and "GHANACARD" are what people write for the same document. Recognising them here is
+        // what keeps the stored value single-valued; it is not a second accepted document type.
+        if ("NATIONAL_ID".equals(key) || "GHANACARD".equals(key) || "GHANA_NATIONAL_ID".equals(key)) {
+            return Optional.of(GHANA_CARD);
         }
         return Optional.empty();
     }

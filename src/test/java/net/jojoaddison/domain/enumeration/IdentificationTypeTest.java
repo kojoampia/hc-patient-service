@@ -29,12 +29,26 @@ class IdentificationTypeTest {
     }
 
     @ParameterizedTest
-    @DisplayName("both spellings of driver's licence resolve, including the American one")
-    @ValueSource(strings = { "DRIVERS_LICENCE", "drivers_license", "Driving licence", "driving_license" })
-    void recognisesBothSpellingsOfDriversLicence(String typed) {
-        // Somebody will type the American spelling. Treating it as a different document would split the same
-        // licence across two values for no reason a patient would recognise.
-        assertThat(IdentificationType.from(typed)).contains(IdentificationType.DRIVERS_LICENCE);
+    @DisplayName("the ways people write the national ID all resolve to Ghana Card")
+    @ValueSource(strings = { "NATIONAL_ID", "GhanaCard", "ghana_national_id", "national id" })
+    void recognisesTheNationalIdSpellings(String typed) {
+        // Recognising these keeps the STORED value single-valued. It is not a second accepted document type.
+        assertThat(IdentificationType.from(typed)).contains(IdentificationType.GHANA_CARD);
+        assertThat(IdentificationType.canonicalise(typed)).isEqualTo("GHANA_CARD");
+    }
+
+    @ParameterizedTest
+    @DisplayName("a type that is no longer ACCEPTED is still READABLE")
+    @ValueSource(strings = { "PASSPORT", "VOTER_ID", "NHIS", "DRIVERS_LICENCE" })
+    void removedTypesStillRead(String storedBeforeTheRuling) {
+        // These four were accepted until 2026-08-31. A patient who onboarded with a passport has PASSPORT sitting
+        // on their profile right now. Binding the field to this enum, or rejecting what is not in it, would turn
+        // that patient's own profile screen into an error.
+        //
+        // No longer ACCEPTED and still READABLE are different questions, and this is the test that keeps them
+        // apart when somebody later "finishes" the narrowing.
+        assertThat(IdentificationType.from(storedBeforeTheRuling)).isEmpty();
+        assertThat(IdentificationType.canonicalise(storedBeforeTheRuling)).isEqualTo(storedBeforeTheRuling);
     }
 
     @Test
