@@ -691,20 +691,21 @@ was told they were forgotten not forgotten.
   **this service says what happened; the gateway decides what to do about it**, exactly as
   `CareDelegationChanged` already works.
 
-  `[ ]` **What the gateway still has to do, and the decision inside it.** Consume
-  `DeletionRequestChanged` where `change == COMPLETED`, and then either **delete** the `User` or
-  **deactivate** it. That is a product decision and not a small one:
+  `[x]` **Done in the gateway, 2026-08-31: it deactivates.** `DeletionAccountCloser` consumes
+  `DeletionRequestChanged` where `change == COMPLETED` and sets `activated = false`. Decided by the
+  architect against deleting the `User`.
 
-  - _Delete_ is what the patient asked for and what Play and GDPR expect, and it removes the email — which
-    is itself personal data they asked to be rid of. It also breaks the link from the retained
-    `DeletionRequest` back to a login that no longer exists.
-  - _Deactivate_ keeps the audit trail whole and keeps the email, which is the thing being erased everywhere
-    else in this flow. Retaining it in the one service that was not erased reads as an oversight even when
-    it is a choice.
+  The reasoning, because it constrains this service too: deleting is what the patient literally asked for
+  and would remove their email; deactivating keeps the audit trail, since the `DeletionRequest` this
+  service retains names a login, and a login resolving to nothing is a weaker record than one resolving
+  to a closed account. **The price is that an email address survives the erasure** — the one piece of
+  personal data removed everywhere else in this flow. That is a stated cost, not an oversight, and
+  changing it changes the privacy policy and the Play data-safety declaration with it.
 
-  The `DeletionRequest` is retained as evidence either way, and it already stores `requestedByEmail` and
-  `requestedByLogin` — so **delete loses nothing that the evidence record does not already hold**, which is
-  the argument for delete. Somebody has to say so.
+  Two things worth keeping here rather than only there. **This service still must not call the gateway** —
+  the direction is right and the original entry had it backwards. And **ordering stopped mattering** once
+  the answer was deactivation: a delete would have had to follow the notification mail, because the mail
+  resolves its recipient by looking the account up.
 
 - `[x]` **The silence is fixed on this side — 2026-08-31.** `DeletionRequestChanged` is published on all four
   transitions (`RAISED`, `CANCELLED`, `COMPLETED`, `REJECTED`) with a `change` discriminator, one type on one
