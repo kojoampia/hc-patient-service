@@ -3,12 +3,15 @@ package net.jojoaddison.web.rest;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.repository.PaymentOptionRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.ArchiveSupport;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -168,8 +171,24 @@ public class PaymentOptionResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of paymentOptions in body.
      */
     @GetMapping("")
-    public List<PaymentOption> getAllPaymentOptions(@RequestParam(required = false) String patientId) {
+    public List<PaymentOption> getAllPaymentOptions(
+        @RequestParam(required = false) String patientId,
+        @RequestParam(name = "includeArchived", required = false, defaultValue = "false") boolean includeArchived
+    ) {
         log.debug("REST request to get all PaymentOptions");
+        // Archived options are excluded unless asked for, and that is the half of archiving a client actually sees:
+        // the point of retiring an expired card is that it stops appearing beside the live one. A default of
+        // "everything" would leave every caller to remember to filter.
+        //
+        // Excluded from the list, not hidden: GET /{id} still returns an archived option, so a link keeps working
+        // and nothing has to be un-archived merely to be read.
+        if (!includeArchived) {
+            return patientScope.findScoped(
+                patientId,
+                paymentOptionRepository::findByArchivedAtIsNull,
+                paymentOptionRepository::findByUserIDAndArchivedAtIsNull
+            );
+        }
         return patientScope.findScoped(patientId, paymentOptionRepository::findAll, paymentOptionRepository::findByUserID);
     }
 
@@ -207,5 +226,70 @@ public class PaymentOptionResource {
         }
         paymentOptionRepository.deleteById(id);
         return ResponseEntity.noContent().headers(HeaderUtil.createEntityDeletionAlert(applicationName, false, ENTITY_NAME, id)).build();
+    }
+
+    /**
+     * {@code POST  /payment-options/:id/archive} : retire a payment option.
+     *
+     * <p>The replacement for the {@code DELETE} a patient does not have. An expired card should stop appearing
+     * beside a live one, and until now there was no way to make it — of the five administrative resources,
+     * {@code PaymentOption} is the only one with no existing field that could stand in for retirement
+     * ({@code Membership} has {@code status}, {@code PersonalDocument} has {@code expiresOn}, and ending a
+     * {@code Profile} already has a verb in {@code DeletionRequest}).</p>
+     *
+     * <p><b>Guarded by {@link net.jojoaddison.security.PatientScope} alone, like every other write here, and
+     * deliberately not by {@code ROLE_ADMIN}.</b> This is billing housekeeping on somebody's own record: the person
+     * whose card expired is exactly who should be able to retire it, and requiring an administrator would make the
+     * feature useless to the only person who routinely needs it. It is also not {@code requireWrite}, because that
+     * takes a {@code ClinicalDomain} and a payment option has none — the scope-of-practice table has nothing to say
+     * about a card.</p>
+     */
+    @PostMapping("/{id}/archive")
+    public ResponseEntity<PaymentOption> archivePaymentOption(
+        @PathVariable("id") String id,
+        @RequestBody(required = false) Map<String, String> body
+    ) {
+        log.debug("REST request to archive PaymentOption : {}", id);
+        String reason = body == null ? null : body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestAlertException("An archive must say why", ENTITY_NAME, "reasonrequired");
+        }
+        // Visibility before existence, exactly as the read endpoints do: a caller who may not see a record must not
+        // be able to learn that it exists by archiving it.
+        if (paymentOptionRepository.findById(id).filter(current -> patientScope.isVisible(current.getUserID())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        PaymentOption archived = ArchiveSupport.archive(
+            paymentOptionRepository.findById(id),
+            id,
+            SecurityUtils.getCurrentUserLogin().orElse(null),
+            reason.trim(),
+            ENTITY_NAME,
+            "payment option",
+            paymentOptionRepository::save
+        );
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(archived);
+    }
+
+    /**
+     * {@code POST  /payment-options/:id/unarchive} : put a retired payment option back.
+     *
+     * <p>Same authority as archiving. Retiring a card by mistake should be undoable by whoever did it — a one-way
+     * archive is a delete with extra steps.</p>
+     */
+    @PostMapping("/{id}/unarchive")
+    public ResponseEntity<PaymentOption> unarchivePaymentOption(@PathVariable("id") String id) {
+        log.debug("REST request to unarchive PaymentOption : {}", id);
+        if (paymentOptionRepository.findById(id).filter(current -> patientScope.isVisible(current.getUserID())).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        PaymentOption restored = ArchiveSupport.unarchive(
+            paymentOptionRepository.findById(id),
+            id,
+            ENTITY_NAME,
+            "payment option",
+            paymentOptionRepository::save
+        );
+        return ResponseEntity.ok().headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, id)).body(restored);
     }
 }

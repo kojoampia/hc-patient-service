@@ -190,7 +190,7 @@ each changes what the code should say and none of them is in it yet.
       authority is **derived** from each entity's domain rather than named per endpoint, so archiving
       can never be wider than editing, and `ArchiveEveryClinicalRecordIT` asserts that property for
       all ten.
-- [~] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
+- [~] **Four of the five administrative resources are deliberately not done; `PaymentOption` now is**: `Address`, `Membership`,
   `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
   one is a different act — archiving a `Profile` deactivates a patient, archiving a
   `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
@@ -215,9 +215,30 @@ each changes what the code should say and none of them is in it yet.
       | `PaymentOption` | **none** | The clearest case for archiving, and the only one with no field that could stand in |
       | `Profile` | `onboardingStatus` | Probably **not** archiving at all: ending a patient relationship already has a verb — `DeletionRequest` and `PatientErasureService`. A second one that deactivates rather than erases needs to justify itself against that, not against the clinical pattern |
 
-      Answering those five is the work. `ArchiveSupport` and `Archivable` already exist from
-      `87a63a3`, so implementing whichever get a yes is small; deriving the authority from a
-      `ClinicalDomain` is the one part that will not transfer, since none of them has one.
+      **Answered for one of them, 2026-08-31: `PaymentOption` archives; the other four do not.** It was the
+      only one with nothing that could stand in — `Membership` has `status`, `PersonalDocument` has
+      `expiresOn`, an `Address` a patient has moved away from is history rather than something retired, and
+      ending a `Profile` already has a verb in `DeletionRequest`. An expired card had no way to stop
+      appearing beside a live one.
+
+      Two things about how it was built differ from the clinical entities, and both follow from these
+      resources mapping to no `ClinicalDomain`:
+
+      **It is guarded by `PatientScope` alone, not by a discipline and not by `ROLE_ADMIN`.** Every other
+      archive endpoint here requires a clinician because the thing being retired is clinical. A payment
+      option is billing housekeeping on somebody's own record, so the person whose card expired is exactly
+      who should retire it — requiring an administrator would make the feature useless to the only person
+      who routinely needs it. `PaymentOptionArchiveIT` runs as a patient deliberately, so that anyone
+      "tightening" this for consistency with the clinical endpoints has to argue past a test.
+
+      **It is not `requireWrite`**, because that takes a `ClinicalDomain` and there is none. The
+      scope-of-practice table has nothing to say about a card, which is the whole reason these five sat
+      outside the earlier archiving work.
+
+      The list excludes archived options unless `includeArchived=true`, matching `ClinicalCase` — retiring a
+      card is pointless if it still shows — while `GET /{id}` still returns one, so a link keeps working.
+
+      `[ ]` The other four stay open, with the questions above unchanged.
 
 Archiving had been the _named_ replacement for that lockdown since it landed, and had never existed —
 `PatientScopeEveryEndpointIT` said so in a comment, and `hc-professional/web` implemented it in a

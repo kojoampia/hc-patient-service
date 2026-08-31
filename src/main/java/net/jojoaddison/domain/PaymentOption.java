@@ -1,6 +1,7 @@
 package net.jojoaddison.domain;
 
 import java.io.Serializable;
+import java.time.Instant;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
@@ -10,7 +11,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
  */
 @Document(collection = "payment_option")
 @SuppressWarnings("common-java:DuplicatedBlocks")
-public class PaymentOption implements Serializable {
+public class PaymentOption implements Serializable, Archivable {
 
     private static final long serialVersionUID = 1L;
 
@@ -25,6 +26,32 @@ public class PaymentOption implements Serializable {
 
     @Field("metadata")
     private String metadata;
+
+    /**
+     * When this payment option was retired, or null while it is live.
+     *
+     * <p>A nullable instant rather than a boolean, matching the clinical entities: the question asked about a
+     * retired card afterwards is <em>who</em> and <em>why</em>, and a boolean records that it happened and loses
+     * both. Query with {@code IsNull}, never a boolean test — every row written before these fields existed has no
+     * {@code archived_at} key at all, and in MongoDB a null match also matches a missing field, so they all read as
+     * live with no migration.</p>
+     *
+     * <p><b>Why this entity and not the other four administrative ones</b> (decided 2026-08-31): it is the only one
+     * with no existing field that could stand in. {@code Membership} has {@code status}, {@code PersonalDocument}
+     * has {@code expiresOn}, an {@code Address} a patient has moved away from is arguably history rather than
+     * something archived, and ending a {@code Profile} already has a verb in {@code DeletionRequest}. An expired
+     * card had nothing.</p>
+     */
+    @Field("archived_at")
+    private Instant archivedAt;
+
+    /** The login of whoever archived it. Stamped from the caller, never accepted from a payload. */
+    @Field("archived_by_id")
+    private String archivedById;
+
+    /** Required when archiving. An archive with no reason is the delete this replaces. */
+    @Field("archive_reason")
+    private String archiveReason;
 
     // jhipster-needle-entity-add-field - JHipster will add fields here
 
@@ -78,6 +105,36 @@ public class PaymentOption implements Serializable {
 
     public void setMetadata(String metadata) {
         this.metadata = metadata;
+    }
+
+    @Override
+    public Instant getArchivedAt() {
+        return this.archivedAt;
+    }
+
+    @Override
+    public void setArchivedAt(Instant archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    @Override
+    public String getArchivedById() {
+        return this.archivedById;
+    }
+
+    @Override
+    public void setArchivedById(String archivedById) {
+        this.archivedById = archivedById;
+    }
+
+    @Override
+    public String getArchiveReason() {
+        return this.archiveReason;
+    }
+
+    @Override
+    public void setArchiveReason(String archiveReason) {
+        this.archiveReason = archiveReason;
     }
 
     // jhipster-needle-entity-add-getters-setters - JHipster will add getters and setters here
