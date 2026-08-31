@@ -236,4 +236,4 @@ Two things that will waste an afternoon if you meet them cold:
 - Don't bypass the JHipster alert-header/exception-translation conventions in `web/rest/errors`.
 - Follow ArchUnit layer boundaries in `TechnicalStructureTest` — a change that makes `service` depend on `web`, for example, will fail the build.
 - `bin/` is a gitignored stale copy of the project (its own `pom.xml`, `README.md`, `src/`). Never edit or cite files under `bin/`.
-- No CI workflows exist in `.github/workflows`; the `ci:*` npm scripts are there for a CI system to call but nothing is wired up.
+- **CI runs on every push and pull request** — `.github/workflows/build.yml` (`./mvnw verify` + dependency scan) and `release.yml` (GHCR publish on main), both since 2026-08-05. This line said no workflows existed until 2026-08-31. The `ci:*` npm scripts really are unused, though: the workflow calls `./mvnw` directly, so they are a third description of how this repo builds and nothing runs them.
