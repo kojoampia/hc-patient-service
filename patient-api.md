@@ -269,8 +269,7 @@ unwired**; a case retired there is still in every other clinician's queue and re
       every profile, and `(024) 555` — how people write phone numbers — arrives as a syntax error.
 - [ ] **No index, and it is not one line.** A regex scan is fine at the current size and will not stay fine — but `GET /api/profiles?search=` does **case-insensitive substring** matching across six fields, and a leading-wildcard regex cannot use a btree index at all. Adding one changes nothing.
 
-      So the decision is what the search *means*: a text index or a prefix-anchored regex would make it indexable and would stop "ojo" matching "kojo", which is what an administrator typing a fragment of a name expects today. That is a product change wearing an index's clothes, and it should be taken as one.
-      normalised search field is the next step if the directory keeps growing.
+      So the decision is what the search *means*: a text index or a prefix-anchored regex would make it indexable and would stop "ojo" matching "kojo", which is what an administrator typing a fragment of a name expects today. That is a product change wearing an index's clothes, and it should be taken as one. A normalised search field is the next step if the directory keeps growing.
 
 ### Patient onboarding, care delegation and the first domain events (2026-08-19)
 
@@ -348,8 +347,6 @@ Open, and deliberately left so:
       saying it must be re-added by hand; if the domain ever grows a second such field, revisit this
       rather than repeat it.
 - [ ] **Two demo fields are not seeded** — confirmed still true 2026-08-31: `db.profile.findOne({_id:"patient-kojo"}).last_activity_at` is undefined. A patient's `lastActivityAt` (`ActivityLog` is the real source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
-      case with no `caseNumber` in the file is stored without one.
-      source) and `isChild` (derivable from `dateOfBirth`). Nothing was invented to fill a gap — a
       case with no `caseNumber` in the file is stored without one.
 
 ### Patient-context entities (branch `feature/patient-context-entities`, 2026-08-03)
