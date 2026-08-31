@@ -551,10 +551,19 @@ The blueprint asked for first/last name, mobile, email, **long-lat**, **digital 
   That is exactly the cross-repo ordering failure `Stat` pagination already cost this subsystem. Tightening to
   strict rejection is a **later** change and is safe only once both clients ship a constrained control.
 
-  `[ ]` **The accepted list is a product and compliance question nobody has answered.** Those five are the ones in
-  common use in Ghana and are _proposed_. The enum says so at its top, taking the same posture `ScopeOfPractice`
-  takes about its table and for the same reason: adding or removing a constant must stay a one-line change, and
-  pretending the question is closed is how it stops being asked.
+  `[x]` **Ruled 2026-08-31: the Ghana Card, and nothing else.** `PASSPORT`, `VOTER_ID`, `NHIS` and
+  `DRIVERS_LICENCE` are removed. The national ID is mandatory and universal, so accepting alternatives buys
+  nothing and invites ambiguity about what was actually verified — two patients holding "verified
+  identification" would otherwise mean two different things, with neither the record nor the reader able to
+  tell which.
+
+  **Narrowing made `canonicalise()`'s tolerance more load-bearing, not less, which is the opposite of how it
+  reads.** A patient who onboarded before the ruling has `PASSPORT` stored on their profile today. Binding
+  the field to the enum, or rejecting what is not in it, would turn that patient's own profile screen into an
+  error. No longer _accepted_ and still _readable_ are different questions, and `removedTypesStillRead` is
+  the test that keeps them apart when somebody later "finishes" this. Quality holds no such values and
+  production has never been readable from here, so that is a guarantee rather than an assumption that none
+  exist. Strict rejection would now need a **migration**, not merely a client that has caught up.
 
   `[ ]` **The clients still send and render free text.** `onboarding.component.html` is an `<input>`, and
   `portal/profile/profile.component.html` renders `person.cardType` raw — so a patient who picks Ghana Card is
