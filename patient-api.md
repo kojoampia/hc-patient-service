@@ -190,12 +190,34 @@ each changes what the code should say and none of them is in it yet.
       authority is **derived** from each entity's domain rather than named per endpoint, so archiving
       can never be wider than editing, and `ArchiveEveryClinicalRecordIT` asserts that property for
       all ten.
-- [ ] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
-      `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
-      one is a different act — archiving a `Profile` deactivates a patient, archiving a
-      `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
-      answered a question nobody has asked. **What is needed first is the decision about what
-      archiving one of these means**, not more code.
+- [~] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
+  `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
+  one is a different act — archiving a `Profile` deactivates a patient, archiving a
+  `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
+  answered a question nobody has asked. **What is needed first is the decision about what
+  archiving one of these means**, not more code.
+
+      **Their security is complete, and that is worth stating so nobody re-derives it** (checked
+      2026-08-31). All five carry `PatientScope` — 11 call sites each, 13 in `ProfileResource` — and
+      all five require `ROLE_ADMIN` to `DELETE`. What they lack is `requireRead`/`requireWrite`, and
+      that is correct rather than missing: those take a `ClinicalDomain`, and the scope-of-practice
+      table has nothing to say about a payment option. *Whose records* is answered; *what kind of
+      data* does not apply. **The only gap is archiving.**
+
+      **The decision, made cheap.** It is five questions rather than one, and three of them are
+      nearly answered by fields the entities already carry:
+
+      | | Existing lifecycle fields | The question |
+      | --- | --- | --- |
+      | `Membership` | `status`, `startDate`, `renewalDate` | Does `status` already *mean* archived? If so this is a no-op |
+      | `PersonalDocument` | `expiresOn` | Is an expired ID archived, or merely expired? They are not the same — an expired passport is still the identity document that was checked at onboarding |
+      | `Address` | `createdDate`, `modifiedDate` | A patient who moves: is the old address archived, or is the collection append-only so a 2024 visit still resolves where they lived then? |
+      | `PaymentOption` | **none** | The clearest case for archiving, and the only one with no field that could stand in |
+      | `Profile` | `onboardingStatus` | Probably **not** archiving at all: ending a patient relationship already has a verb — `DeletionRequest` and `PatientErasureService`. A second one that deactivates rather than erases needs to justify itself against that, not against the clinical pattern |
+
+      Answering those five is the work. `ArchiveSupport` and `Archivable` already exist from
+      `87a63a3`, so implementing whichever get a yes is small; deriving the authority from a
+      `ClinicalDomain` is the one part that will not transfer, since none of them has one.
 
 Archiving had been the _named_ replacement for that lockdown since it landed, and had never existed —
 `PatientScopeEveryEndpointIT` said so in a comment, and `hc-professional/web` implemented it in a
