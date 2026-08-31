@@ -19,8 +19,12 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
   be wrong, flagged rather than buried: whether a carer may read the diagnosis (currently no),
   whether a therapist may write observations (no), whether a paramedic should write medications
   given at scene (no). Correcting it is a two-line change in one file, deliberately.
-- [ ] **Reads are not filtered.** `canRead`/`requireRead` exist and are tested; nothing calls them, so
-      today the table restricts writing only.
+- [x] **Reads are filtered — done 2026-08-24, `ec9886f`.** `requireRead` guards all **23** GET
+      endpoints across the eleven scoped resources, each on the domain that resource already used for
+      writes and in the same position, so the two read alike. Re-counted 2026-08-30: 23 GETs, 23
+      guards, no resource holding one without the other. **This box stayed open for six days after the
+      work landed**, next to a paragraph in this same file describing `ScopeOfPracticeReadsIT` passing
+      — the entry and its own evidence disagreeing, one screen apart.
 - [x] **`RecommendationResource` stays unscoped, and that was the right answer — settled 2026-08-31.**
       It has no `patientId` and no `PatientScope` because it is a catalogue: measured on quality, 39
       rows of the shape `{label: "HbA1c blood test", category: "diagnostic"}`, shared across every
@@ -128,15 +132,25 @@ each changes what the code should say and none of them is in it yet.
       `ScopeOfPracticeReadsIT` asserts the endpoints rather than the table — a test saying "a
       pharmacist cannot read DIAGNOSIS" against `ScopeOfPractice` restates the table in more words,
       while one saying `GET /api/clinical-cases` returns 403 is the thing that would have failed
-      before. 559 ITs green. **Archiving is still outstanding**, and is the second half below.
+      before. 559 ITs green. Archiving followed the same day and is the second half below.
 
-- [ ] ~~**Reads get filtered before archiving is extended**~~, and both are ahead of the rest of this
-      backlog. They are the two cross-cutting authorization items here rather than features. Reads
-      first because it is the disclosure risk: `canRead`/`requireRead` exist and are tested and
-      **nothing calls them**, so the scope-of-practice model is enforced on writes only and a
-      pharmacist can read a diagnosis today. Archiving second because it is a usability gap rather than
-      an exposure — the DELETE lockdown covers sixteen resources and archiving replaces the delete for
-      exactly one. Two PRs, reads then archiving.
+- [x] ~~**Reads get filtered before archiving is extended**~~ — **both done 2026-08-24**, in that
+      order, as two PRs: `ec9886f` then `87a63a3`. They were the two cross-cutting authorization items
+      here rather than features. Reads first because it was the disclosure risk — `canRead`/
+      `requireRead` were written on 2026-08-22, unit tested, and called by nothing, so a pharmacist
+      who may write medications and nothing else could read every diagnosis in the database. The
+      builds were green throughout, because the unit tests exercise the _table_ rather than the
+      _endpoints_: the model was correct and simply unasked.
+
+      **That is the failure mode to carry forward.** A security control with passing tests and no call
+      site is worse than an absent one, because the tests report it working. What closed the gap was
+      not more table tests but `ScopeOfPracticeReadsIT`, which asserts a 403 from a URL.
+
+      Archiving second because it was a usability gap rather than an exposure: the DELETE lockdown
+      covers sixteen resources and archiving replaced the delete for exactly one. Ten more got it in
+      `87a63a3` — every resource that maps to a `ClinicalDomain` — behind one `ArchiveSupport` and an
+      `Archivable` interface rather than ten copies of the same forty lines, and with the authority
+      *derived* from each entity's domain rather than named per resource.
 
 ### `ROLE_PROFESSIONAL` removed from the platform (2026-08-24)
 
@@ -451,8 +465,25 @@ Three of these fail _silently_ rather than loudly, and are the ones to remember:
   free-text `recommendations` string into `Recommendation` documents plus `@DBRef`s, and drop
   `closeDate`/`category`/audit fields. `openedAt` can come from `open_date`, and `brief` has no
   source at all. If the deployed database has no `med_case` documents worth keeping — check before
-  assuming — dropping the collection is the cheaper answer. This service still has no migration
-  framework (Phase B tracks that).
+  assuming — dropping the collection is the cheaper answer. ~~This service still has no migration
+  framework (Phase B tracks that).~~ **It has Mongock; see Phase B, corrected 2026-08-30.**
+
+  **Checked, half of it: quality has no `med_case` collection.** Its 22 collections are the current
+  model plus `mongockChangeLog`/`mongockLock`, so there is nothing there to migrate and the "cheaper
+  answer" applies. `grep` also finds no `med_case` or `MedCase` anywhere in `src/`, so the _code_ has
+  no residue either.
+
+  `[ ]` **Production is still unchecked** and is the only reading that decides this. Blocked here
+  rather than skipped — the command is available to anyone with ssh:
+
+  ```bash
+  ssh webserver 'docker exec hc-patient-mongodb mongosh --quiet \
+    --eval "db.getSiblingDB(\"hcPatientService\").getCollectionNames().sort()"'
+  ```
+
+  Expect no `med_case`. If that holds, this entry closes as a drop rather than a migration, and the
+  four hard mapping decisions above never have to be made.
+
 - `[ ]` Decide whether `Stat` is the home for vitals or whether `VitalStatistic` (Phase C) supersedes it — do this before adding more fields to either.
 
 ### `Profile` vs the blueprint spec
