@@ -16,6 +16,7 @@ import net.jojoaddison.domain.Stat;
 import net.jojoaddison.domain.enumeration.ActivitySource;
 import net.jojoaddison.domain.enumeration.AllergyCategory;
 import net.jojoaddison.domain.enumeration.AllergySeverity;
+import net.jojoaddison.domain.enumeration.IdentificationType;
 import net.jojoaddison.domain.enumeration.MedicationStatus;
 import net.jojoaddison.domain.enumeration.OnboardingStatus;
 import net.jojoaddison.domain.enumeration.StatSource;
@@ -325,7 +326,12 @@ public class OnboardingService {
         requireText(identification == null ? null : identification.cardType(), "ID type");
         requireText(identification.cardNumber(), "ID number");
 
-        profile.setCardType(identification.cardType());
+        // Canonicalised, not validated. IdentificationType.canonicalise never rejects: the web form is still a
+        // free-text input, so a service that refused unrecognised values would answer 400 to every patient
+        // finishing onboarding the moment it deployed ahead of the clients — the same cross-repo ordering failure
+        // the Stat pagination work already cost this subsystem. Tightening to strict rejection is safe only once
+        // both clients ship a constrained control.
+        profile.setCardType(IdentificationType.canonicalise(identification.cardType()));
         profile.setCardNumber(identification.cardNumber());
         Profile advanced = advance(profile, STEP_IDENTIFICATION);
         publishStep(advanced, STEP_IDENTIFICATION, "identification");
