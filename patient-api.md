@@ -25,8 +25,31 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
       guards, no resource holding one without the other. **This box stayed open for six days after the
       work landed**, next to a paragraph in this same file describing `ScopeOfPracticeReadsIT` passing
       — the entry and its own evidence disagreeing, one screen apart.
-- [ ] `RecommendationResource` is not wired — it has no `patientId` and no `PatientScope`, being
-      reference data joined to a case rather than a patient record.
+- [x] **`RecommendationResource` stays unscoped, and that was the right answer — settled 2026-08-31.**
+      It has no `patientId` and no `PatientScope` because it is a catalogue: measured on quality, 39
+      rows of the shape `{label: "HbA1c blood test", category: "diagnostic"}`, shared across every
+      patient. Its two GETs carry no `@PreAuthorize` either, which matches `Team`, `Professional` and
+      `DutyRoster` exactly. Scoping it would have been wrong — a patient reading a list of test names
+      learns nothing about anybody.
+
+      **But the entity carried a disclosure channel, and closing it is what this item became.**
+      `Recommendation.clinicalCases` is the inverse side of the many-to-many, populated by nothing in
+      this service — and a `ClinicalCase` carries `patientId`, a title and clinical notes. On an
+      endpoint any authenticated caller may read. There is a live write path: `POST`/`PUT` here take
+      a whole `Recommendation` body and a clinical caller controls it, so the day anything sets that
+      field, `GET /api/recommendations` starts handing every patient a list of other patients' cases.
+
+      **`@JsonIgnoreProperties(value = { "recommendations" })` was not a control and reads like one.**
+      It suppresses the nested `recommendations` field on each case — it is there to break the
+      serialization cycle — and leaves the `ClinicalCase` objects themselves fully in the response.
+      Now `@JsonIgnore`, in both directions. Nothing is lost: the relationship is navigable from the
+      case, which is where a caller allowed to see it already is, and every client reads the owning
+      side (`case.recommendations`) — the portal's case detail and the generated case form both do.
+
+      `RecommendationDisclosureIT` **populates the inverse side deliberately** and then asserts the
+      field is absent. That matters more than the assertion: against the seeded data the test passes
+      whatever the annotation says, because every `clinicalCases` array is empty. A control and an
+      empty collection look identical until you write something into it.
 
 The request was to _port_ hc-professional's gateway authority rules. **There were none to port.** That
 gateway defines the nine roles and seeds them as Authority documents, and nothing anywhere enforces
@@ -181,12 +204,34 @@ each changes what the code should say and none of them is in it yet.
       authority is **derived** from each entity's domain rather than named per endpoint, so archiving
       can never be wider than editing, and `ArchiveEveryClinicalRecordIT` asserts that property for
       all ten.
-- [ ] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
-      `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
-      one is a different act — archiving a `Profile` deactivates a patient, archiving a
-      `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
-      answered a question nobody has asked. **What is needed first is the decision about what
-      archiving one of these means**, not more code.
+- [~] **The five administrative resources are deliberately not done**: `Address`, `Membership`,
+  `PaymentOption`, `PersonalDocument`, `Profile`. None maps to a `ClinicalDomain`, and retiring
+  one is a different act — archiving a `Profile` deactivates a patient, archiving a
+  `PaymentOption` is billing housekeeping. Copying the clinical pattern onto them would have
+  answered a question nobody has asked. **What is needed first is the decision about what
+  archiving one of these means**, not more code.
+
+      **Their security is complete, and that is worth stating so nobody re-derives it** (checked
+      2026-08-31). All five carry `PatientScope` — 11 call sites each, 13 in `ProfileResource` — and
+      all five require `ROLE_ADMIN` to `DELETE`. What they lack is `requireRead`/`requireWrite`, and
+      that is correct rather than missing: those take a `ClinicalDomain`, and the scope-of-practice
+      table has nothing to say about a payment option. *Whose records* is answered; *what kind of
+      data* does not apply. **The only gap is archiving.**
+
+      **The decision, made cheap.** It is five questions rather than one, and three of them are
+      nearly answered by fields the entities already carry:
+
+      | | Existing lifecycle fields | The question |
+      | --- | --- | --- |
+      | `Membership` | `status`, `startDate`, `renewalDate` | Does `status` already *mean* archived? If so this is a no-op |
+      | `PersonalDocument` | `expiresOn` | Is an expired ID archived, or merely expired? They are not the same — an expired passport is still the identity document that was checked at onboarding |
+      | `Address` | `createdDate`, `modifiedDate` | A patient who moves: is the old address archived, or is the collection append-only so a 2024 visit still resolves where they lived then? |
+      | `PaymentOption` | **none** | The clearest case for archiving, and the only one with no field that could stand in |
+      | `Profile` | `onboardingStatus` | Probably **not** archiving at all: ending a patient relationship already has a verb — `DeletionRequest` and `PatientErasureService`. A second one that deactivates rather than erases needs to justify itself against that, not against the clinical pattern |
+
+      Answering those five is the work. `ArchiveSupport` and `Archivable` already exist from
+      `87a63a3`, so implementing whichever get a yes is small; deriving the authority from a
+      `ClinicalDomain` is the one part that will not transfer, since none of them has one.
 
 Archiving had been the _named_ replacement for that lockdown since it landed, and had never existed —
 `PatientScopeEveryEndpointIT` said so in a comment, and `hc-professional/web` implemented it in a
@@ -523,9 +568,28 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 - `[ ]` Add indexes matching the query patterns actually used, once Phase B/C query shapes are known.
 - `[ ]` Decide on caching: `cacheProvider` is `"no"`; if read load justifies it, add Spring Cache deliberately rather than per-service ad hoc.
 - `[ ]` Rate limiting / abuse monitoring is not implemented in this service. Decide whether it belongs here or at the gateway.
-- `[ ]` Wire CI: `.github/workflows/` is empty while `ci:backend:test` and the `ci:e2e:*` scripts exist unused. The dashboard repo publishes to GHCR — mirror that choice or state the difference.
-- `[ ]` Remove or ignore the gitignored stale `bin/` copy of the project so it stops appearing in searches and IDE indexes.
-- `[ ]` Revisit the `api-docs` profile gate: OpenAPI is disabled unless that profile is active, which means no schema is published in normal dev runs.
+- `[x]` **CI is wired and has been since 2026-08-05** (`19349a3`) — corrected 2026-08-31, having read `.github/workflows/` rather than this entry. `build.yml` runs `./mvnw verify` and a dependency scan on every push and pull request; `release.yml` publishes to GHCR on push to main, which is the choice this entry asked somebody to make. `.github/workflows/` was empty when this was written and has not been for four weeks.
+
+  What is still true is the smaller half: `ci:backend:test` and the `ci:e2e:*` scripts are unused entry points, because the workflow calls `./mvnw` directly. `[ ]` Decide whether they are wired up or deleted — an npm script nothing calls is a third description of how this repo is built, after the workflow and the pom.
+
+- `[x]` **Deleted the stale `bin/` copy — 2026-08-31, and it was not only clutter.** 2.4 MB of Eclipse output: `.class` files mirroring the source tree, plus stale copies of `pom.xml`, `mvnw` and `README.md`. Already gitignored (`/bin/`), which is why "or ignore" was half-satisfied and the directory still turned up in every plain `grep` and IDE index.
+
+  **It also held the self-signed keystore that `977cf09` deleted for security on 2026-08-05.** `bin/src/main/resources/config/tls/keystore.p12` and `application-tls.yml`, byte-identical to the versions in history — verified by SHA-256 against `3ba67c7` before deleting anything, so nothing unique was lost. That commit removed a committed private key from the repository and the working copy survived it, unnoticed, for twenty-six days. Its own reasoning applies to a file on disk as much as to a file in git: _"a committed private key invites reuse, and reuse is how a worthless key becomes a real one."_
+
+  **The lesson is about the order of operations, not the key** — which is self-signed, development-only and worth nothing. Deleting a file from a repository does not delete it from the machines that have it, and a build-output directory is exactly where a deleted file goes on surviving. Had this item been closed the obvious way — `rm -rf bin` without looking — the security cleanup would have been completed by accident, and nobody would have known it had been incomplete.
+
+- `[x]` **`api-docs` posture decided: both gates stay — 2026-08-31.** Settled once for this service and the gateway together, since a decision made in one and not the other is how the two come apart.
+
+  There are two independent gates and they are not redundant:
+
+  1. `springdoc.api-docs.enabled: false` under the `!api-docs` Spring profile — springdoc is not loaded at all unless somebody asks for it. `-Papi-docs` appends `,api-docs` to the active profiles.
+  2. `/v3/api-docs/**` requires `ROLE_ADMIN` in `SecurityConfiguration`, on top.
+
+  The first decides whether the schema _exists_; the second decides who may read it when it does. **Turning the profile on does not publish anything to the world**, which is the property that makes the opt-in cheap rather than a lock somebody will route around.
+
+  Kept because of what the schema is here: a complete map of every endpoint and payload over a patient's health record. Production runs without the profile, so there is nothing to protect; a developer who wants Swagger runs `./mvnw -Papi-docs` and signs in as `admin`. The cost is one flag, occasionally, against a document nobody outside this project should be able to enumerate.
+
+  The complaint in the original entry — "no schema is published in normal dev runs" — is the gate working. Left as it is rather than defaulted on in `dev`, because `dev` is also what a laptop on a café network runs.
 
 ## Deletion requests — 2026-08-25
 

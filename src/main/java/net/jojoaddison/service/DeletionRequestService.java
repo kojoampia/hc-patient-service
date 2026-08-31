@@ -45,9 +45,15 @@ public class DeletionRequestService {
      * complete a request the day it arrives, and the patient may withdraw it up until they do.</p>
      *
      * <p><strong>Changing this number changes a published promise.</strong> The policy text at
-     * {@code abofonsa.com/privacy} states it, all three client locales state it, and every request already raised
+     * {@code web.abofonsa.com/privacy} states it, all three client locales state it, and every request already raised
      * keeps the {@code dueAt} it was given — see {@link DeletionRequest#getDueAt()}. Those four are the things that
      * have to move together.</p>
+     *
+     * <p>The host matters and this javadoc had it wrong until 2026-08-31. {@code abofonsa.com} is the
+     * launch-preview site, whose SPA fallback answers <b>200 with a countdown page</b> for any path — so the URL
+     * cited here as the place the promise is published served no promise at all, and both clients linked patients
+     * to it from the delete-my-record screen. The policy is on {@code web.abofonsa.com}. Verify that kind of claim
+     * by reading the page, never by its status code.</p>
      */
     public static final Duration WINDOW = Duration.ofDays(14);
 
