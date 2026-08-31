@@ -610,14 +610,59 @@ collection added later and not added there breaks nothing, reports success, and 
 was told they were forgotten not forgotten.
 
 - `[x]` Entity, service, resource, 28 integration tests.
-- `[ ]` **The gateway account is not closed by `complete`.** This service runs `skipUserManagement`
-  and holds no `User`; the login, password and authorities are the gateway's. Today that is a second
-  manual step against `hc-patient-gateway`'s `/api/admin/users/{login}`, and until it is done the
-  person can still sign in — they resolve to no patient and see an empty portal, which is correct but
-  is not the same thing as being gone. Worth automating, and it needs a decision about how this
-  service is permitted to call the gateway.
-- `[ ]` No notification. A patient is told the date on screen and then hears nothing; an
-  administrator sees the queue only by opening it. Both want mail.
+- `[~]` **The gateway account is not closed by `complete`, and the event that will close it now exists.**
+  This service runs `skipUserManagement` and holds no `User`; the login, password and authorities are the
+  gateway's. Today that is a second manual step against `hc-patient-gateway`'s `/api/admin/users/{login}`,
+  and until it is done the person can still sign in — they resolve to no patient and see an empty portal,
+  which is correct but is not the same thing as being gone.
+
+  **The original entry's own answer was wrong**, and worth correcting rather than deleting: it said this
+  "needs a decision about how this service is permitted to call the gateway". It should not call the
+  gateway at all. That would be a synchronous cross-service call in the one place where the caller has
+  already destroyed the data — if it failed, the record would be gone and the account would not, with no
+  queue holding the remainder. The direction of the existing arrangement is right and this follows it:
+  **this service says what happened; the gateway decides what to do about it**, exactly as
+  `CareDelegationChanged` already works.
+
+  `[ ]` **What the gateway still has to do, and the decision inside it.** Consume
+  `DeletionRequestChanged` where `change == COMPLETED`, and then either **delete** the `User` or
+  **deactivate** it. That is a product decision and not a small one:
+
+  - _Delete_ is what the patient asked for and what Play and GDPR expect, and it removes the email — which
+    is itself personal data they asked to be rid of. It also breaks the link from the retained
+    `DeletionRequest` back to a login that no longer exists.
+  - _Deactivate_ keeps the audit trail whole and keeps the email, which is the thing being erased everywhere
+    else in this flow. Retaining it in the one service that was not erased reads as an oversight even when
+    it is a choice.
+
+  The `DeletionRequest` is retained as evidence either way, and it already stores `requestedByEmail` and
+  `requestedByLogin` — so **delete loses nothing that the evidence record does not already hold**, which is
+  the argument for delete. Somebody has to say so.
+
+- `[x]` **The silence is fixed on this side — 2026-08-31.** `DeletionRequestChanged` is published on all four
+  transitions (`RAISED`, `CANCELLED`, `COMPLETED`, `REJECTED`) with a `change` discriminator, one type on one
+  topic so ordering per patient holds — a `COMPLETED` overtaking its own `RAISED` would tell somebody their
+  record is gone before telling them it was going.
+
+  Three things in it are load-bearing and are pinned by `DeletionRequestAnnouncementTest`:
+
+  **The email is read off the request, never looked up.** For `COMPLETED` the erasure has already taken the
+  `Profile`, so there is nothing left to resolve; `requestedByEmail` is stored at `raise` precisely so this
+  still works afterwards. Publishing _before_ the erasure instead would announce a completion that could
+  still fail.
+
+  **No `erasedCounts` and no `decisionReason`.** How many medications a patient had is a fact about their
+  record, and §8.4 says an event reports that something happened, never what it said —
+  `assertNothingClinical` would _not_ have caught this, because the offending key is `erasedCounts` rather
+  than a clinical word. An administrator's free text is unbounded for the same reason; the patient reads it
+  on their own request through `GET /api/deletion-requests/mine`.
+
+  **Publishing never fails the operation**, and this is the case where that is most tempting to "fix" into a
+  bug: by the time it runs, the erasure has happened and the request is saved. The record is already gone.
+  The event is a notification, never the mechanism.
+
+  `[ ]` The mail itself is the gateway's — only it can send. An administrator still sees the queue only by
+  opening it, which is a separate want.
 
 ## Working agreement for items above
 
