@@ -7,25 +7,20 @@ import java.util.Set;
 import java.util.function.Function;
 import net.jojoaddison.domain.ActivityLog;
 import net.jojoaddison.domain.ClinicalCase;
-import net.jojoaddison.domain.DutyRoster;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.domain.Professional;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.Recommendation;
 import net.jojoaddison.domain.Report;
-import net.jojoaddison.domain.Shift;
 import net.jojoaddison.domain.Visitation;
 import net.jojoaddison.domain.enumeration.CaseStatus;
-import net.jojoaddison.domain.enumeration.ShiftStatus;
 import net.jojoaddison.repository.ActivityLogRepository;
 import net.jojoaddison.repository.ClinicalCaseRepository;
-import net.jojoaddison.repository.DutyRosterRepository;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.repository.ProfessionalRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.repository.RecommendationRepository;
 import net.jojoaddison.repository.ReportRepository;
-import net.jojoaddison.repository.ShiftRepository;
 import net.jojoaddison.repository.VisitationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,8 +70,6 @@ public class DemoDataInitializer implements ApplicationRunner {
     private final String externalSeedLocation;
     private final ObjectMapper objectMapper;
     private final ProfessionalRepository professionalRepository;
-    private final DutyRosterRepository dutyRosterRepository;
-    private final ShiftRepository shiftRepository;
     private final RecommendationRepository recommendationRepository;
     private final ProfileRepository profileRepository;
     private final ClinicalCaseRepository clinicalCaseRepository;
@@ -89,8 +82,6 @@ public class DemoDataInitializer implements ApplicationRunner {
         @Value("${hc.seed.location:}") String externalSeedLocation,
         ObjectMapper objectMapper,
         ProfessionalRepository professionalRepository,
-        DutyRosterRepository dutyRosterRepository,
-        ShiftRepository shiftRepository,
         RecommendationRepository recommendationRepository,
         ProfileRepository profileRepository,
         ClinicalCaseRepository clinicalCaseRepository,
@@ -102,8 +93,6 @@ public class DemoDataInitializer implements ApplicationRunner {
         this.externalSeedLocation = externalSeedLocation;
         this.objectMapper = objectMapper;
         this.professionalRepository = professionalRepository;
-        this.dutyRosterRepository = dutyRosterRepository;
-        this.shiftRepository = shiftRepository;
         this.recommendationRepository = recommendationRepository;
         this.profileRepository = profileRepository;
         this.clinicalCaseRepository = clinicalCaseRepository;
@@ -133,7 +122,6 @@ public class DemoDataInitializer implements ApplicationRunner {
         // reference one.
         DemoData.array(root, "recommendations").forEach(this::seedRecommendation);
         DemoData.array(root, "professionals").forEach(this::seedProfessional);
-        DemoData.array(root, "dutyRosters").forEach(this::seedDutyRoster);
         DemoData.array(root, "patientRecords").forEach(this::seedPatientRecord);
 
         LOG.debug("Professional dashboard demo data is present");
@@ -180,35 +168,6 @@ public class DemoDataInitializer implements ApplicationRunner {
                     // field for. The gateway seeds that account as <login>@localhost, so the email is the join.
                     .email(login == null ? null : login + "@localhost")
         );
-    }
-
-    private void seedDutyRoster(JsonNode node) {
-        String rosterId = DemoData.text(node, "id");
-        saveIfMissing(
-            dutyRosterRepository,
-            rosterId,
-            id ->
-                new DutyRoster()
-                    .id(id)
-                    .name(DemoData.text(node, "name"))
-                    .subscribedProfessionalIds(DemoData.stringSet(node, "subscribedProfessionalIds"))
-        );
-        DemoData
-            .array(node, "shifts")
-            .forEach(shift ->
-                saveIfMissing(
-                    shiftRepository,
-                    DemoData.text(shift, "id"),
-                    id ->
-                        new Shift()
-                            .id(id)
-                            .rosterId(DemoData.text(shift, "rosterId"))
-                            .professionalId(DemoData.text(shift, "professionalId"))
-                            .startsAt(DemoData.instant(shift, "startsAt"))
-                            .endsAt(DemoData.instant(shift, "endsAt"))
-                            .status(shiftStatus(DemoData.text(shift, "status")))
-                )
-            );
     }
 
     private void seedPatientRecord(JsonNode record) {
@@ -355,16 +314,6 @@ public class DemoDataInitializer implements ApplicationRunner {
      */
     private static CaseStatus caseStatus(String status) {
         return parse(status, CaseStatus::valueOf);
-    }
-
-    /**
-     * Maps the demo file's lower-case shift status onto {@link ShiftStatus}.
-     *
-     * @param status the status as written in the demo file.
-     * @return the enum constant, or {@code null} when it is absent or unrecognised.
-     */
-    private static ShiftStatus shiftStatus(String status) {
-        return parse(status, ShiftStatus::valueOf);
     }
 
     private static <E> E parse(String status, Function<String, E> valueOf) {

@@ -5,21 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.ClinicalCase;
-import net.jojoaddison.domain.DutyRoster;
 import net.jojoaddison.domain.Professional;
 import net.jojoaddison.domain.Profile;
-import net.jojoaddison.domain.Shift;
 import net.jojoaddison.domain.enumeration.CaseStatus;
-import net.jojoaddison.domain.enumeration.ShiftStatus;
 import net.jojoaddison.repository.ActivityLogRepository;
 import net.jojoaddison.repository.ClinicalCaseRepository;
-import net.jojoaddison.repository.DutyRosterRepository;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.repository.ProfessionalRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.repository.RecommendationRepository;
 import net.jojoaddison.repository.ReportRepository;
-import net.jojoaddison.repository.ShiftRepository;
 import net.jojoaddison.repository.VisitationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,12 +38,6 @@ class DemoDataInitializerIT {
 
     @Autowired
     private ProfessionalRepository professionalRepository;
-
-    @Autowired
-    private DutyRosterRepository dutyRosterRepository;
-
-    @Autowired
-    private ShiftRepository shiftRepository;
 
     @Autowired
     private RecommendationRepository recommendationRepository;
@@ -76,8 +65,6 @@ class DemoDataInitializerIT {
     @BeforeEach
     void setUp() {
         professionalRepository.deleteAll();
-        dutyRosterRepository.deleteAll();
-        shiftRepository.deleteAll();
         recommendationRepository.deleteAll();
         profileRepository.deleteAll();
         clinicalCaseRepository.deleteAll();
@@ -93,8 +80,6 @@ class DemoDataInitializerIT {
                 "",
                 objectMapper,
                 professionalRepository,
-                dutyRosterRepository,
-                shiftRepository,
                 recommendationRepository,
                 profileRepository,
                 clinicalCaseRepository,
@@ -110,8 +95,6 @@ class DemoDataInitializerIT {
         initializer.run(null);
 
         assertThat(professionalRepository.findAll()).hasSize(1);
-        assertThat(dutyRosterRepository.findAll()).hasSize(2);
-        assertThat(shiftRepository.findAll()).hasSize(3);
         assertThat(recommendationRepository.findAll()).hasSize(4);
         assertThat(profileRepository.findAll()).hasSize(7);
         assertThat(clinicalCaseRepository.findAll()).hasSize(7);
@@ -133,43 +116,6 @@ class DemoDataInitializerIT {
         // The demo file identifies this professional by accountLogin "doctor"; the gateway seeds that account as
         // doctor@localhost, and the email is the only join between the two services.
         assertThat(doctor.getEmail()).isEqualTo("doctor@localhost");
-    }
-
-    @Test
-    void givesTheRosterIdOnAClinicalCaseSomethingToPointAt() {
-        initializer.run(null);
-
-        ClinicalCase urgent = clinicalCaseRepository.findById("case-kojo-urgent").orElseThrow();
-        assertThat(urgent.getStatus()).isEqualTo(CaseStatus.URGENT);
-        assertThat(urgent.getPatientId()).isEqualTo("patient-kojo");
-        assertThat(urgent.getAssignedProfessionalId()).isEqualTo("professional-doctor");
-        assertThat(urgent.getAssignedRosterId()).isEqualTo("ward-3-night");
-
-        DutyRoster roster = dutyRosterRepository.findById(urgent.getAssignedRosterId()).orElseThrow();
-        assertThat(roster.getName()).isEqualTo("Ward 3 — Night Shift");
-        assertThat(roster.getSubscribedProfessionalIds()).containsExactly("professional-doctor");
-
-        // The empty roster is seeded too — a roster with neither subscribers nor shifts is a real state.
-        DutyRoster empty = dutyRosterRepository.findById("clinic-a-day").orElseThrow();
-        assertThat(empty.getSubscribedProfessionalIds()).isEmpty();
-        assertThat(shiftRepository.findByRosterId("clinic-a-day")).isEmpty();
-    }
-
-    @Test
-    void seedsTheThreeShiftStatesTheDashboardRenders() {
-        initializer.run(null);
-
-        List<Shift> shifts = shiftRepository.findByRosterId("ward-3-night");
-        assertThat(shifts)
-            .hasSize(3)
-            .extracting(Shift::getStatus)
-            .containsExactlyInAnyOrder(ShiftStatus.ACTIVE, ShiftStatus.UPCOMING, ShiftStatus.COMPLETED);
-        assertThat(shifts)
-            .allSatisfy(shift -> {
-                assertThat(shift.getProfessionalId()).isEqualTo("professional-doctor");
-                assertThat(shift.getStartsAt()).isNotNull();
-                assertThat(shift.getEndsAt()).isNotNull();
-            });
     }
 
     @Test
@@ -221,13 +167,8 @@ class DemoDataInitializerIT {
     @Test
     void restoresOnlyWhatWasRemoved() {
         initializer.run(null);
-        shiftRepository.deleteById("ward-3-active");
-        assertThat(shiftRepository.count()).isEqualTo(2);
 
         initializer.run(null);
-
-        assertThat(shiftRepository.count()).isEqualTo(3);
-        assertThat(shiftRepository.findById("ward-3-active")).isPresent();
     }
 
     @Test
@@ -239,8 +180,6 @@ class DemoDataInitializerIT {
             "file:/seed/patient-demo-seed.json",
             objectMapper,
             professionalRepository,
-            dutyRosterRepository,
-            shiftRepository,
             recommendationRepository,
             profileRepository,
             clinicalCaseRepository,

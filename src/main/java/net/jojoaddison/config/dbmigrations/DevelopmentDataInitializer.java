@@ -13,14 +13,12 @@ import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.CarePlanItem;
 import net.jojoaddison.domain.ClinicalCase;
 import net.jojoaddison.domain.Condition;
-import net.jojoaddison.domain.DutyRoster;
 import net.jojoaddison.domain.Emergency;
 import net.jojoaddison.domain.Medication;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.Professional;
 import net.jojoaddison.domain.Recommendation;
 import net.jojoaddison.domain.Report;
-import net.jojoaddison.domain.Shift;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.domain.Task;
 import net.jojoaddison.domain.Visitation;
@@ -31,7 +29,6 @@ import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.CarePlanItemRepository;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import net.jojoaddison.repository.ConditionRepository;
-import net.jojoaddison.repository.DutyRosterRepository;
 import net.jojoaddison.repository.EmergencyRepository;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.repository.MembershipRepository;
@@ -39,7 +36,6 @@ import net.jojoaddison.repository.ProfessionalRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.repository.RecommendationRepository;
 import net.jojoaddison.repository.ReportRepository;
-import net.jojoaddison.repository.ShiftRepository;
 import net.jojoaddison.repository.StatRepository;
 import net.jojoaddison.repository.TaskRepository;
 import net.jojoaddison.repository.VisitationRepository;
@@ -102,8 +98,6 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
     private final Environment environment;
 
     private final ProfessionalRepository professionalRepository;
-    private final DutyRosterRepository dutyRosterRepository;
-    private final ShiftRepository shiftRepository;
     private final RecommendationRepository recommendationRepository;
     private final ProfileRepository profileRepository;
     private final AddressRepository addressRepository;
@@ -127,8 +121,6 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         ResourceLoader resourceLoader,
         Environment environment,
         ProfessionalRepository professionalRepository,
-        DutyRosterRepository dutyRosterRepository,
-        ShiftRepository shiftRepository,
         RecommendationRepository recommendationRepository,
         ProfileRepository profileRepository,
         AddressRepository addressRepository,
@@ -151,8 +143,6 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         this.resourceLoader = resourceLoader;
         this.environment = environment;
         this.professionalRepository = professionalRepository;
-        this.dutyRosterRepository = dutyRosterRepository;
-        this.shiftRepository = shiftRepository;
         this.recommendationRepository = recommendationRepository;
         this.profileRepository = profileRepository;
         this.addressRepository = addressRepository;
@@ -222,8 +212,6 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
         // Staff and reference data first. Recommendations in particular: a ClinicalCase holds them by @DBRef, so the
         // documents have to exist before a case referring to one is written.
         save("professionals", professionalRepository, data.professionals, Professional::getId);
-        save("dutyRosters", dutyRosterRepository, data.dutyRosters, DutyRoster::getId);
-        save("shifts", shiftRepository, data.shifts, Shift::getId);
         save("recommendations", recommendationRepository, data.recommendations, Recommendation::getId);
 
         // Then the patient, and then everything that refers to one.
@@ -303,8 +291,6 @@ public class DevelopmentDataInitializer implements ApplicationRunner {
     static class ProfileData {
 
         public List<Professional> professionals = new ArrayList<>();
-        public List<DutyRoster> dutyRosters = new ArrayList<>();
-        public List<Shift> shifts = new ArrayList<>();
         public List<Recommendation> recommendations = new ArrayList<>();
         // Fully qualified: Spring's @Profile is on this file's class, and the domain type would shadow it.
         public List<net.jojoaddison.domain.Profile> profiles = new ArrayList<>();
