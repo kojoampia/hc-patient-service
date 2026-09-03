@@ -26,7 +26,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * The entities that are reference data rather than patient records: readable by anyone signed in, writable only by
- * staff. DutyRoster and Shift joined them when the professional dashboard's demo dataset gave
+ * staff. DutyRoster and Shift were removed on 2026-09-01 — implemented, seeded and tested, and
+ * consumed by no client in any product. They used to be listed here.
+ * They had joined when the professional dashboard's demo dataset gave
  * {@code ClinicalCase.assignedRosterId} something to point at — who is on duty is staff data, and a patient reading
  * the care-team panel must not be able to rewrite it.
  *
@@ -68,7 +70,7 @@ class ReferenceDataIT {
     }
 
     @ParameterizedTest(name = "{0} is readable by a patient but not writable")
-    @CsvSource({ "/api/professionals", "/api/teams", "/api/recommendations", "/api/metadata", "/api/duty-rosters", "/api/shifts" })
+    @CsvSource({ "/api/professionals", "/api/teams", "/api/recommendations", "/api/metadata" })
     void referenceDataIsReadOnlyForPatients(String apiPath) throws Exception {
         // Readable: the care-team panel and the case screens depend on it.
         restMockMvc.perform(get(apiPath).with(patient())).andExpect(status().isOk());
@@ -94,7 +96,7 @@ class ReferenceDataIT {
     }
 
     @ParameterizedTest(name = "{0} is writable by a clinician")
-    @CsvSource({ "/api/teams", "/api/recommendations", "/api/duty-rosters", "/api/shifts" })
+    @CsvSource({ "/api/teams", "/api/recommendations" })
     void referenceDataStaysWritableForStaff(String apiPath) throws Exception {
         // The rule is the role, not a blanket lock — staff must still be able to maintain this data.
         restMockMvc

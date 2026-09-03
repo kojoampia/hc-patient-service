@@ -8,45 +8,6 @@
       "dutyRosterIds": ["ward-3-night"]
     }
   ],
-  "dutyRosters": [
-    {
-      "id": "ward-3-night",
-      "name": "Ward 3 — Night Shift",
-      "subscribedProfessionalIds": ["professional-doctor"],
-      "shifts": [
-        {
-          "id": "ward-3-active",
-          "rosterId": "ward-3-night",
-          "professionalId": "professional-doctor",
-          "startsAt": "2026-07-20T08:00:00Z",
-          "endsAt": "2026-07-20T20:00:00Z",
-          "status": "active"
-        },
-        {
-          "id": "ward-3-next",
-          "rosterId": "ward-3-night",
-          "professionalId": "professional-doctor",
-          "startsAt": "2026-07-21T08:00:00Z",
-          "endsAt": "2026-07-21T20:00:00Z",
-          "status": "upcoming"
-        },
-        {
-          "id": "ward-3-completed",
-          "rosterId": "ward-3-night",
-          "professionalId": "professional-doctor",
-          "startsAt": "2026-07-19T08:00:00Z",
-          "endsAt": "2026-07-19T20:00:00Z",
-          "status": "completed"
-        }
-      ]
-    },
-    {
-      "id": "clinic-a-day",
-      "name": "Clinic A — Day Shift",
-      "subscribedProfessionalIds": [],
-      "shifts": []
-    }
-  ],
   "recommendations": [
     {
       "id": "hpv",

@@ -9,7 +9,6 @@ import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.Stat;
 import net.jojoaddison.domain.enumeration.CaseStatus;
 import net.jojoaddison.domain.enumeration.DelegationStatus;
-import net.jojoaddison.domain.enumeration.ShiftStatus;
 import net.jojoaddison.domain.enumeration.StatFlag;
 import net.jojoaddison.repository.ActivityLogRepository;
 import net.jojoaddison.repository.AddressRepository;
@@ -18,7 +17,6 @@ import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.CarePlanItemRepository;
 import net.jojoaddison.repository.ClinicalCaseRepository;
 import net.jojoaddison.repository.ConditionRepository;
-import net.jojoaddison.repository.DutyRosterRepository;
 import net.jojoaddison.repository.EmergencyRepository;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.repository.MembershipRepository;
@@ -26,7 +24,6 @@ import net.jojoaddison.repository.ProfessionalRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.repository.RecommendationRepository;
 import net.jojoaddison.repository.ReportRepository;
-import net.jojoaddison.repository.ShiftRepository;
 import net.jojoaddison.repository.StatRepository;
 import net.jojoaddison.repository.TaskRepository;
 import net.jojoaddison.repository.VisitationRepository;
@@ -58,12 +55,6 @@ class DevelopmentDataInitializerIT {
 
     @Autowired
     private ProfessionalRepository professionalRepository;
-
-    @Autowired
-    private DutyRosterRepository dutyRosterRepository;
-
-    @Autowired
-    private ShiftRepository shiftRepository;
 
     @Autowired
     private RecommendationRepository recommendationRepository;
@@ -116,8 +107,6 @@ class DevelopmentDataInitializerIT {
     @BeforeEach
     void setUp() {
         professionalRepository.deleteAll();
-        dutyRosterRepository.deleteAll();
-        shiftRepository.deleteAll();
         recommendationRepository.deleteAll();
         profileRepository.deleteAll();
         statRepository.deleteAll();
@@ -138,8 +127,6 @@ class DevelopmentDataInitializerIT {
             new DefaultResourceLoader(),
             environment,
             professionalRepository,
-            dutyRosterRepository,
-            shiftRepository,
             recommendationRepository,
             profileRepository,
             addressRepository,
@@ -174,8 +161,6 @@ class DevelopmentDataInitializerIT {
         assertThat(sugar.getFlag()).isEqualTo(StatFlag.WARN);
         assertThat(sugar.getValue()).isEqualTo(9.0);
         assertThat(sugar.getRecordedAt()).isNotNull();
-
-        assertThat(shiftRepository.findById("clinic-osu-active").orElseThrow().getStatus()).isEqualTo(ShiftStatus.ACTIVE);
     }
 
     @Test
