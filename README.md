@@ -17,7 +17,7 @@ Values below come from `pom.xml` and `.yo-rc.json` — update them here whenever
 | ----------------- | ------------------------------------------------------------ |
 | Language          | Java 25 target (`java.version`); Maven Enforcer allows 17–25 |
 | Framework         | Spring Boot 4.0.6 / jhipster-framework 9.0.0 (Spring MVC)    |
-| Database          | MongoDB (`mongo:7.0.4` locally)                              |
+| Database          | MongoDB (`mongo:7.0.6` locally)                              |
 | Message Broker    | Apache Kafka (Confluent Platform 7.6.0)                      |
 | Service Discovery | Consul (`bitnami/consul:1.17.0`)                             |
 | Authentication    | JWT validation only (tokens minted by the gateway)           |

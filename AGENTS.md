@@ -58,7 +58,7 @@ Statements below are split between **current** (true of the code today) and **ta
 - Spring Web, Spring Data MongoDB, Spring Security (JWT resource server), Spring Cloud Stream Kafka binder.
 - Spring Cloud Consul for discovery and centralized config; Resilience4j for circuit breaking; MapStruct available (1.6.3) though no mappers exist yet.
 - Backend-only (`skipClient: true`) — no Angular code in this repo; the dashboard lives in `hc-patient-dashboard`.
-- Docker Compose for local dependencies (`mongo:7.0.4`, `bitnami/consul:1.17.0`, `confluentinc/cp-kafka:7.6.0`); images built with Jib on `eclipse-temurin:25-jre`.
+- Docker Compose for local dependencies (`mongo:7.0.6`, `bitnami/consul:1.17.0`, `confluentinc/cp-kafka:7.6.0`); images built with Jib on `eclipse-temurin:25-jre`.
 - JUnit 5, Mockito, ArchUnit 1.4.2, Testcontainers (embedded MongoDB + Kafka).
 - SLF4J + Logback.
 - Maven for build/dependencies; npm only for dev tooling (Prettier, Husky, docker/script shortcuts).
