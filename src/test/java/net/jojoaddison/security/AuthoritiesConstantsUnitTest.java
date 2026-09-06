@@ -69,4 +69,22 @@ class AuthoritiesConstantsUnitTest {
         assertThat(AuthoritiesConstants.CLINICAL).doesNotContain("ROLE_PROFESSIONAL");
         assertThat(AuthoritiesConstants.CLINICAL_AUTHORITIES).doesNotContain("ROLE_PROFESSIONAL");
     }
+
+    @Test
+    void theCareAngelRoleIsNotAmongThem() {
+        // THE ESTATE DECIDED ON 2026-09-06 THAT AN ANGEL IS NOT A CLINICAL DISCIPLINE (backlog item 3).
+        //
+        // ROLE_ANGEL and these eight are not the same kind of thing. A discipline is a standing capability; an angel's
+        // authority is an ACTIVE CareDelegation over ONE patient, re-read per request so a revocation takes effect on
+        // the next call rather than when a rememberMe token expires. PatientScope says it in one line: "ROLE_ANGEL
+        // grants nothing. An ACTIVE CareDelegation grants everything."
+        //
+        // This test exists because the divergence it settles was first reported AS A DEFECT IN THIS REPO — "ROLE_ANGEL
+        // is missing from the clinical set", of the same shape as the ROLE_DOCTOR omission genuinely fixed on
+        // 2026-08-22. Adding it here would look like closing that gap and would in fact delete the boundary:
+        // every angel in the estate would gain unrestricted cross-patient read, which is the one thing CareDelegation
+        // exists to prevent. hc-professional narrows to these eight; this repo does not widen to nine.
+        assertThat(AuthoritiesConstants.CLINICAL).doesNotContain(AuthoritiesConstants.ANGEL);
+        assertThat(AuthoritiesConstants.CLINICAL_AUTHORITIES).doesNotContain(AuthoritiesConstants.ANGEL);
+    }
 }
