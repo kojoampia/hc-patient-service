@@ -52,7 +52,9 @@ import tech.jhipster.web.util.ResponseUtil;
  *
  * <p>Until 2026-09-08 a patient chose a tier, a {@code PENDING} membership was written, and <em>nothing told
  * anybody</em> — so the request sat until somebody in the back office happened to look. {@code POST} now publishes
- * {@link PatientEventType#PLAN_CHOSEN}, which hc-admin consumes to raise it for action.</p>
+ * {@link PatientEventType#PLAN_CHOSEN}, which hc-admin is contracted to consume and raise for action. <strong>Their
+ * side is not built yet</strong> (their item 48), so today the frame is published and nothing acts on it; the
+ * back-office prompt this exists to deliver arrives when they land their consumer, not when this ships.</p>
  *
  * <p><strong>Here rather than in a client.</strong> {@code web} and {@code mobile} each have their own
  * {@code choosePlan} and both come through this method; a browser-side publish would miss the app, miss any future
@@ -325,38 +327,75 @@ public class MembershipResource {
      * published as {@code planCode} and {@code planName}. See {@link PatientEventType#PLAN_CHOSEN} for the rest of the
      * contract, including why the missing {@code memberNumber} and {@code renewalDate} are not an oversight.</p>
      *
-     * <p><strong>Nothing in here may fail the request.</strong> The membership is already saved by the time this runs.
-     * The publisher swallows its own send failures by design, but the profile lookup above it does not — it is a Mongo
-     * query, and without this catch a database hiccup while resolving an email would turn a successful subscription
-     * into a 500. That is precisely the path the fire-and-forget posture forbids, and it is one this method
-     * introduced, so it is closed here rather than left to the publisher.</p>
+     * <p><strong>An event we cannot key is not published at all.</strong> hc-admin drops a frame whose subject key is
+     * missing — {@code SiblingEventParser} guards on it and returns empty <em>before</em> it ever reads
+     * {@code subject.patientId}, and an empty parse is acked without a DLQ record — so publishing one would lose it
+     * anyway, silently, in another repository's log. Refusing to send leaves the warning here instead, where whoever
+     * created the membership is looking. The patient is still subscribed either way; what is lost is the back-office
+     * prompt, which is item 18's original defect and should therefore be loud rather than tidy.</p>
+     *
+     * <p><strong>Nothing in here may fail the request</strong> — the membership is already saved by the time it runs.
+     * But note what is deliberately <em>not</em> guarded: only the profile lookup is, because it is a Mongo query this
+     * method introduced and a database hiccup while resolving an email must not turn a successful subscription into a
+     * 500. The {@code publish} call sits outside that guard on purpose. {@link PatientEventPublisher} already swallows
+     * its own send failures, so the one thing that can still escape it is
+     * {@link PatientEventPublisher#assertNothingClinical}, which throws <em>by design</em> — "quietly dropping it
+     * would let the caller believe the field is being published". A blanket catch here would convert that deliberate
+     * shout into a WARN, and a payload extension that picked a denylisted key would lose every event in production
+     * while this method reported success. Every other publish site in this service leaves it uncaught; so does this
+     * one.</p>
      */
     private void announceChosenPlan(Membership membership) {
-        try {
-            Map<String, Object> data = new HashMap<>();
-            data.put("membershipId", membership.getId());
-            data.put("planCode", membership.getPlan());
-            data.put("planName", membership.getName());
-            // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
-            data.put("status", membership.getStatus() == null ? null : membership.getStatus().name());
-            events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
-        } catch (Exception e) {
-            log.warn("Could not announce the chosen plan — the membership is unaffected", e);
+        String email = patientEmail(membership.getPatientId());
+        if (email == null) {
+            // Not an error: an administrator may create a membership for a patient whose profile carries no email, or
+            // with no patientId at all. It is still a subscription nobody will be prompted to action.
+            log.warn(
+                "Not announcing membership {} for patient {} — no email to key the event on, so hc-admin would discard it",
+                membership.getId(),
+                membership.getPatientId()
+            );
+            return;
         }
+        Map<String, Object> data = new HashMap<>();
+        data.put("membershipId", membership.getId());
+        data.put("planCode", membership.getPlan());
+        data.put("planName", membership.getName());
+        // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
+        data.put("status", membership.getStatus() == null ? null : membership.getStatus().name());
+        events.publish(PatientEventType.PLAN_CHOSEN, email, null, membership.getPatientId(), data);
     }
 
     /**
      * The email of the patient a membership belongs to, or null when there is no profile to read it from.
      *
      * <p>Null rather than the caller's own address: an event filed under the wrong person is worse than one filed
-     * under nobody, because the second is visibly incomplete and the first is quietly wrong. Falls back to a lookup by
-     * id because {@code patientId} was added after some profiles were written and those carry only their own id —
-     * the same fallback {@code PatientScope} and {@code CareDelegationService} apply.</p>
+     * under nobody. Note that "under nobody" means <em>not filed at all</em> — see {@link #announceChosenPlan}, which
+     * refuses to publish an unkeyed event rather than send one hc-admin will discard.</p>
+     *
+     * <p>Falls back to a lookup by id because {@code patientId} was added after some profiles were written and those
+     * carry only their own id — the same fallback {@code CareDelegationService} applies, and the one
+     * {@code PatientScope} applies when resolving the other direction. The qualifier matters: {@code PatientScope}
+     * goes profile → id and this goes id → profile, so they are duals rather than the same call, and a reader who
+     * looks for this exact expression there will not find it.</p>
+     *
+     * <p><strong>Returns null rather than throwing on a failed lookup.</strong> This is a Mongo query running after
+     * the membership is already saved, so a database hiccup here must cost the announcement and not the
+     * subscription.</p>
      */
     private String patientEmail(String patientId) {
         if (patientId == null) {
             return null;
         }
+        try {
+            return lookUpPatientEmail(patientId);
+        } catch (Exception e) {
+            log.warn("Could not resolve an email for patient {} — the membership is unaffected", patientId, e);
+            return null;
+        }
+    }
+
+    private String lookUpPatientEmail(String patientId) {
         return profileRepository
             .findByPatientId(patientId)
             .stream()

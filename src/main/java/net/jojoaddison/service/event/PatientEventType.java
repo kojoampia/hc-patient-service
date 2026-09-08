@@ -44,8 +44,12 @@ public final class PatientEventType {
      * A patient chose a care plan. The {@code Membership} is written, and for anybody but an administrator it is
      * written {@code PENDING} — so this says a subscription was <em>requested</em>, not that one is in force.
      *
-     * <p><strong>hc-admin consumes this</strong> (their item 48). Their {@code SiblingEventParser} dispatches on the
-     * type string, so <strong>{@code "PlanChosen"} is a cross-repo contract and must not be renamed casually</strong>:
+     * <p><strong>hc-admin is contracted to consume this and does not yet</strong> — their item 48 is open, and their
+     * {@code SiblingEventParser} has no {@code PlanChosen} case today, so the frame currently falls to its
+     * {@code default} and is logged at DEBUG as a type that service does not model. Nothing is lost by publishing
+     * before they are ready, and the contract is worth pinning first; but do not read this as a closed loop. Their
+     * parser dispatches on the type string, so <strong>{@code "PlanChosen"} is a cross-repo contract and must not be
+     * renamed casually</strong>:
      * a rename here is not a compile error there, it is an event their {@code switch} silently ignores. Renaming it
      * means changing both repositories and both sides' tests in the same breath.</p>
      *
@@ -62,11 +66,16 @@ public final class PatientEventType {
      *
      * <p><strong>What the membership does not have yet, and what that implies for the consumer.</strong> A membership
      * created through either client carries <em>no</em> {@code memberNumber} and <em>no</em> {@code renewalDate} —
-     * {@code choosePlan} sets neither, and nothing in this service assigns them afterwards (backlog item 17). So this
-     * event has neither to carry, and its absence is a fact rather than an omission: if assigning them is the
+     * {@code choosePlan} sets neither, and nothing in this service assigns them afterwards (backlog item 17). So on
+     * the path this event exists for, their absence is a fact rather than an omission: if assigning them is the
      * back-office step this event exists to prompt, that work has no home in this service today and there is no
      * inbound path for it either. The acknowledgement leg, {@code patient-events-plan}, is backlog item 19 and is not
      * built.</p>
+     *
+     * <p><b>The administrative CRUD path is the exception</b>, and a consumer should not generalise from the sentence
+     * above: {@code POST /api/memberships} accepts a {@code memberNumber} and a {@code renewalDate} from an
+     * administrator and persists both, so a membership created that way can carry values this event does not
+     * publish. The payload is fixed at four fields for the clients' sake; read the document if you need the rest.</p>
      */
     public static final String PLAN_CHOSEN = "PlanChosen";
 

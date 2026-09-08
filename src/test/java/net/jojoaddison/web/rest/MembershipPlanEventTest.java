@@ -26,6 +26,7 @@ import net.jojoaddison.service.event.PatientEventType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -143,11 +144,23 @@ class MembershipPlanEventTest {
 
     @Test
     void aBrokerOutageDoesNotCostThePatientTheirSubscription() throws Exception {
-        // PatientEventPublisher swallows its own send failures, so this could only happen if something here
-        // reintroduced a propagating path. Pinned because the write has already succeeded by the time it runs.
-        doThrow(new IllegalStateException("broker down")).when(events).publish(anyString(), any(), any(), any(), any());
+        // Against the REAL publisher and a broken StreamBridge, not a mocked publisher. That distinction is the whole
+        // point after review: the guarantee is PatientEventPublisher's — it swallows send failures itself — and this
+        // resource must not add a catch of its own to reproduce it, because the same catch would also swallow the
+        // assertNothingClinical throw that is meant to be loud (see aClinicalKeyInThePayloadIsNotSwallowed). Mocking
+        // the publisher would have tested this class's catch instead of the real division of responsibility.
+        StreamBridge brokenBroker = mock(StreamBridge.class);
+        when(brokenBroker.send(anyString(), any())).thenThrow(new IllegalStateException("broker down"));
+        MembershipResource withRealPublisher = new MembershipResource(
+            memberships,
+            patientScope,
+            profiles,
+            new PatientEventPublisher(brokenBroker)
+        );
 
-        assertThatCode(() -> resource.createMembership(chosenPlan())).doesNotThrowAnyException();
+        assertThatCode(() -> withRealPublisher.createMembership(chosenPlan())).doesNotThrowAnyException();
+
+        verify(brokenBroker).send(eq(PatientEventPublisher.BINDING), any());
     }
 
     @Test
@@ -160,14 +173,42 @@ class MembershipPlanEventTest {
     }
 
     @Test
-    void aMembershipWhoseOwnerHasNoProfileIsStillAnnounced() throws Exception {
-        // Filed under nobody rather than under the wrong person: hc-admin can still link on the patientId, and an
-        // event carrying the caller's address instead would be quietly wrong.
+    void aMembershipWhoseOwnerHasNoProfileIsNotAnnounced() throws Exception {
+        // NOT "announced under nobody", which is what this test asserted until review. hc-admin's SiblingEventParser
+        // guards on the subject key and returns empty BEFORE it reads subject.patientId, and an empty parse is acked
+        // with no DLQ record — so an unkeyed frame is not a partial announcement, it is a silent total loss in
+        // somebody else's log. Refusing to send keeps the warning in this service, where whoever created the
+        // membership is looking. The subscription is unaffected either way; only the back-office prompt is lost,
+        // which is item 18's original defect and must not be lost quietly.
         when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of());
         when(profiles.findById(PATIENT_ID)).thenReturn(Optional.empty());
 
-        resource.createMembership(chosenPlan());
+        assertThatCode(() -> resource.createMembership(chosenPlan())).doesNotThrowAnyException();
 
-        verify(events).publish(eq("PlanChosen"), eq(null), any(), eq(PATIENT_ID), any());
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    void anAdministratorsMembershipForAnUnnamedPatientIsNotAnnounced() throws Exception {
+        // The path that reaches this in practice, and the reason it is not hypothetical: an administrator may POST
+        // with no acting-as header and no patientId, and PatientScope.requirePatientIdForWrite returns what it was
+        // given — including null. This repo's own MembershipResourceIT does exactly that, so before the fix every CI
+        // run published an event about nobody.
+        when(patientScope.requirePatientIdForWrite(any())).thenReturn(null);
+
+        assertThatCode(() -> resource.createMembership(chosenPlan().patientId(null))).doesNotThrowAnyException();
+
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    void aClinicalKeyInThePayloadIsNotSwallowed() throws Exception {
+        // The publisher throws from assertNothingClinical deliberately — "quietly dropping it would let the caller
+        // believe the field is being published" — and that throw happens OUTSIDE its own try. announceChosenPlan must
+        // not put a blanket catch around it: a payload extension that picked a denylisted key would then lose every
+        // event in production while this method reported success, which is the failure item 18 exists to end.
+        doThrow(new IllegalArgumentException("clinical key")).when(events).publish(anyString(), any(), any(), any(), any());
+
+        assertThatThrownBy(() -> resource.createMembership(chosenPlan())).isInstanceOf(IllegalArgumentException.class);
     }
 }
