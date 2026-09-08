@@ -10,6 +10,7 @@ import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,23 @@ import tech.jhipster.web.util.ResponseUtil;
 
 /**
  * REST controller for managing {@link net.jojoaddison.domain.Membership}.
+ *
+ * <h2>A subscriber does not decide whether they are subscribed</h2>
+ *
+ * <p>Until 2026-09-08 they did. {@code PATCH} copied {@code status} straight from the request body with no authority
+ * check at all, and {@code PUT} — which replaces the document wholesale — took it from the wire the same way. Since
+ * the lifecycle records approval by moving a membership from {@code PENDING} to {@code ACTIVE}, a patient could
+ * approve their own by echoing one word back at the endpoint that had just sent it to them. Nothing else was needed:
+ * both verbs already accepted the patient's own record.</p>
+ *
+ * <p><strong>Overwritten rather than kept off the wire.</strong> The estate's stronger pattern is hc-admin's
+ * {@code ProfessionalVerificationRequest}, whose server-stamped fields are <em>"kept off this shape … stronger than
+ * overwriting them, because there is nothing on the wire to overwrite"</em>. That is not available here: this service
+ * has <em>no DTO layer</em> by documented convention and the domain document is the wire shape, so there is no shape
+ * to keep the field off. Overwriting is what {@code patientId}, {@code createdBy} and {@code createdDate} already do
+ * in this very class, and matching them is worth more than introducing the only DTO in twenty-three entities. The
+ * weakness of the weaker form is worth naming, though: it depends on <em>every</em> write path remembering to call
+ * the guard, which is exactly how {@code PUT} came to differ from {@code PATCH} elsewhere.</p>
  */
 @RestController
 @RequestMapping("/api/memberships")
@@ -30,6 +48,14 @@ public class MembershipResource {
     private final Logger log = LoggerFactory.getLogger(MembershipResource.class);
 
     private static final String ENTITY_NAME = "patientMsMembership";
+
+    /**
+     * What a membership a patient creates is worth until somebody in the back office says otherwise.
+     *
+     * <p>A bare string because {@code Membership.status} is still one. When it becomes a typed vocabulary this is the
+     * constant that goes.</p>
+     */
+    private static final String PENDING_STATUS = "PENDING";
 
     @Value("${jhipster.clientApp.name}")
     private String applicationName;
@@ -57,6 +83,8 @@ public class MembershipResource {
             throw new BadRequestAlertException("A new membership cannot already have an ID", ENTITY_NAME, "idexists");
         }
         membership.setPatientId(patientScope.requirePatientIdForWrite(membership.getPatientId()));
+        // A membership a patient creates is a request, not a subscription — see statusOnCreate.
+        membership.setStatus(statusOnCreate(membership.getStatus()));
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         membership.setCreatedBy(AuditStamp.currentUser());
@@ -104,6 +132,8 @@ public class MembershipResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
+        // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
+        membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         membership.setCreatedBy(existing.getCreatedBy());
         membership.setCreatedDate(existing.getCreatedDate());
@@ -152,6 +182,8 @@ public class MembershipResource {
         // A patient can never reassign a record by editing the payload — not their own, not anybody's.
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
+        // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
+        membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         membership.setCreatedBy(existing.getCreatedBy());
         membership.setCreatedDate(existing.getCreatedDate());
@@ -206,6 +238,51 @@ public class MembershipResource {
             result,
             HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, membership.getId())
         );
+    }
+
+    /**
+     * The status a membership is created with, which for anybody but an administrator is {@code PENDING}.
+     *
+     * <p>A patient choosing a plan is making a <em>request</em>. Both clients already post {@code PENDING} —
+     * {@code profile.component.ts}'s {@code choosePlan} in {@code web} and its counterpart in {@code mobile} — so
+     * this changes nothing they do; what it changes is that they can no longer post anything else. A value a client
+     * may choose is a claim rather than a record, which is the same rule {@code source} and the audit fields already
+     * follow here.</p>
+     *
+     * @param requestedStatus the status in the request body.
+     * @return the value to persist.
+     */
+    private String statusOnCreate(String requestedStatus) {
+        return mayDecideStatus() ? requestedStatus : PENDING_STATUS;
+    }
+
+    /**
+     * The status an update must keep, which for anybody but an administrator is the stored one.
+     *
+     * <p>Carried over exactly as {@code createdBy} and {@code createdDate} are, and for the same reason: it is a
+     * record of a decision somebody else made. Passing the stored value back rather than refusing the request keeps
+     * {@code PUT} and {@code PATCH} working for the fields a patient <em>may</em> edit — a subscriber renaming their
+     * membership should not get a 403 because the payload also echoed the status the server sent them.</p>
+     *
+     * @param storedStatus the status currently recorded on the stored document.
+     * @param requestedStatus the status in the request body.
+     * @return the value to persist.
+     */
+    private String statusForUpdate(String storedStatus, String requestedStatus) {
+        return mayDecideStatus() ? requestedStatus : storedStatus;
+    }
+
+    /**
+     * Whether the caller may say where a membership stands.
+     *
+     * <p><strong>{@code ROLE_ADMIN} alone</strong>, and deliberately not {@code PatientScope.isUnrestricted()},
+     * which also admits the eight clinical disciplines. A membership is a commercial relationship, not a clinical
+     * record: a nurse has every business in a patient's medications and none in whether they have paid. This is why
+     * the check is written here rather than delegated — {@code PatientScope} answers "whose records" and
+     * {@code ScopeOfPractice} answers "what kind of clinical data", and neither question is this one.</p>
+     */
+    private static boolean mayDecideStatus() {
+        return SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN);
     }
 
     /**
