@@ -2,16 +2,22 @@ package net.jojoaddison.web.rest;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Membership;
+import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
+import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.event.PatientEventPublisher;
+import net.jojoaddison.service.event.PatientEventType;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +47,16 @@ import tech.jhipster.web.util.ResponseUtil;
  * in this very class, and matching them is worth more than introducing the only DTO in twenty-three entities. The
  * weakness of the weaker form is worth naming, though: it depends on <em>every</em> write path remembering to call
  * the guard, which is exactly how {@code PUT} came to differ from {@code PATCH} elsewhere.</p>
+ *
+ * <h2>Choosing a plan says so on {@code patient-events}</h2>
+ *
+ * <p>Until 2026-09-08 a patient chose a tier, a {@code PENDING} membership was written, and <em>nothing told
+ * anybody</em> — so the request sat until somebody in the back office happened to look. {@code POST} now publishes
+ * {@link PatientEventType#PLAN_CHOSEN}, which hc-admin consumes to raise it for action.</p>
+ *
+ * <p><strong>Here rather than in a client.</strong> {@code web} and {@code mobile} each have their own
+ * {@code choosePlan} and both come through this method; a browser-side publish would miss the app, miss any future
+ * caller, and put a broker on the far side of a CSP.</p>
  */
 @RestController
 @RequestMapping("/api/memberships")
@@ -57,9 +73,20 @@ public class MembershipResource {
 
     private final PatientScope patientScope;
 
-    public MembershipResource(MembershipRepository membershipRepository, PatientScope patientScope) {
+    private final ProfileRepository profileRepository;
+
+    private final PatientEventPublisher events;
+
+    public MembershipResource(
+        MembershipRepository membershipRepository,
+        PatientScope patientScope,
+        ProfileRepository profileRepository,
+        PatientEventPublisher events
+    ) {
         this.membershipRepository = membershipRepository;
         this.patientScope = patientScope;
+        this.profileRepository = profileRepository;
+        this.events = events;
     }
 
     /**
@@ -85,6 +112,8 @@ public class MembershipResource {
         membership.setModifiedBy(AuditStamp.currentUser());
         membership.setModifiedDate(AuditStamp.today());
         Membership result = membershipRepository.save(membership);
+        // Saved first, then announced. The event is a notification, never the mechanism — see announceChosenPlan.
+        announceChosenPlan(result);
         return ResponseEntity
             .created(new URI("/api/memberships/" + result.getId()))
             .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
@@ -276,6 +305,65 @@ public class MembershipResource {
      */
     private static boolean mayDecideStatus() {
         return SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN);
+    }
+
+    /**
+     * Says on {@code patient-events} that this patient chose a plan, so hc-admin can raise the pending membership.
+     *
+     * <p><strong>Keyed on the patient's email, resolved from their profile rather than taken from the token.</strong>
+     * Usually they are the same person, but an administrator creating a membership for somebody is not, and keying on
+     * the caller would file that event under the administrator — on a different partition from the patient's own
+     * account and onboarding events, which is exactly the ordering guarantee
+     * {@link net.jojoaddison.service.event.PatientEventPublisher} exists to keep. Same resolution
+     * {@code CareDelegationService} does for the same reason.</p>
+     *
+     * <p><strong>What travels.</strong> The membership id, the plan and the status actually persisted — not the
+     * literal {@code PENDING}, because an administrator may legitimately have created an {@code ACTIVE} one, and an
+     * event should report what was written. The field names are the honest ones for this document: backlog item 18
+     * asks for the plan "code" and "name", and there is no {@code code} field on {@code Membership} — both clients'
+     * {@code choosePlan} write the plan's code into {@code plan} and its display name into {@code name}, so those are
+     * published as {@code planCode} and {@code planName}. See {@link PatientEventType#PLAN_CHOSEN} for the rest of the
+     * contract, including why the missing {@code memberNumber} and {@code renewalDate} are not an oversight.</p>
+     *
+     * <p><strong>Nothing in here may fail the request.</strong> The membership is already saved by the time this runs.
+     * The publisher swallows its own send failures by design, but the profile lookup above it does not — it is a Mongo
+     * query, and without this catch a database hiccup while resolving an email would turn a successful subscription
+     * into a 500. That is precisely the path the fire-and-forget posture forbids, and it is one this method
+     * introduced, so it is closed here rather than left to the publisher.</p>
+     */
+    private void announceChosenPlan(Membership membership) {
+        try {
+            Map<String, Object> data = new HashMap<>();
+            data.put("membershipId", membership.getId());
+            data.put("planCode", membership.getPlan());
+            data.put("planName", membership.getName());
+            // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
+            data.put("status", membership.getStatus() == null ? null : membership.getStatus().name());
+            events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
+        } catch (Exception e) {
+            log.warn("Could not announce the chosen plan — the membership is unaffected", e);
+        }
+    }
+
+    /**
+     * The email of the patient a membership belongs to, or null when there is no profile to read it from.
+     *
+     * <p>Null rather than the caller's own address: an event filed under the wrong person is worse than one filed
+     * under nobody, because the second is visibly incomplete and the first is quietly wrong. Falls back to a lookup by
+     * id because {@code patientId} was added after some profiles were written and those carry only their own id —
+     * the same fallback {@code PatientScope} and {@code CareDelegationService} apply.</p>
+     */
+    private String patientEmail(String patientId) {
+        if (patientId == null) {
+            return null;
+        }
+        return profileRepository
+            .findByPatientId(patientId)
+            .stream()
+            .findFirst()
+            .or(() -> profileRepository.findById(patientId))
+            .map(Profile::getEmail)
+            .orElse(null);
     }
 
     /**

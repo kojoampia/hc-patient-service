@@ -40,5 +40,35 @@ public final class PatientEventType {
      */
     public static final String DELETION_REQUEST_CHANGED = "DeletionRequestChanged";
 
+    /**
+     * A patient chose a care plan. The {@code Membership} is written, and for anybody but an administrator it is
+     * written {@code PENDING} — so this says a subscription was <em>requested</em>, not that one is in force.
+     *
+     * <p><strong>hc-admin consumes this</strong> (their item 48). Their {@code SiblingEventParser} dispatches on the
+     * type string, so <strong>{@code "PlanChosen"} is a cross-repo contract and must not be renamed casually</strong>:
+     * a rename here is not a compile error there, it is an event their {@code switch} silently ignores. Renaming it
+     * means changing both repositories and both sides' tests in the same breath.</p>
+     *
+     * <p>Payload: {@code membershipId}, {@code planCode}, {@code planName}, {@code status}. <b>{@code planCode} is
+     * {@code Membership.plan} and {@code planName} is {@code Membership.name}</b> — the document has no {@code code}
+     * field, and both clients' {@code choosePlan} write {@code plan.code} into {@code plan} and {@code plan.name}
+     * into {@code name}. The patient themselves travels in {@code subject}, as on every other event here: the
+     * lowercased email is the key, and {@code patientId} rides beside it.</p>
+     *
+     * <p>A plan is commercial rather than clinical — a code, a name and a status — so it passes
+     * {@link PatientEventPublisher#assertNothingClinical}. The membership's {@code description} is deliberately not
+     * carried: it is free text a client supplies, and this event says which plan was chosen, not what was said
+     * about it.</p>
+     *
+     * <p><strong>What the membership does not have yet, and what that implies for the consumer.</strong> A membership
+     * created through either client carries <em>no</em> {@code memberNumber} and <em>no</em> {@code renewalDate} —
+     * {@code choosePlan} sets neither, and nothing in this service assigns them afterwards (backlog item 17). So this
+     * event has neither to carry, and its absence is a fact rather than an omission: if assigning them is the
+     * back-office step this event exists to prompt, that work has no home in this service today and there is no
+     * inbound path for it either. The acknowledgement leg, {@code patient-events-plan}, is backlog item 19 and is not
+     * built.</p>
+     */
+    public static final String PLAN_CHOSEN = "PlanChosen";
+
     private PatientEventType() {}
 }
