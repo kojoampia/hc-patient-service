@@ -27,7 +27,9 @@
     },
     {
       "fieldName": "status",
-      "fieldType": "String"
+      "fieldType": "MembershipStatus",
+      "fieldValues": "PENDING,ACTIVE,CANCELLED,EXPIRED,SUSPENDED",
+      "fieldTypeDocumentation": "Where a patient's subscription to a care plan stands."
     },
     {
       "fieldName": "memberNumber",

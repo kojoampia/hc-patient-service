@@ -3,6 +3,7 @@ package net.jojoaddison.domain;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.LocalDate;
+import net.jojoaddison.domain.enumeration.MembershipStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
@@ -30,7 +31,7 @@ public class Membership implements Serializable {
     private String description;
 
     @Field("status")
-    private String status;
+    private MembershipStatus status;
 
     @Field("member_number")
     private String memberNumber;
@@ -110,16 +111,16 @@ public class Membership implements Serializable {
         this.description = description;
     }
 
-    public String getStatus() {
+    public MembershipStatus getStatus() {
         return this.status;
     }
 
-    public Membership status(String status) {
+    public Membership status(MembershipStatus status) {
         this.setStatus(status);
         return this;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(MembershipStatus status) {
         this.status = status;
     }
 

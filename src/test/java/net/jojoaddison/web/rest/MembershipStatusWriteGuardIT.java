@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
@@ -75,7 +76,10 @@ class MembershipStatusWriteGuardIT {
         membershipRepository.deleteAll();
 
         profileRepository.save(new Profile().email(PATIENT_EMAIL).patientId(PATIENT_ID));
-        pending = membershipRepository.save(new Membership().patientId(PATIENT_ID).plan("PAWPAW").name("PAWPAW Plan").status("PENDING"));
+        pending =
+            membershipRepository.save(
+                new Membership().patientId(PATIENT_ID).plan("PAWPAW").name("PAWPAW Plan").status(MembershipStatus.PENDING)
+            );
     }
 
     @Test
@@ -85,14 +89,14 @@ class MembershipStatusWriteGuardIT {
                 patch(ENTITY_API_URL_ID, pending.getId())
                     .with(patient())
                     .contentType("application/merge-patch+json")
-                    .content(json(new Membership().id(pending.getId()).status("ACTIVE")))
+                    .content(json(new Membership().id(pending.getId()).status(MembershipStatus.ACTIVE)))
             )
             // Not a refusal: the request is honoured for whatever it may legitimately change, and the status it
             // asked for is simply not one of those things. Asserting a 4xx would pin behaviour this does not have.
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PENDING"));
 
-        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo("PENDING");
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.PENDING);
     }
 
     @Test
@@ -104,12 +108,14 @@ class MembershipStatusWriteGuardIT {
                 put(ENTITY_API_URL_ID, pending.getId())
                     .with(patient())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(json(new Membership().id(pending.getId()).patientId(PATIENT_ID).plan("PAWPAW").status("ACTIVE")))
+                    .content(
+                        json(new Membership().id(pending.getId()).patientId(PATIENT_ID).plan("PAWPAW").status(MembershipStatus.ACTIVE))
+                    )
             )
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PENDING"));
 
-        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo("PENDING");
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.PENDING);
     }
 
     @Test
@@ -119,7 +125,7 @@ class MembershipStatusWriteGuardIT {
                 post(ENTITY_API_URL)
                     .with(patient())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(json(new Membership().plan("MELON").name("MELON Plan").status("ACTIVE")))
+                    .content(json(new Membership().plan("MELON").name("MELON Plan").status(MembershipStatus.ACTIVE)))
             )
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.status").value("PENDING"));
@@ -134,7 +140,9 @@ class MembershipStatusWriteGuardIT {
                 patch(ENTITY_API_URL_ID, pending.getId())
                     .with(patient())
                     .contentType("application/merge-patch+json")
-                    .content(json(new Membership().id(pending.getId()).description("Renewed after the move").status("ACTIVE")))
+                    .content(
+                        json(new Membership().id(pending.getId()).description("Renewed after the move").status(MembershipStatus.ACTIVE))
+                    )
             )
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.description").value("Renewed after the move"))
@@ -150,12 +158,12 @@ class MembershipStatusWriteGuardIT {
                 patch(ENTITY_API_URL_ID, pending.getId())
                     .with(administrator())
                     .contentType("application/merge-patch+json")
-                    .content(json(new Membership().id(pending.getId()).status("ACTIVE")))
+                    .content(json(new Membership().id(pending.getId()).status(MembershipStatus.ACTIVE)))
             )
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.ACTIVE);
     }
 
     private static RequestPostProcessor patient() {

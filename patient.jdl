@@ -161,6 +161,19 @@ enum ShiftStatus {
   COMPLETED
 }
 
+// New. Was a free String until an administrator's approval needed a vocabulary to be expressed in.
+// Five values rather than the two first specified: the shipped i18n bundles in web and mobile already
+// promise exactly these, and both clients pick the held plan with status === 'ACTIVE'.
+// VERIFIED is deliberately absent — approval sets ACTIVE directly (ruled 2026-09-08).
+/** Where a patient's subscription to a care plan stands. */
+enum MembershipStatus {
+  PENDING,
+  ACTIVE,
+  CANCELLED,
+  EXPIRED,
+  SUSPENDED
+}
+
 // ===========================================================================
 // Existing entities — carried over, with additions marked
 // ===========================================================================
@@ -223,7 +236,7 @@ entity Membership {
   patientId String
   name String
   description String
-  status String
+  status MembershipStatus
   memberNumber String
   plan String
   startDate LocalDate

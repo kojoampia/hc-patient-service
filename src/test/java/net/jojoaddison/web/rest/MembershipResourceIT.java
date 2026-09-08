@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Membership;
+import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,8 +50,11 @@ class MembershipResourceIT {
     private static final String DEFAULT_DESCRIPTION = "AAAAAAAAAA";
     private static final String UPDATED_DESCRIPTION = "BBBBBBBBBB";
 
-    private static final String DEFAULT_STATUS = "AAAAAAAAAA";
-    private static final String UPDATED_STATUS = "BBBBBBBBBB";
+    // Two real constants rather than the generator's "AAAAAAAAAA"/"BBBBBBBBBB": status is a MembershipStatus now,
+    // and a typed field has no arbitrary value to stand in for one. PENDING -> ACTIVE is also the transition that
+    // matters, so the update assertions exercise the real one.
+    private static final MembershipStatus DEFAULT_STATUS = MembershipStatus.PENDING;
+    private static final MembershipStatus UPDATED_STATUS = MembershipStatus.ACTIVE;
 
     private static final String DEFAULT_MEMBER_NUMBER = "AAAAAAAAAA";
     private static final String UPDATED_MEMBER_NUMBER = "BBBBBBBBBB";
@@ -199,7 +203,7 @@ class MembershipResourceIT {
             .andExpect(jsonPath("$.[*].patientId").value(hasItem(DEFAULT_PATIENT_ID)))
             .andExpect(jsonPath("$.[*].name").value(hasItem(DEFAULT_NAME)))
             .andExpect(jsonPath("$.[*].description").value(hasItem(DEFAULT_DESCRIPTION)))
-            .andExpect(jsonPath("$.[*].status").value(hasItem(DEFAULT_STATUS)))
+            .andExpect(jsonPath("$.[*].status").value(hasItem(DEFAULT_STATUS.name())))
             .andExpect(jsonPath("$.[*].memberNumber").value(hasItem(DEFAULT_MEMBER_NUMBER)))
             .andExpect(jsonPath("$.[*].plan").value(hasItem(DEFAULT_PLAN)))
             .andExpect(jsonPath("$.[*].startDate").value(hasItem(DEFAULT_START_DATE.toString())))
@@ -244,7 +248,7 @@ class MembershipResourceIT {
             .andExpect(jsonPath("$.patientId").value(DEFAULT_PATIENT_ID))
             .andExpect(jsonPath("$.name").value(DEFAULT_NAME))
             .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
-            .andExpect(jsonPath("$.status").value(DEFAULT_STATUS))
+            .andExpect(jsonPath("$.status").value(DEFAULT_STATUS.name()))
             .andExpect(jsonPath("$.memberNumber").value(DEFAULT_MEMBER_NUMBER))
             .andExpect(jsonPath("$.plan").value(DEFAULT_PLAN))
             .andExpect(jsonPath("$.startDate").value(DEFAULT_START_DATE.toString()))

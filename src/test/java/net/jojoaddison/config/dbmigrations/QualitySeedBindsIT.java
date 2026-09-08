@@ -46,5 +46,10 @@ class QualitySeedBindsIT {
         assertThat(document.dev.careDelegations).isNotEmpty();
         assertThat(document.dev.careDelegations)
             .anySatisfy(delegation -> assertThat(delegation.getStatus()).isEqualTo(DelegationStatus.ACTIVE));
+        // The second time this contract broke, 2026-09-08: typing Membership.status made the seed's lower-case
+        // "active" unbindable, and the mapper Spring configures is NOT case-insensitive — measured, not assumed.
+        // A migration cannot save this one, because a document read from outside the database is never seen by one.
+        assertThat(document.dev.memberships).isNotEmpty();
+        assertThat(document.dev.memberships).allSatisfy(membership -> assertThat(membership.getStatus()).isNotNull());
     }
 }
