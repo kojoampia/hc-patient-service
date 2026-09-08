@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Membership;
+import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
@@ -48,14 +49,6 @@ public class MembershipResource {
     private final Logger log = LoggerFactory.getLogger(MembershipResource.class);
 
     private static final String ENTITY_NAME = "patientMsMembership";
-
-    /**
-     * What a membership a patient creates is worth until somebody in the back office says otherwise.
-     *
-     * <p>A bare string because {@code Membership.status} is still one. When it becomes a typed vocabulary this is the
-     * constant that goes.</p>
-     */
-    private static final String PENDING_STATUS = "PENDING";
 
     @Value("${jhipster.clientApp.name}")
     private String applicationName;
@@ -252,8 +245,8 @@ public class MembershipResource {
      * @param requestedStatus the status in the request body.
      * @return the value to persist.
      */
-    private String statusOnCreate(String requestedStatus) {
-        return mayDecideStatus() ? requestedStatus : PENDING_STATUS;
+    private MembershipStatus statusOnCreate(MembershipStatus requestedStatus) {
+        return mayDecideStatus() ? requestedStatus : MembershipStatus.PENDING;
     }
 
     /**
@@ -268,7 +261,7 @@ public class MembershipResource {
      * @param requestedStatus the status in the request body.
      * @return the value to persist.
      */
-    private String statusForUpdate(String storedStatus, String requestedStatus) {
+    private MembershipStatus statusForUpdate(MembershipStatus storedStatus, MembershipStatus requestedStatus) {
         return mayDecideStatus() ? requestedStatus : storedStatus;
     }
 
