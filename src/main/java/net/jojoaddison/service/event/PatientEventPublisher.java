@@ -24,6 +24,23 @@ import org.springframework.stereotype.Component;
  * transaction to hook one onto, and best-effort after a successful write is the honest design. Every failure is caught
  * and logged. <em>Do not "fix" the swallowed exception by rethrowing it.</em></p>
  *
+ * <p><strong>An event with no subject key is refused, not sent.</strong> Every consumer of this stream keys on the
+ * lower-cased email — hc-admin's {@code SiblingEventParser} drops a frame without one <em>before</em> it reads
+ * {@code subject.patientId}, and acks it with no dead-letter record; this product's own
+ * {@code CareDelegationMailer} in the gateway reads {@code subject().email()} and silently declines to send. So an
+ * unkeyed frame is not a partial event that a consumer might still salvage, it is one nobody can attribute and
+ * everybody discards. Publishing it would put an unreadable record on a retained, replayed topic and move the
+ * diagnosis into somebody else's log; refusing leaves it here, next to the code that could not name the patient.
+ * <b>Blank counts as absent</b> — {@code ""} is what a profile with an empty email field yields, and the consumers
+ * treat blank and missing identically, so this must too.</p>
+ *
+ * <p>This is enforced here rather than at each call site on purpose. It was written first in
+ * {@code MembershipResource} and immediately missed by {@code CareDelegationService}, whose unkeyed frame costs a
+ * patient the mail telling them their care angel has stepped down. A rule about the envelope belongs to the envelope.
+ * Note the one call site this must not break: {@code DeletionRequestService} publishes {@code COMPLETED} after the
+ * profile is erased and reads the email off the stored request precisely because the lookup would fail — that path
+ * still supplies a key, so it still publishes.</p>
+ *
  * <p><strong>No event carries clinical content.</strong> Not a blood group, not an allergy, not a medication, not an
  * ID number, not an address. {@code OnboardingStepCompleted} says step 4 completed; it does not say what step 4 said.
  * A topic is retained, replicated, replayed into whatever consumer is written next and read by people debugging
@@ -101,7 +118,13 @@ public class PatientEventPublisher {
         Map<String, Object> payload = data == null ? Map.of() : new HashMap<>(data);
         assertNothingClinical(type, payload);
 
-        String key = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+        String key = email == null || email.isBlank() ? null : email.trim().toLowerCase(Locale.ROOT);
+        if (key == null) {
+            // Refused rather than sent. See the class javadoc: an unkeyed frame is not a partial event, it is one
+            // every consumer drops, and it is the one shape this stream cannot carry.
+            log.warn("Not publishing {} — no subject key, so no consumer can attribute it (patientId {})", type, patientId);
+            return;
+        }
         PatientEvent event = new PatientEvent(
             UUID.randomUUID().toString(),
             type,
@@ -117,7 +140,11 @@ public class PatientEventPublisher {
             // than throwing, which is a mis-wired producer failing quietly.
             boolean sent = streamBridge.send(
                 BINDING,
-                MessageBuilder.withPayload(event).setHeader(KEY_HEADER, key == null ? "" : key).build()
+                // No null branch: the guard above returned, so the key is non-blank by here. It used to be
+                // `key == null ? "" : key`, and the empty string was the trap — StringSerializer turns "" into a
+                // zero-length array rather than a null key, so Kafka's partitioner takes the keyed branch and every
+                // unkeyed frame in the estate hashed to one partition instead of being spread.
+                MessageBuilder.withPayload(event).setHeader(KEY_HEADER, key).build()
             );
             if (!sent) {
                 log.warn("Publishing {} was refused by the binder — check the {} binding", type, BINDING);

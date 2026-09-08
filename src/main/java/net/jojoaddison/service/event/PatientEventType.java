@@ -73,9 +73,12 @@ public final class PatientEventType {
      * built.</p>
      *
      * <p><b>The administrative CRUD path is the exception</b>, and a consumer should not generalise from the sentence
-     * above: {@code POST /api/memberships} accepts a {@code memberNumber} and a {@code renewalDate} from an
-     * administrator and persists both, so a membership created that way can carry values this event does not
-     * publish. The payload is fixed at four fields for the clients' sake; read the document if you need the rest.</p>
+     * above: an administrator may post a {@code memberNumber} and a {@code renewalDate} and {@code POST
+     * /api/memberships} persists both, so a membership created that way can carry values this event does not publish.
+     * The payload is fixed at four fields for the clients' sake; read the document if you need the rest. (Until
+     * 2026-09-08 <em>any</em> caller could set those two — a patient could issue themselves a membership number and
+     * choose their own renewal date. They are stripped for non-administrators now, which is why "an administrator"
+     * above is a real restriction rather than a description of who happens to use it.)</p>
      */
     public static final String PLAN_CHOSEN = "PlanChosen";
 

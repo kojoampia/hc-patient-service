@@ -35,7 +35,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
- * That a patient choosing a plan really lands on {@code patient-events}, in the shape hc-admin agreed to.
+ * That a patient choosing a plan really lands on {@code patient-events}, in the shape hc-admin is contracted to
+ * read. <b>It does not reach hc-admin.</b> Their item 48 is open and their parser has no {@code PlanChosen} case, so
+ * today the frame arrives on the topic and falls to their {@code default} branch. This test proves the frame and the
+ * shape, which is all it can prove from this side; the delivery is provable only once they land a consumer.
  *
  * <p>Read {@code PatientEventRoundTripIT} for why a mocked publisher is not enough on its own: the publisher swallows
  * its failures by design, so a send that throws every time looks exactly like a send that works, and a wrong binding
@@ -85,7 +88,7 @@ class MembershipPlanEventIT {
     }
 
     @Test
-    void choosingAPlanReachesHcAdminAsPlanChosen() throws Exception {
+    void choosingAPlanReachesTheTopicAsPlanChosen() throws Exception {
         String brokers = environment.getRequiredProperty("spring.cloud.stream.kafka.binder.brokers");
 
         // Exactly what web's and mobile's choosePlan post: the plan's code into `plan`, its display name into `name`.
@@ -126,7 +129,7 @@ class MembershipPlanEventIT {
 
             JsonNode data = event.path("data");
             assertThat(data.properties().stream().map(java.util.Map.Entry::getKey))
-                .as("the payload shape hc-admin reads by name")
+                .as("the payload shape hc-admin will read by name")
                 .containsExactlyInAnyOrder("membershipId", "planCode", "planName", "status");
             assertThat(data.path("membershipId").asText()).isEqualTo(membershipId);
             assertThat(data.path("planCode").asText()).isEqualTo(PLAN_CODE);

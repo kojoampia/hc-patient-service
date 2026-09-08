@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDate;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.Profile;
@@ -58,8 +58,6 @@ class MembershipStatusWriteGuardIT {
 
     private static final String PATIENT_EMAIL = "ama@example.test";
     private static final String PATIENT_ID = "patient-ama";
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String ENTITY_API_URL = "/api/memberships";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
@@ -137,6 +135,57 @@ class MembershipStatusWriteGuardIT {
     }
 
     @Test
+    void aPatientCannotIssueThemselvesAMemberNumberOrARenewalDate() throws Exception {
+        // The same rule as the status, found later: a value a client may choose is a claim, not a record. Both are
+        // back-office assignments and neither client's choosePlan sends them, so a patient posting them is asserting
+        // a subscription term nobody granted — a self-chosen renewal date is a year of care they were not sold.
+        // Until 2026-09-08 both were persisted exactly as posted, and a javadoc claimed the guard already existed.
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(patient())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        json(
+                            new Membership()
+                                .plan("MELON")
+                                .name("MELON Plan")
+                                .memberNumber("MBR-00001")
+                                .renewalDate(LocalDate.parse("2099-12-31"))
+                        )
+                    )
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.memberNumber").doesNotExist())
+            .andExpect(jsonPath("$.renewalDate").doesNotExist());
+    }
+
+    @Test
+    void anAdministratorMayStillAssignThem() throws Exception {
+        // The other half, and the reason the guard is on the authority rather than on the field: assigning a member
+        // number IS the back-office action item 18's event exists to prompt, so it must stay possible.
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(administrator())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        json(
+                            new Membership()
+                                .patientId(PATIENT_ID)
+                                .plan("MELON")
+                                .name("MELON Plan")
+                                .memberNumber("MBR-00001")
+                                .renewalDate(LocalDate.parse("2099-12-31"))
+                        )
+                    )
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.memberNumber").value("MBR-00001"))
+            .andExpect(jsonPath("$.renewalDate").value("2099-12-31"));
+    }
+
+    @Test
     void aPatientMayStillEditTheRestOfTheirMembership() throws Exception {
         // The guard must cost the patient nothing else. A rule that answered 403 to any payload mentioning status
         // would break the clients, which round-trip the whole document.
@@ -183,7 +232,14 @@ class MembershipStatusWriteGuardIT {
             .authorities(new SimpleGrantedAuthority(AuthoritiesConstants.ADMIN));
     }
 
+    /**
+     * Serialises a fixture to the request body.
+     *
+     * <p>Uses {@link TestUtil}'s mapper rather than a bare {@code new ObjectMapper()}: the plain one has no JSR-310
+     * module, so the moment a fixture carried a {@code renewalDate} it failed with "Java 8 date/time type not
+     * supported" — a serialisation error in the test, nothing to do with the endpoint under test.</p>
+     */
     private static String json(Object value) throws Exception {
-        return MAPPER.writeValueAsString(value);
+        return new String(TestUtil.convertObjectToJsonBytes(value), java.nio.charset.StandardCharsets.UTF_8);
     }
 }
