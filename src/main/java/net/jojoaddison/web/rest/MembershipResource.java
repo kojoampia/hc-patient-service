@@ -107,6 +107,14 @@ public class MembershipResource {
         membership.setPatientId(patientScope.requirePatientIdForWrite(membership.getPatientId()));
         // A membership a patient creates is a request, not a subscription — see statusOnCreate.
         membership.setStatus(statusOnCreate(membership.getStatus()));
+        // And a subscriber does not issue their own membership number or set their own renewal date, for the reason
+        // statusOnCreate exists: a value a client may choose is a claim, not a record. Both are back-office
+        // assignments — neither client's choosePlan sends them — so for anyone but an administrator they come off the
+        // wire here. Found by review 2026-09-08, when a javadoc claimed this guard already existed.
+        if (!mayDecideStatus()) {
+            membership.setMemberNumber(null);
+            membership.setRenewalDate(null);
+        }
         // Audit identity comes from the token, never from the body — see AuditStamp. A caller must not be
         // able to attribute a record to somebody else or backdate it.
         membership.setCreatedBy(AuditStamp.currentUser());
@@ -310,7 +318,8 @@ public class MembershipResource {
     }
 
     /**
-     * Says on {@code patient-events} that this patient chose a plan, so hc-admin can raise the pending membership.
+     * Says on {@code patient-events} that this patient chose a plan, so that hc-admin can raise the pending
+     * membership once their consumer exists — it does not today.
      *
      * <p><strong>Keyed on the patient's email, resolved from their profile rather than taken from the token.</strong>
      * Usually they are the same person, but an administrator creating a membership for somebody is not, and keying on
@@ -327,51 +336,45 @@ public class MembershipResource {
      * published as {@code planCode} and {@code planName}. See {@link PatientEventType#PLAN_CHOSEN} for the rest of the
      * contract, including why the missing {@code memberNumber} and {@code renewalDate} are not an oversight.</p>
      *
-     * <p><strong>An event we cannot key is not published at all.</strong> hc-admin drops a frame whose subject key is
-     * missing — {@code SiblingEventParser} guards on it and returns empty <em>before</em> it ever reads
-     * {@code subject.patientId}, and an empty parse is acked without a DLQ record — so publishing one would lose it
-     * anyway, silently, in another repository's log. Refusing to send leaves the warning here instead, where whoever
-     * created the membership is looking. The patient is still subscribed either way; what is lost is the back-office
-     * prompt, which is item 18's original defect and should therefore be loud rather than tidy.</p>
+     * <p><strong>An event we cannot key is refused by {@link PatientEventPublisher}, not by this method.</strong> That
+     * guard lived here for one commit and was immediately shown to be in the wrong place — {@code CareDelegationService}
+     * has the same shape and had the same hole. It is a rule about the envelope, so it belongs to the envelope; read it
+     * there. This method's only part in it is to pass a null email rather than invent one.</p>
      *
-     * <p><strong>Nothing in here may fail the request</strong> — the membership is already saved by the time it runs.
-     * But note what is deliberately <em>not</em> guarded: only the profile lookup is, because it is a Mongo query this
-     * method introduced and a database hiccup while resolving an email must not turn a successful subscription into a
-     * 500. The {@code publish} call sits outside that guard on purpose. {@link PatientEventPublisher} already swallows
-     * its own send failures, so the one thing that can still escape it is
-     * {@link PatientEventPublisher#assertNothingClinical}, which throws <em>by design</em> — "quietly dropping it
-     * would let the caller believe the field is being published". A blanket catch here would convert that deliberate
-     * shout into a WARN, and a payload extension that picked a denylisted key would lose every event in production
-     * while this method reported success. Every other publish site in this service leaves it uncaught; so does this
-     * one.</p>
+     * <p><strong>What refusing does and does not buy.</strong> It is <em>not</em> a louder failure: nothing in this
+     * stack alerts on a log line — {@code deploy/observability/alert-rules.yml} says so in as many words, the JVMs push
+     * OTLP and no log pipeline exists — so an unannounced membership is unnoticed either way, and nothing here
+     * enumerates {@code PENDING} memberships to notice it later. What it buys is narrower and still worth having: no
+     * unattributable record on a retained, replayed topic; the diagnosis in the repository whose operator caused it
+     * rather than in hc-admin's log; and a behaviour that is still correct once their item 48 lands, where publishing
+     * an unkeyed frame would fail again. If this condition should be alertable, that needs a counter and the Micrometer
+     * bridge the alert-rules file already names as outstanding — not a WARN.</p>
+     *
+     * <p><strong>Nothing an operator or a caller does may fail the request</strong> — the membership is already saved
+     * by the time this runs, and a charged-but-told-it-failed response is worse than a lost event. Only the profile
+     * lookup is guarded, because it is a Mongo query this method introduced. <em>One thing may still throw, and is
+     * meant to:</em> {@link PatientEventPublisher#assertNothingClinical} rejects a payload carrying a clinical key, and
+     * that is a bug in this service rather than anything a caller did. A blanket catch would convert that deliberate
+     * shout into a WARN and lose every event in production while this method reported success. It surfaces as a 500,
+     * and {@code MembershipPlanEventIT} exercises the real publisher, so it cannot reach production without failing
+     * CI.</p>
      */
     private void announceChosenPlan(Membership membership) {
-        String email = patientEmail(membership.getPatientId());
-        if (email == null) {
-            // Not an error: an administrator may create a membership for a patient whose profile carries no email, or
-            // with no patientId at all. It is still a subscription nobody will be prompted to action.
-            log.warn(
-                "Not announcing membership {} for patient {} — no email to key the event on, so hc-admin would discard it",
-                membership.getId(),
-                membership.getPatientId()
-            );
-            return;
-        }
         Map<String, Object> data = new HashMap<>();
         data.put("membershipId", membership.getId());
         data.put("planCode", membership.getPlan());
         data.put("planName", membership.getName());
         // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
         data.put("status", membership.getStatus() == null ? null : membership.getStatus().name());
-        events.publish(PatientEventType.PLAN_CHOSEN, email, null, membership.getPatientId(), data);
+        events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
     }
 
     /**
      * The email of the patient a membership belongs to, or null when there is no profile to read it from.
      *
      * <p>Null rather than the caller's own address: an event filed under the wrong person is worse than one filed
-     * under nobody. Note that "under nobody" means <em>not filed at all</em> — see {@link #announceChosenPlan}, which
-     * refuses to publish an unkeyed event rather than send one hc-admin will discard.</p>
+     * under nobody. Note that "under nobody" means <em>not filed at all</em> — {@link PatientEventPublisher} refuses a
+     * frame it cannot key rather than sending one every consumer discards.</p>
      *
      * <p>Falls back to a lookup by id because {@code patientId} was added after some profiles were written and those
      * carry only their own id — the same fallback {@code CareDelegationService} applies, and the one

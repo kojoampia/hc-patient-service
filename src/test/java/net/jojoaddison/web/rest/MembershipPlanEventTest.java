@@ -173,32 +173,32 @@ class MembershipPlanEventTest {
     }
 
     @Test
-    void aMembershipWhoseOwnerHasNoProfileIsNotAnnounced() throws Exception {
-        // NOT "announced under nobody", which is what this test asserted until review. hc-admin's SiblingEventParser
-        // guards on the subject key and returns empty BEFORE it reads subject.patientId, and an empty parse is acked
-        // with no DLQ record — so an unkeyed frame is not a partial announcement, it is a silent total loss in
-        // somebody else's log. Refusing to send keeps the warning in this service, where whoever created the
-        // membership is looking. The subscription is unaffected either way; only the back-office prompt is lost,
-        // which is item 18's original defect and must not be lost quietly.
+    void aMembershipWhoseOwnerHasNoProfilePassesANullEmailRatherThanInventingOne() throws Exception {
+        // This class's share of the rule, and only this share. Refusing to send an unkeyed frame belongs to
+        // PatientEventPublisher — it was written here first and CareDelegationService promptly proved that was the
+        // wrong place, so the guard moved to the envelope and PatientEventPublisherTest owns the refusal. What is
+        // still this method's job is to pass a null rather than substitute the caller's address, because an event
+        // filed under the wrong person is worse than one not filed at all.
         when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of());
         when(profiles.findById(PATIENT_ID)).thenReturn(Optional.empty());
 
         assertThatCode(() -> resource.createMembership(chosenPlan())).doesNotThrowAnyException();
 
-        verifyNoInteractions(events);
+        verify(events).publish(eq("PlanChosen"), eq(null), any(), eq(PATIENT_ID), any());
     }
 
     @Test
-    void anAdministratorsMembershipForAnUnnamedPatientIsNotAnnounced() throws Exception {
-        // The path that reaches this in practice, and the reason it is not hypothetical: an administrator may POST
-        // with no acting-as header and no patientId, and PatientScope.requirePatientIdForWrite returns what it was
-        // given — including null. This repo's own MembershipResourceIT does exactly that, so before the fix every CI
-        // run published an event about nobody.
+    void aMembershipForAnUnnamedPatientPassesANullEmail() throws Exception {
+        // The path that reaches this in practice, and the reason it is not hypothetical: a caller with no acting-as
+        // header and no patientId in the body gets it back unchanged — PatientScope.requirePatientIdForWrite returns
+        // what it was given, including null. This repo's own MembershipResourceIT does exactly that, so before the
+        // publisher's guard every CI run put an event about nobody on the topic.
         when(patientScope.requirePatientIdForWrite(any())).thenReturn(null);
 
         assertThatCode(() -> resource.createMembership(chosenPlan().patientId(null))).doesNotThrowAnyException();
 
-        verifyNoInteractions(events);
+        verify(events).publish(eq("PlanChosen"), eq(null), any(), eq(null), any());
+        verifyNoInteractions(profiles);
     }
 
     @Test
