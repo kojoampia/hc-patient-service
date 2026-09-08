@@ -78,12 +78,7 @@ public class MembershipStatusAsEnumMigration {
 
     @Execution
     public void migrate() {
-        List<String> canonical = Arrays.stream(MembershipStatus.values()).map(Enum::name).toList();
-
-        // A string that is not already one of the constants. Not $type alone: an enum is stored as a string too, so
-        // that criterion would match everything on every run. See the class comment.
-        Query notCanonical = new Query(Criteria.where(STATUS).type(BSON_STRING).nin(canonical));
-        List<Document> memberships = mongoTemplate.find(notCanonical, Document.class, MEMBERSHIP);
+        List<Document> memberships = selectNotCanonical();
 
         if (memberships.isEmpty()) {
             LOG.debug("No membership statuses to migrate");
@@ -110,6 +105,24 @@ public class MembershipStatusAsEnumMigration {
             mongoTemplate.updateFirst(new Query(Criteria.where("_id").is(id)), update, MEMBERSHIP);
         }
         LOG.info("Migrated {} membership status(es) onto MembershipStatus; set {} unrecognised value(s) aside", migrated, setAside);
+    }
+
+    /**
+     * The documents this migration still has work to do on.
+     *
+     * <p>Extracted so a test can assert it is <b>empty on a second pass</b>, which is the only assertion that pins the
+     * criterion. Comparing the documents before and after a rerun cannot: with a {@code $type}-only criterion the rerun
+     * re-selects every migrated document and sets {@code ACTIVE} over {@code ACTIVE}, so the document is byte-identical
+     * and an equality assertion passes while the migration churns the whole collection on every start for ever. <b>The
+     * hazard is re-selection, so re-selection is what has to be observed.</b></p>
+     *
+     * <p>{@code $type} alone is not enough because an enum is stored as a string like any other; {@code $nin} over the
+     * constants is what excludes the already-migrated. Both halves are load-bearing.</p>
+     */
+    List<Document> selectNotCanonical() {
+        List<String> canonical = Arrays.stream(MembershipStatus.values()).map(Enum::name).toList();
+        Query notCanonical = new Query(Criteria.where(STATUS).type(BSON_STRING).nin(canonical));
+        return mongoTemplate.find(notCanonical, Document.class, MEMBERSHIP);
     }
 
     /**

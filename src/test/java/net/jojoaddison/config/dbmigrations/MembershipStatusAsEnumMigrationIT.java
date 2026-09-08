@@ -59,6 +59,7 @@ class MembershipStatusAsEnumMigrationIT {
     }
 
     @Test
+    /** Two of these four are load-bearing — {@code m-mixed} and {@code m-lower}. The other two say so in place. */
     void everyCasingResolvesToItsConstant() {
         insert("m-mixed", "Pending");
         insert("m-lower", "cancelled");
@@ -69,6 +70,9 @@ class MembershipStatusAsEnumMigrationIT {
 
         assertThat(status("m-mixed")).isEqualTo(MembershipStatus.PENDING);
         assertThat(status("m-lower")).isEqualTo(MembershipStatus.CANCELLED);
+        // ALSO NOT LOAD-BEARING, and less obviously so than m-upper below. Spring's StringToEnum converter trims
+        // before Enum.valueOf, so "  EXPIRED  " reads back as EXPIRED whether this migration ran or not. Kept as a
+        // statement that padding is tolerated; do not count it as coverage of the migration itself.
         assertThat(status("m-padded")).isEqualTo(MembershipStatus.EXPIRED);
         // Already canonical, so it never matched the query. Asserted anyway: "left alone" and "rewritten to the same
         // value" are indistinguishable afterwards, and only one of them is idempotent.
@@ -85,9 +89,15 @@ class MembershipStatusAsEnumMigrationIT {
         migration.migrate();
         Document afterSecond = mongoTemplate.findById("m-1", Document.class, MEMBERSHIP);
 
-        // It has to be idempotent for the reason 001 was: two collections, no transaction, so a partial run is a
-        // state this must be resumable from. The criterion that makes it so is a value test, not a $type test —
-        // an enum is stored as a string, so $type alone would rewrite every document on every run for ever.
+        // THE SELECTION, NOT THE MUTATION — and this assertion is the whole test. Comparing the documents cannot
+        // detect the bug this is written for: with a $type-only criterion the second pass re-selects every migrated
+        // document and sets ACTIVE over ACTIVE, so the document is byte-identical and an equality assertion passes
+        // while the migration churns the entire collection on every application start for ever. Verified by
+        // mutation: with `.nin(canonical)` removed, the equality form below still passed all five cases here.
+        //
+        // It has to be idempotent because a partial run is a state this must be resumable from.
+        assertThat(migration.selectNotCanonical()).isEmpty();
+
         assertThat(afterSecond).isEqualTo(afterFirst);
         assertThat(status("m-1")).isEqualTo(MembershipStatus.ACTIVE);
         assertThat(status("m-2")).isEqualTo(MembershipStatus.PENDING);

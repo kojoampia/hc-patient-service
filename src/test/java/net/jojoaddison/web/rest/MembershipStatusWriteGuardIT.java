@@ -34,10 +34,15 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * with no authority check, so the patient could make that transition themselves by echoing one word back at the
  * endpoint that had just sent it to them — over their own record, which both verbs already let them edit.</p>
  *
- * <p><strong>Every assertion here fails without the guard,</strong> which is the point of the class: it is not
- * asserting that a refusal happens somewhere, it is asserting the stored value after a request that used to work.
- * Delete the three {@code statusOnCreate}/{@code statusForUpdate} calls in {@link MembershipResource} and all five
- * turn red.</p>
+ * <p><strong>Four of the five fail without the guard,</strong> which is the point of the class: it is not asserting
+ * that a refusal happens somewhere, it is asserting the stored value after a request that used to work. Revert
+ * {@link MembershipResource} to its pre-guard state and the four patient cases turn red with
+ * {@code JSON path "$.status" expected:<PENDING> but was:<ACTIVE>} — measured, not assumed.</p>
+ *
+ * <p>The fifth, {@code anAdministratorApprovesIt}, passes either way <b>by design</b>: it is the path the guard
+ * exists to let through. Said explicitly because an earlier version of this comment claimed all five turn red, and a
+ * doc comment that overstates its own coverage is the same defect as a test that reports success without having
+ * looked — the next reader counts five red, sees four, and doubts the guard rather than the sentence.</p>
  *
  * <p>Separate from {@link MembershipResourceIT}, which runs as {@code ROLE_ADMIN} and therefore cannot see this at
  * all: an administrator is precisely the caller the guard lets through. Mixing the two would mean changing that
