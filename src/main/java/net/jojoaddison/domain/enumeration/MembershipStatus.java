@@ -47,6 +47,23 @@ import java.util.Optional;
  * screen turning into an error. Here it is nothing, because after the migration there is no unrecognised value to
  * bind — and if one ever appeared it would mean somebody had written to this collection outside the service, which is
  * a thing worth failing loudly about rather than rendering.</p>
+ *
+ * <h3>And the reason that file says matters</h3>
+ *
+ * <p>{@code IdentificationType} gives two reasons and states that <em>"the second is the one that matters"</em>:
+ * rejecting unrecognised input <em>"would break onboarding the moment this service deployed ahead of the clients …
+ * precisely the cross-repo ordering failure the {@code Stat} pagination work already cost this subsystem."</em> The
+ * paragraphs above answer the first reason only, so this one answers the second — it is the one a reader will check.</p>
+ *
+ * <p><b>It is closed here, and narrowly.</b> Both clients post {@code PENDING} and nothing else, so a service running
+ * ahead of them rejects nothing a patient can cause. The exposure is one screen and one role: the admin CRUD form's
+ * status field was a free-text {@code <input>} until it became a {@code <select>} over these constants, so between a
+ * service deploy and a {@code web} deploy an administrator typing into the old box would get a 400 instead of a
+ * stored value. That is an administrator on a back-office screen seeing an error, recoverable by retyping — not
+ * every new patient failing step 5 with the clients none the wiser, which is what that ruling was written about.</p>
+ *
+ * <p>Deploy {@code web} first if the order is yours to choose. It is not a reason to leave the field free text, but
+ * it is a reason not to claim the ordering concern does not apply.</p>
  */
 public enum MembershipStatus {
     /** Chosen by the patient and awaiting a decision. What {@code POST /api/memberships} records, whoever asks. */
