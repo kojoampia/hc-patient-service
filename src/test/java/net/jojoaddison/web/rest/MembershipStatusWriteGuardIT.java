@@ -68,17 +68,20 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * <p><strong>Each field is pinned by its own test, and each test names the other two.</strong> A body omitting all
  * three would make one assertion three times over and could not tell which field the guard actually covers — so the
  * test for each field sends real values for the other two and asserts those landed. That is also what makes the
- * inversion sharp: reverting the carry-over at one call site reddens exactly one of these. Item 27's closure is the
- * reason for the shape — a test-per-field suite there asserted only what the patient was refused, and would have
- * certified a "fix" that erased what an administrator had assigned. <strong>Assert the preserved value, not the
- * refused one.</strong></p>
+ * inversion sharp: rewriting <em>one call site</em> in {@code PUT} to pass the requested value straight through — the
+ * only way to lose the rule for a single field, now that {@code termForUpdate} is the one implementation of it —
+ * reddens exactly one of these, while reverting that helper reddens all three. Item 27's closure is the reason for
+ * the shape: a test-per-field suite there asserted only what the patient was refused, and would have certified a
+ * "fix" that erased what an administrator had assigned. <strong>Assert the preserved value, not the refused
+ * one.</strong></p>
  *
  * <p>Separate from {@link MembershipResourceIT}, which runs as {@code ROLE_ADMIN} and therefore cannot see this at
  * all: an administrator is precisely the caller the guard lets through. Mixing the two would mean changing that
  * class's caller and losing the CRUD coverage it exists for. That class does hold the {@code PATCH} half of item 30's
- * regression cover, though, in {@code partialUpdateMembershipWithPatch} — it has asserted since it was generated that
- * an administrator's partial update leaves an unmentioned {@code status}, {@code memberNumber} and
- * {@code renewalDate} at their stored values, which is why {@code PATCH} never had this defect.</p>
+ * regression cover, though, in {@code partialUpdateMembershipWithPatch} — it asserts that an administrator's partial
+ * update leaves an unmentioned {@code status}, {@code memberNumber} and {@code renewalDate} at their stored values,
+ * which is why {@code PATCH} never had this defect. (Generated with that shape, though not with that status constant:
+ * item 19 retyped {@code DEFAULT_STATUS} when {@code status} became an enum.)</p>
  *
  * <p>Callers are built with {@code jwt()} rather than {@code @WithMockUser} for the reason {@code PatientScopeIT}
  * gives: the identity under test lives in the token's {@code email} claim, and {@code @WithMockUser} mints no token,
@@ -546,6 +549,53 @@ class MembershipStatusWriteGuardIT {
             .andExpect(status().isOk());
 
         assertThat(membershipRepository.findById(stored.getId()).orElseThrow().getMemberNumber()).isEmpty();
+    }
+
+    @Test
+    void anAdministratorCreatingAMembershipWithNoStatusGetsPending() throws Exception {
+        // The third helper, found by review of item 30 after the other two were fixed. statusOnCreate returned the
+        // requested status verbatim for an administrator — null included — off the same blank <option [ngValue]="null">
+        // on the same generated component, which posts when the form carries no id. A membership stored with no status
+        // is in no MembershipStatus constant and matches nothing hc-admin filters on.
+        //
+        // The frame is the other half and is worse than the stored value: a creation announces unconditionally, so the
+        // event went out with no status key at all. MembershipPlanEventIT.anAdministratorCreatingWithNoStatusStill-
+        // AnnouncesOne reads that off a real topic; this asserts what was written here.
+        String withNoStatus =
+            """
+            {"patientId":"%s","plan":"MELON","name":"MELON Plan","memberNumber":"%s"}
+            """.formatted(PATIENT_ID, SENT_MEMBER_NUMBER);
+
+        restMockMvc
+            .perform(post(ENTITY_API_URL).with(administrator()).contentType(MediaType.APPLICATION_JSON).content(withNoStatus))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            // Still an administrator's creation in every other respect — the default is not a refusal in disguise.
+            .andExpect(jsonPath("$.memberNumber").value(SENT_MEMBER_NUMBER));
+
+        Membership stored = membershipRepository
+            .findByPatientId(PATIENT_ID)
+            .stream()
+            .filter(m -> "MELON".equals(m.getPlan()))
+            .findFirst()
+            .orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(MembershipStatus.PENDING);
+        assertThat(stored.getMemberNumber()).isEqualTo(SENT_MEMBER_NUMBER);
+    }
+
+    @Test
+    void anAdministratorCreatingAnActiveMembershipStillGetsActive() throws Exception {
+        // The default must not swallow a decision an administrator actually made. Distinct from
+        // anAdministratorMayStillAssignThem, which sends the terms and no status at all.
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(administrator())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().patientId(PATIENT_ID).plan("MELON").name("MELON Plan").status(MembershipStatus.ACTIVE)))
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.status").value("ACTIVE"));
     }
 
     /**

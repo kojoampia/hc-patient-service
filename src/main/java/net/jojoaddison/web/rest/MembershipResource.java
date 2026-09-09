@@ -249,11 +249,37 @@ public class MembershipResource {
      * may choose is a claim rather than a record, which is the same rule {@code source} and the audit fields already
      * follow here.</p>
      *
+     * <p><strong>And an administrator who names no status gets {@code PENDING} too, which until 2026-09-09 they did
+     * not.</strong> This returned the requested status verbatim for an administrator — null included — and it is the
+     * <em>same</em> {@code <select>} on the same generated component that produced item 30 on {@code PUT}:
+     * {@code membership-update.component.ts} branches on whether the form carries an id and posts when it does not,
+     * so the blank {@code <option [ngValue]="null">} reaches this method as well. Found in review of item 30, which
+     * fixed the other two helpers and left this one.</p>
+     *
+     * <p><strong>On {@code POST} it is worse than it was on {@code PUT}, and the reason is the announcement.</strong>
+     * An update with a cleared status never reaches the topic — {@code announceIfDecided} refuses to call a cleared
+     * status a decision. A creation has no "before" to compare against and so announces <em>unconditionally</em>: the
+     * frame went out with {@code membershipId}, {@code planCode} and {@code planName} and no {@code status} at all,
+     * because {@code putIfPresent} drops the absent key. hc-admin's {@code setOrUnset} then removes
+     * {@code plan_status}, and a membership that is genuinely awaiting a decision <strong>never enters the
+     * {@code planStatus=PENDING} queue their console is built on</strong>. Nothing retires it because nothing ever
+     * raised it, and no administrator makes the decision whose frame would heal the row.</p>
+     *
+     * <p><strong>Defaulted rather than refused, and this is one rule with {@link #termForUpdate} rather than a second
+     * copy of it.</strong> On a creation the value a membership holds before anybody decides <em>is</em>
+     * {@code PENDING} — that is what the constant means — so "keep what is held unless the back office names
+     * something else" is the identical rule with {@code PENDING} standing in for the stored document. Refusing was
+     * considered and rejected for the reason {@code termForUpdate} gives at length: this resource decides values
+     * rather than answering 400 to a body that merely stayed quiet, it already invents {@code PENDING} here for every
+     * non-administrator, and inventing it for one caller while refusing another would be the incoherence that
+     * argument turns on. Note the coupling this creates in exchange: changing {@code termForUpdate} now changes
+     * creation too, which is the point — three call sites, one rule, nothing left to drift.</p>
+     *
      * @param requestedStatus the status in the request body.
      * @return the value to persist.
      */
     private MembershipStatus statusOnCreate(MembershipStatus requestedStatus) {
-        return mayDecideStatus() ? requestedStatus : MembershipStatus.PENDING;
+        return termForUpdate(MembershipStatus.PENDING, requestedStatus);
     }
 
     /**
@@ -298,7 +324,8 @@ public class MembershipResource {
      * wholesale, so nulling would mean a patient renaming their membership <em>erases</em> the number and renewal date
      * an administrator assigned — trading a privilege escalation for silent data loss. On {@code PATCH} it is also the
      * right merge behaviour: the merge copies non-null fields only, so handing back the stored value writes it over
-     * itself and changes nothing.</p>
+     * itself and changes nothing — <em>under a single writer</em>, which is a caveat with a date on it and is spelt
+     * out at the end of this javadoc.</p>
      *
      * <h3>The administrator had the hole this closed, and the javadoc above read as though they did not</h3>
      *
@@ -334,6 +361,37 @@ public class MembershipResource {
      *       {@code CANCELLED} records. If a real need for the blank appears it wants its own explicit route, not the
      *       silent one this closes.</li>
      * </ul>
+     *
+     * <h3>The fields this does <em>not</em> cover, named so the next reader does not have to find them the hard way</h3>
+     *
+     * <p>{@code PUT} restores six fields from the stored document; {@code plan}, {@code name}, {@code description} and
+     * {@code startDate} still come off the wire wholesale, and {@code Membership} carries no validation annotations at
+     * all — no {@code @NotNull} on any of them. <strong>So an omitted {@code plan} still nulls a plan.</strong> Two of
+     * those four are on the wire to hc-admin: the next status decision publishes a {@code PlanChosen} whose
+     * {@code planCode} and {@code planName} {@code putIfPresent} then drops, and their {@code setOrUnset} removes both
+     * from the directory row — the tier a patient holds, gone from the back office's view while the membership itself
+     * reads fine here.</p>
+     *
+     * <p><strong>Deliberately not fixed here, and it is not the same decision.</strong> These three fields are
+     * back-office assignments a subscriber may not touch; a plan and a name are the patient's own to change, so
+     * carrying them over would freeze the thing a client legitimately edits. Whether {@code plan} deserves a
+     * different guard is item 18's question — it already owns "does a plan change without a status change deserve a
+     * frame" — not this one's. Recorded rather than built, on review of item 30.</p>
+     *
+     * <h3>One thing this made slightly worse on {@code PATCH}, which is worth the trade and is not free</h3>
+     *
+     * <p>{@code PATCH} reads the document twice: once here for the ownership check, once again in the service by id.
+     * The double read is older than this change. What this change does is <strong>put the resource's read on the
+     * wire</strong> — before, an omitted {@code status} stayed null through the merge and the service's later, fresher
+     * read won; now the value this method carried over is merged in, so a write that landed between the two reads is
+     * <em>reverted</em>. Worse, it is reverted <em>silently</em>: {@code announceIfDecided} is handed the same stale
+     * status this method read, so the persisted value compares equal to it and no frame goes out.</p>
+     *
+     * <p>Today the only second writer is another HTTP request, which is the lost update every unversioned document in
+     * this service already has. <strong>Item 19's inbound {@code patient-events-plan} consumer is a real second
+     * writer</strong> — {@link MembershipService}'s own javadoc plans for it — and it writes exactly the field this
+     * window loses. The fix is not a third guard: it is for the compare and the write to read the document once, or
+     * for the document to carry a version. Named here because the widening happened here.</p>
      *
      * @param storedTerm the value on the stored document.
      * @param requestedTerm the value in the request body.

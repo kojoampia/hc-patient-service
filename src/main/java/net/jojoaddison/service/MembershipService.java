@@ -115,6 +115,14 @@ public class MembershipService {
      * administrator creates already {@code ACTIVE} is announced as {@code ACTIVE}, because this reports what was
      * written rather than what was asked for.</p>
      *
+     * <p><strong>Unconditional is only safe while every creation has a status to announce, and that is a guarantee
+     * somebody else keeps.</strong> {@code MembershipResource.statusOnCreate} defaults an unnamed status to
+     * {@code PENDING} for every caller, so the frame below always carries the key. It did not until 2026-09-09 —
+     * an administrator naming no status published {@code membershipId}, {@code planCode} and {@code planName} with no
+     * {@code status}, and hc-admin's {@code setOrUnset} dropped {@code plan_status} from the row, so the membership
+     * never appeared on the queue that exists to get it decided. If a fourth write path ever creates a membership,
+     * this is the invariant it has to keep.</p>
+     *
      * @param membership the entity to save, already stripped of anything the caller may not decide.
      * @return the persisted entity.
      */
@@ -221,7 +229,7 @@ public class MembershipService {
      * document: hc-admin went on showing a stale {@code PENDING}, which is wrong but visible and still actionable.
      * Staying silent restores that, which is the better failure of the two.</p>
      *
-     * <p><strong>The web layer no longer produces the case this was written for, and this guard stays anyway.</strong>
+     * <p><strong>No update path still produces the case this was written for, and this guard stays anyway.</strong>
      * It was written because {@code MembershipResource.statusForUpdate} handed an administrator back exactly what the
      * body carried, so saving the generated update form with the status select on its blank
      * {@code <option [ngValue]="null">} persisted a null; backlog item 30 closed that on 2026-09-09 by carrying the
@@ -230,6 +238,15 @@ public class MembershipService {
      * {@code service} method that any caller in this package may reach — item 19's inbound consumer among them —
      * without passing the resource's guards at all. This class is the seam precisely so that a rule does not depend on
      * the one caller that exists today.</p>
+     *
+     * <p><strong>Say "no update path" rather than "the web layer", because the difference was a live defect.</strong>
+     * {@link #save} does not come through here at all, and {@code statusOnCreate} had the identical hole from the
+     * identical {@code <select>} — so while an update with a cleared status was contained by the guard below, a
+     * <em>creation</em> with one announced unconditionally and put a frame with no {@code status} key on the topic,
+     * which is the dequeue-with-no-decision failure described above happening at the other end of the lifecycle. It
+     * was found by review of item 30 and closed with it. The wording matters because a sentence that says "the web
+     * layer" invites the reader to check one verb and generalise, which is how this repo has now produced the same
+     * class of defect four times.</p>
      */
     private void announceIfDecided(Membership persisted, MembershipStatus statusHeld) {
         if (persisted.getStatus() == null) {

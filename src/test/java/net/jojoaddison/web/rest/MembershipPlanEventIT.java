@@ -70,6 +70,9 @@ class MembershipPlanEventIT {
     /** The second test's own, so its two frames cannot be confused with the first test's one. */
     private static final String DECIDED_PLAN_CODE = "MELON-" + UUID.randomUUID();
 
+    /** The third test's own, for the same reason. */
+    private static final String BACK_OFFICE_PLAN_CODE = "KUBE-" + UUID.randomUUID();
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String ENTITY_API_URL = "/api/memberships";
@@ -215,6 +218,66 @@ class MembershipPlanEventIT {
             assertThat(data.path("membershipId").asText()).isEqualTo(membershipId);
             assertThat(data.path("planCode").asText()).isEqualTo(DECIDED_PLAN_CODE);
             assertThat(data.path("status").asText()).isEqualTo("ACTIVE");
+        }
+    }
+
+    /**
+     * That a membership an administrator creates without naming a status still announces one.
+     *
+     * <p>The defect this closes, found reviewing backlog item 30: {@code statusOnCreate} returned the requested status
+     * verbatim for an administrator, so the blank {@code <option [ngValue]="null">} on the generated form — which
+     * {@code POST}s when the form carries no id — stored a null status. A creation announces
+     * <strong>unconditionally</strong>, having no held status to compare against, and {@code putIfPresent} drops an
+     * absent key: the frame went out with three of its four fields.</p>
+     *
+     * <p><strong>That is the dequeue failure at the wrong end of the lifecycle.</strong> hc-admin's
+     * {@code setOrUnset} removes {@code plan_status} for the missing key, so the row does not match the
+     * {@code planStatus=PENDING} filter their queue is built on — a membership genuinely awaiting a decision never
+     * appears on the panel that exists to get it decided, and since only a decision produces another frame, nothing
+     * ever heals it. Item 27's asymmetry contains the same mistake on an <em>update</em>; there was nothing
+     * containing it here.</p>
+     *
+     * <p>The key set is asserted, not just the value: a dropped key and a null value are indistinguishable to
+     * {@code path(...).asText()}, and it was a dropped key.</p>
+     */
+    @Test
+    void anAdministratorCreatingWithNoStatusStillAnnouncesOne() throws Exception {
+        String brokers = environment.getRequiredProperty("spring.cloud.stream.kafka.binder.brokers");
+
+        // patientId explicitly: an administrator has no patient of their own for requirePatientIdForWrite to resolve.
+        // No status at all, which is the whole point — MAPPER writes it as an explicit null, exactly as the form does.
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(administrator())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        MAPPER.writeValueAsString(new Membership().patientId(PATIENT_ID).plan(BACK_OFFICE_PLAN_CODE).name("KUBE Plan"))
+                    )
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+
+        String membershipId = membershipRepository
+            .findByPatientId(PATIENT_ID)
+            .stream()
+            .filter(candidate -> BACK_OFFICE_PLAN_CODE.equals(candidate.getPlan()))
+            .findFirst()
+            .orElseThrow()
+            .getId();
+
+        try (KafkaConsumer<String, String> consumer = consumer(brokers)) {
+            consumer.subscribe(List.of("patient-events"));
+
+            ConsumerRecord<String, String> received = pollFor(consumer, BACK_OFFICE_PLAN_CODE, "PENDING");
+            assertThat(received).as("no PlanChosen carrying a status arrived for an administrator's creation").isNotNull();
+
+            JsonNode data = MAPPER.readTree(received.value()).path("data");
+            assertThat(data.properties().stream().map(java.util.Map.Entry::getKey))
+                .as("status is the key that went missing — a frame without it silently unsets plan_status next door")
+                .containsExactlyInAnyOrder("membershipId", "planCode", "planName", "status");
+            assertThat(data.path("membershipId").asText()).isEqualTo(membershipId);
+            assertThat(data.path("status").asText()).isEqualTo("PENDING");
         }
     }
 
