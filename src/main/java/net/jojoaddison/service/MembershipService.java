@@ -186,8 +186,28 @@ public class MembershipService {
      *
      * <p>{@link Objects#equals} rather than {@code !=}: a membership written before a status existed holds null, and
      * null → {@code PENDING} is a decision, not the absence of one.</p>
+     *
+     * <p><strong>The comparison is not symmetric, and making it symmetric was a defect caught in review.</strong> A
+     * status arriving where there was none is a decision; a status being <em>cleared</em> is not. {@code PUT} replaces
+     * the document wholesale and {@code statusForUpdate} hands an administrator back exactly what the body carried, so
+     * an administrator saving the generated update form with the status select on its blank
+     * {@code <option [ngValue]="null">} persists a null. Announced, that frame carries no {@code status} at all,
+     * hc-admin's {@code setOrUnset} removes {@code plan_status}, and the row silently stops matching the
+     * {@code planStatus=PENDING} filter their queue is built on — <em>dequeued with no decision recorded anywhere</em>.
+     * Before this class announced on updates the same mistake cost only the local document: hc-admin went on showing a
+     * stale {@code PENDING}, which is wrong but visible and still actionable. Staying silent restores that, which is
+     * the better failure of the two.</p>
+     *
+     * <p><strong>That {@code PUT} can null a status at all is a real defect and is not fixed here</strong> — it is
+     * data loss in this service's own record, wider than the announcement, and worth its own entry rather than being
+     * quietly absorbed into a change about events.</p>
      */
     private void announceIfDecided(Membership persisted, MembershipStatus statusHeld) {
+        if (persisted.getStatus() == null) {
+            // Nothing was decided — see the javadoc. Silence here is what keeps a cleared status a local defect
+            // instead of a cross-product one.
+            return;
+        }
         if (Objects.equals(persisted.getStatus(), statusHeld)) {
             return;
         }
