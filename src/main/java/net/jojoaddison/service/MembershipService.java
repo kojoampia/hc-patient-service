@@ -214,19 +214,22 @@ public class MembershipService {
      * null → {@code PENDING} is a decision, not the absence of one.</p>
      *
      * <p><strong>The comparison is not symmetric, and making it symmetric was a defect caught in review.</strong> A
-     * status arriving where there was none is a decision; a status being <em>cleared</em> is not. {@code PUT} replaces
-     * the document wholesale and {@code statusForUpdate} hands an administrator back exactly what the body carried, so
-     * an administrator saving the generated update form with the status select on its blank
-     * {@code <option [ngValue]="null">} persists a null. Announced, that frame carries no {@code status} at all,
-     * hc-admin's {@code setOrUnset} removes {@code plan_status}, and the row silently stops matching the
-     * {@code planStatus=PENDING} filter their queue is built on — <em>dequeued with no decision recorded anywhere</em>.
-     * Before this class announced on updates the same mistake cost only the local document: hc-admin went on showing a
-     * stale {@code PENDING}, which is wrong but visible and still actionable. Staying silent restores that, which is
-     * the better failure of the two.</p>
+     * status arriving where there was none is a decision; a status being <em>cleared</em> is not. Announced, a cleared
+     * status carries no {@code status} key at all, hc-admin's {@code setOrUnset} removes {@code plan_status}, and the
+     * row silently stops matching the {@code planStatus=PENDING} filter their queue is built on — <em>dequeued with no
+     * decision recorded anywhere</em>. Before this class announced on updates the same mistake cost only the local
+     * document: hc-admin went on showing a stale {@code PENDING}, which is wrong but visible and still actionable.
+     * Staying silent restores that, which is the better failure of the two.</p>
      *
-     * <p><strong>That {@code PUT} can null a status at all is a real defect and is not fixed here</strong> — it is
-     * data loss in this service's own record, wider than the announcement, and worth its own entry rather than being
-     * quietly absorbed into a change about events.</p>
+     * <p><strong>The web layer no longer produces the case this was written for, and this guard stays anyway.</strong>
+     * It was written because {@code MembershipResource.statusForUpdate} handed an administrator back exactly what the
+     * body carried, so saving the generated update form with the status select on its blank
+     * {@code <option [ngValue]="null">} persisted a null; backlog item 30 closed that on 2026-09-09 by carrying the
+     * stored status over when a request does not name one. Two ways in remain, which is why this is not dead code: a
+     * document whose stored status is <em>already</em> null carries null over and still arrives here, and this is a
+     * {@code service} method that any caller in this package may reach — item 19's inbound consumer among them —
+     * without passing the resource's guards at all. This class is the seam precisely so that a rule does not depend on
+     * the one caller that exists today.</p>
      */
     private void announceIfDecided(Membership persisted, MembershipStatus statusHeld) {
         if (persisted.getStatus() == null) {
