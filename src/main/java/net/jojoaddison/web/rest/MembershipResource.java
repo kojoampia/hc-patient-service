@@ -44,6 +44,15 @@ import tech.jhipster.web.util.ResponseUtil;
  * weakness of the weaker form is worth naming, though: it depends on <em>every</em> write path remembering to call
  * the guard, which is exactly how {@code PUT} came to differ from {@code PATCH} elsewhere.</p>
  *
+ * <h2>Nor does the back office erase one by not mentioning it</h2>
+ *
+ * <p>The same three fields — {@code status}, {@code memberNumber}, {@code renewalDate} — were guarded against the
+ * subscriber <em>choosing</em> them and not against an administrator <em>clearing</em> them. Both guards handed an
+ * administrator back whatever the body carried, {@code PUT} replaces the document wholesale, and the generated update
+ * form makes a null status one click; the record was wiped in this service with nothing to restore it from. Since
+ * 2026-09-09 all three are carried over from the stored document when the request does not name them, whoever the
+ * caller is. Backlog item 30, and {@link #termForUpdate} holds the whole rule and the price it charges.</p>
+ *
  * <h2>Choosing a plan says so on {@code patient-events}</h2>
  *
  * <p>Until 2026-09-08 a patient chose a tier, a {@code PENDING} membership was written, and <em>nothing told
@@ -154,7 +163,7 @@ public class MembershipResource {
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
         // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
         membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
-        // And neither are the terms of the subscription — see termsForUpdate. POST has stripped these since
+        // And neither are the terms of the subscription — see termForUpdate. POST has stripped these since
         // 2026-09-08 and these two verbs did not, which is the drift this class's own javadoc warns about twice.
         membership.setMemberNumber(termForUpdate(existing.getMemberNumber(), membership.getMemberNumber()));
         membership.setRenewalDate(termForUpdate(existing.getRenewalDate(), membership.getRenewalDate()));
@@ -212,7 +221,7 @@ public class MembershipResource {
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
         // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
         membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
-        // And neither are the terms of the subscription — see termsForUpdate. POST has stripped these since
+        // And neither are the terms of the subscription — see termForUpdate. POST has stripped these since
         // 2026-09-08 and these two verbs did not, which is the drift this class's own javadoc warns about twice.
         membership.setMemberNumber(termForUpdate(existing.getMemberNumber(), membership.getMemberNumber()));
         membership.setRenewalDate(termForUpdate(existing.getRenewalDate(), membership.getRenewalDate()));
@@ -240,11 +249,37 @@ public class MembershipResource {
      * may choose is a claim rather than a record, which is the same rule {@code source} and the audit fields already
      * follow here.</p>
      *
+     * <p><strong>And an administrator who names no status gets {@code PENDING} too, which until 2026-09-09 they did
+     * not.</strong> This returned the requested status verbatim for an administrator — null included — and it is the
+     * <em>same</em> {@code <select>} on the same generated component that produced item 30 on {@code PUT}:
+     * {@code membership-update.component.ts} branches on whether the form carries an id and posts when it does not,
+     * so the blank {@code <option [ngValue]="null">} reaches this method as well. Found in review of item 30, which
+     * fixed the other two helpers and left this one.</p>
+     *
+     * <p><strong>On {@code POST} it is worse than it was on {@code PUT}, and the reason is the announcement.</strong>
+     * An update with a cleared status never reaches the topic — {@code announceIfDecided} refuses to call a cleared
+     * status a decision. A creation has no "before" to compare against and so announces <em>unconditionally</em>: the
+     * frame went out with {@code membershipId}, {@code planCode} and {@code planName} and no {@code status} at all,
+     * because {@code putIfPresent} drops the absent key. hc-admin's {@code setOrUnset} then removes
+     * {@code plan_status}, and a membership that is genuinely awaiting a decision <strong>never enters the
+     * {@code planStatus=PENDING} queue their console is built on</strong>. Nothing retires it because nothing ever
+     * raised it, and no administrator makes the decision whose frame would heal the row.</p>
+     *
+     * <p><strong>Defaulted rather than refused, and this is one rule with {@link #termForUpdate} rather than a second
+     * copy of it.</strong> On a creation the value a membership holds before anybody decides <em>is</em>
+     * {@code PENDING} — that is what the constant means — so "keep what is held unless the back office names
+     * something else" is the identical rule with {@code PENDING} standing in for the stored document. Refusing was
+     * considered and rejected for the reason {@code termForUpdate} gives at length: this resource decides values
+     * rather than answering 400 to a body that merely stayed quiet, it already invents {@code PENDING} here for every
+     * non-administrator, and inventing it for one caller while refusing another would be the incoherence that
+     * argument turns on. Note the coupling this creates in exchange: changing {@code termForUpdate} now changes
+     * creation too, which is the point — three call sites, one rule, nothing left to drift.</p>
+     *
      * @param requestedStatus the status in the request body.
      * @return the value to persist.
      */
     private MembershipStatus statusOnCreate(MembershipStatus requestedStatus) {
-        return mayDecideStatus() ? requestedStatus : MembershipStatus.PENDING;
+        return termForUpdate(MembershipStatus.PENDING, requestedStatus);
     }
 
     /**
@@ -255,16 +290,26 @@ public class MembershipResource {
      * {@code PUT} and {@code PATCH} working for the fields a patient <em>may</em> edit — a subscriber renaming their
      * membership should not get a 403 because the payload also echoed the status the server sent them.</p>
      *
+     * <p><strong>And an administrator cannot clear it by omission either</strong>, which until 2026-09-09 they could:
+     * this returned the requested status verbatim for an administrator, {@code PUT} replaces the document wholesale,
+     * and the generated update form's status {@code <select>} carries a blank {@code <option [ngValue]="null">} — so
+     * saving that form persisted a null. A null is in no {@code MembershipStatus} constant, hc-admin cannot filter on
+     * it, and both clients pick the held plan with {@code status?.toUpperCase() === 'ACTIVE'}, which falls through to
+     * the first membership in the list rather than to none. Backlog item 30; the rule is
+     * {@link #termForUpdate}'s and this delegates to it so that the two cannot drift apart again.</p>
+     *
      * @param storedStatus the status currently recorded on the stored document.
      * @param requestedStatus the status in the request body.
      * @return the value to persist.
      */
     private MembershipStatus statusForUpdate(MembershipStatus storedStatus, MembershipStatus requestedStatus) {
-        return mayDecideStatus() ? requestedStatus : storedStatus;
+        return termForUpdate(storedStatus, requestedStatus);
     }
 
     /**
-     * A term of the subscription an update must keep, which for anybody but an administrator is the stored one.
+     * A value on the membership that only the back office decides, which an update keeps unless the back office said
+     * otherwise. The one carry-over rule on this resource: {@code status}, {@code memberNumber} and
+     * {@code renewalDate} all come through here.
      *
      * <p>{@code memberNumber} and {@code renewalDate} are back-office assignments for the reason {@code statusOnCreate}
      * gives: a value a client may choose is a claim, not a record, and a self-chosen renewal date is a year of care
@@ -277,17 +322,88 @@ public class MembershipResource {
      * <p><strong>Carried over rather than nulled, which is not what {@code POST} does and must not be.</strong>
      * {@code POST} strips because there is nothing to preserve. Here there is: {@code PUT} replaces the document
      * wholesale, so nulling would mean a patient renaming their membership <em>erases</em> the number and renewal date
-     * an administrator assigned — trading a privilege escalation for silent data loss. Carrying the stored value over
-     * is exactly what {@link #statusForUpdate} does, and on {@code PATCH} it is also the right merge behaviour: the
-     * merge copies non-null fields only, so handing back the stored value writes it over itself and changes
-     * nothing.</p>
+     * an administrator assigned — trading a privilege escalation for silent data loss. On {@code PATCH} it is also the
+     * right merge behaviour: the merge copies non-null fields only, so handing back the stored value writes it over
+     * itself and changes nothing — <em>under a single writer</em>, which is a caveat with a date on it and is spelt
+     * out at the end of this javadoc.</p>
+     *
+     * <h3>The administrator had the hole this closed, and the javadoc above read as though they did not</h3>
+     *
+     * <p>Everything above is the {@code false} branch of {@link #mayDecideStatus()}. <strong>An administrator took the
+     * other branch and got the requested value verbatim — including null</strong> — so the identical wipe this method
+     * was written to prevent happened to them by omitting a field instead of by renaming a membership, and
+     * {@code PUT} replacing wholesale did the rest. That is the defect-shape review named twice while closing backlog
+     * item 27: <em>a javadoc asserting a guard that holds on one path and is read as holding on all of them.</em>
+     * Backlog item 30, and the third time in this file a rule written for one caller has been wrong for the next.</p>
+     *
+     * <p><strong>Carry-over, not refusal, and the deciding argument is not symmetry with the neighbours.</strong>
+     * Refusing an administrator's clearing {@code PUT} with a 400 would have to be written at the {@code PUT} call
+     * site — {@code PATCH} cannot refuse an absent field, because an absent field is what {@code PATCH} is for. That
+     * is one rule in one of two places on a resource whose two update verbs have now drifted apart three times.
+     * Carry-over fits in the shared helper, so both verbs get it whether or not anyone remembers. It also matches
+     * what {@code patientId}, {@code createdBy} and {@code createdDate} already do four lines away, and a resource
+     * that silently carries four fields over and answers 400 on three others is one nobody can predict.</p>
+     *
+     * <p><strong>What it costs, stated rather than discovered: an administrator can no longer blank any of the three
+     * by omitting it.</strong> Deliberately — an omitted field is an accident and a sent one is a statement — but the
+     * three do not have equally good replacements and that is worth knowing before somebody needs one:</p>
+     *
+     * <ul>
+     *   <li>{@code status} — no loss. {@code PENDING} exists to say "not decided", and {@code CANCELLED} to say a
+     *       membership ended. Neither was ever expressible as a null.</li>
+     *   <li>{@code memberNumber} — an empty string still clears it, since only null carries over. Explicit, which is
+     *       the point. Note it stores {@code ""} rather than null, and {@code web} renders that as an empty cell
+     *       where it renders a true null as {@code —}.</li>
+     *   <li>{@code renewalDate} — <strong>no route through this API at all.</strong> It is a {@code LocalDate}, so
+     *       there is no empty spelling of it. Correcting a wrong date still works — send the right one — but blanking
+     *       one is now impossible short of a write outside this service. Judged an acceptable cost rather than
+     *       overlooked: a membership that should carry no renewal date is one that was never sold, which is what
+     *       {@code CANCELLED} records. If a real need for the blank appears it wants its own explicit route, not the
+     *       silent one this closes.</li>
+     * </ul>
+     *
+     * <h3>The fields this does <em>not</em> cover, named so the next reader does not have to find them the hard way</h3>
+     *
+     * <p>{@code PUT} restores six fields from the stored document; {@code plan}, {@code name}, {@code description} and
+     * {@code startDate} still come off the wire wholesale, and {@code Membership} carries no validation annotations at
+     * all — no {@code @NotNull} on any of them. <strong>So an omitted {@code plan} still nulls a plan.</strong> Two of
+     * those four are on the wire to hc-admin: the next status decision publishes a {@code PlanChosen} whose
+     * {@code planCode} and {@code planName} {@code putIfPresent} then drops, and their {@code setOrUnset} removes both
+     * from the directory row — the tier a patient holds, gone from the back office's view while the membership itself
+     * reads fine here.</p>
+     *
+     * <p><strong>Deliberately not fixed here, and it is not the same decision.</strong> These three fields are
+     * back-office assignments a subscriber may not touch; a plan and a name are the patient's own to change, so
+     * carrying them over would freeze the thing a client legitimately edits. Whether {@code plan} deserves a
+     * different guard is item 18's question — it already owns "does a plan change without a status change deserve a
+     * frame" — not this one's. Recorded rather than built, on review of item 30.</p>
+     *
+     * <h3>One thing this made slightly worse on {@code PATCH}, which is worth the trade and is not free</h3>
+     *
+     * <p>{@code PATCH} reads the document twice: once here for the ownership check, once again in the service by id.
+     * The double read is older than this change. What this change does is <strong>put the resource's read on the
+     * wire</strong> — before, an omitted {@code status} stayed null through the merge and the service's later, fresher
+     * read won; now the value this method carried over is merged in, so a write that landed between the two reads is
+     * <em>reverted</em>. Worse, it is reverted <em>silently</em>: {@code announceIfDecided} is handed the same stale
+     * status this method read, so the persisted value compares equal to it and no frame goes out.</p>
+     *
+     * <p>Today the only second writer is another HTTP request, which is the lost update every unversioned document in
+     * this service already has. <strong>Item 19's inbound {@code patient-events-plan} consumer is a real second
+     * writer</strong> — {@link MembershipService}'s own javadoc plans for it — and it writes exactly the field this
+     * window loses. The fix is not a third guard: it is for the compare and the write to read the document once, or
+     * for the document to carry a version. Named here because the widening happened here.</p>
      *
      * @param storedTerm the value on the stored document.
      * @param requestedTerm the value in the request body.
      * @return the value to persist.
      */
     private <T> T termForUpdate(T storedTerm, T requestedTerm) {
-        return mayDecideStatus() ? requestedTerm : storedTerm;
+        if (!mayDecideStatus()) {
+            return storedTerm;
+        }
+        // An administrator decides these; they do not clear them by leaving them out of a PUT body. Two questions,
+        // deliberately answered separately: may this caller decide, and did they actually say anything.
+        return requestedTerm == null ? storedTerm : requestedTerm;
     }
 
     /**

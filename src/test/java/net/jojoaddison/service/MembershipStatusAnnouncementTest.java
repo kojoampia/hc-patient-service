@@ -130,13 +130,14 @@ class MembershipStatusAnnouncementTest {
 
     @Test
     void clearingAStatusAnnouncesNothing() {
-        // The one asymmetry in the rule, and it is load-bearing. PUT replaces the document wholesale and
-        // statusForUpdate hands an administrator back exactly what the body carried — which is null when the generated
-        // update form's status select sits on its blank <option [ngValue]="null">. Announced, that frame carries no
-        // status, hc-admin unsets plan_status, and the row leaves the PENDING queue with no decision recorded
+        // The one asymmetry in the rule, and it is load-bearing. Announced, a cleared status is a frame carrying no
+        // status at all: hc-admin unsets plan_status and the row leaves the PENDING queue with no decision recorded
         // anywhere. Silence leaves them showing a stale PENDING: wrong, but visible and still actionable.
         //
-        // That PUT can null a status at all is a separate defect in this service's own record. It is not fixed here.
+        // The REST layer no longer offers a way to reach this — item 30 stopped PUT nulling a status on 2026-09-09 —
+        // and the guard is still right, which is why this test calls the service rather than an endpoint. A stored
+        // status that is already null carries null over into exactly this case, and any caller in the service package
+        // (item 19's inbound consumer next) reaches this method without passing the resource's guards at all.
         service.update(membership(null), MembershipStatus.ACTIVE);
 
         verifyNoInteractions(events);
