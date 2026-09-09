@@ -2,9 +2,11 @@ package net.jojoaddison.service;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.Profile;
+import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.service.event.PatientEventPublisher;
@@ -32,6 +34,32 @@ import org.springframework.stereotype.Service;
  * rule written at one call site is wrong one file away — item 19's own write guard, where {@code PUT} had drifted from
  * {@code PATCH}, and item 18's unkeyed-event guard, which {@code CareDelegationService} broke within the hour and
  * which had to move into {@link PatientEventPublisher}. Add a write path here, not beside here.</p>
+ *
+ * <h2>What is announced, and the rule that decides</h2>
+ *
+ * <p><strong>A creation always announces; an update announces when the status this service persisted differs from the
+ * one the stored document held.</strong> Deliberately not "announce on {@code PUT} and {@code PATCH}" — that reading
+ * would republish every time a patient renamed their own membership, and it would not cover item 19's inbound consumer
+ * at all. Written on the persisted status, the rule and item 19's write guard agree without either knowing about the
+ * other: a non-administrator's requested status is discarded and the stored one carried over, so their update compares
+ * equal and says nothing.</p>
+ *
+ * <p><strong>The comparison is against the stored value, never against the request body.</strong> Both {@code PUT} and
+ * {@code PATCH} already read the stored document for their ownership check, so the caller hands the held status in and
+ * it costs no extra query. Comparing against the body would announce on every request from a caller who changed
+ * nothing, which is most of them.</p>
+ *
+ * <p><strong>Two producers may now write one row on hc-admin's side, and that is safe rather than overlooked.</strong>
+ * Once item 19's consumer sets {@code ACTIVE} and announces, and an administrator here sets {@code ACTIVE} and
+ * announces, the same terminal state can arrive twice. Their write is an idempotent upsert on the subject key and the
+ * plan group is replaced wholesale, so the second frame changes nothing — but it is stated here because a second frame
+ * reads as a bug to whoever finds it.</p>
+ *
+ * <p><strong>{@code DELETE} announces nothing, and that is a known remainder rather than an omission.</strong> There is
+ * no event type for a deleted membership and no disposition on hc-admin's side that clears the plan group, so a
+ * deletion would leave {@code plan_membership_id} and its status on their directory row for ever — a phantom nothing
+ * retires. Nothing in either client deletes a membership ({@code DELETE} is {@code ROLE_ADMIN}-only CRUD), so it is
+ * recorded rather than built. Revisit it if a deletion path is ever added to a client. Backlog item 27.</p>
  */
 @Service
 public class MembershipService {
@@ -51,10 +79,15 @@ public class MembershipService {
     }
 
     /**
-     * Save a membership, and say so.
+     * Save a new membership, and say so.
      *
      * <p>Saved first, then announced. The event is a notification, never the mechanism — see
      * {@link #announceChosenPlan}.</p>
+     *
+     * <p><strong>Unconditionally, unlike the two updates.</strong> There is no held status to compare against and
+     * nothing on hc-admin's side to compare with: this is the frame that creates the row their queue is made of. A
+     * membership an administrator creates already {@code ACTIVE} is announced as {@code ACTIVE}, because this reports
+     * what was written rather than what was asked for.</p>
      *
      * @param membership the entity to save, already stripped of anything the caller may not decide.
      * @return the persisted entity.
@@ -67,26 +100,32 @@ public class MembershipService {
     }
 
     /**
-     * Update a membership.
+     * Update a membership, announcing it if the update decided where it stands.
      *
      * @param membership the entity to save.
+     * @param statusHeld the status the stored document held before this write, read by the caller for its ownership
+     *     check. Never the status in the request body — see the class javadoc.
      * @return the persisted entity.
      */
-    public Membership update(Membership membership) {
+    public Membership update(Membership membership, MembershipStatus statusHeld) {
         log.debug("Request to update Membership : {}", membership);
-        return membershipRepository.save(membership);
+        Membership result = membershipRepository.save(membership);
+        announceIfDecided(result, statusHeld);
+        return result;
     }
 
     /**
-     * Partially update a membership, merging only the fields the request carried.
+     * Partially update a membership, merging only the fields the request carried, and announcing it if the merge
+     * decided where the membership stands.
      *
      * @param membership the entity to update partially.
+     * @param statusHeld the status the stored document held before this write. See {@link #update}.
      * @return the persisted entity, or empty when there is no such membership.
      */
-    public Optional<Membership> partialUpdate(Membership membership) {
+    public Optional<Membership> partialUpdate(Membership membership, MembershipStatus statusHeld) {
         log.debug("Request to partially update Membership : {}", membership);
 
-        return membershipRepository
+        Optional<Membership> result = membershipRepository
             .findById(membership.getId())
             .map(existingMembership -> {
                 if (membership.getPatientId() != null) {
@@ -129,6 +168,30 @@ public class MembershipService {
                 return existingMembership;
             })
             .map(membershipRepository::save);
+
+        // Nothing merged means nothing decided: an absent membership has no persisted status to have moved, and
+        // announcing one would put a membership id on the topic that hc-admin creates a plan group for and never
+        // clears.
+        result.ifPresent(saved -> announceIfDecided(saved, statusHeld));
+        return result;
+    }
+
+    /**
+     * Announces the membership when this write moved its status, and stays silent when it did not.
+     *
+     * <p>The single place the rule lives, for every write path that has a "before" — which today is {@code PUT} and
+     * {@code PATCH} and tomorrow is item 19's inbound consumer. It is written here rather than at each caller for the
+     * reason the class javadoc gives, and rather than on the verb because the verb is not what changed: a patient
+     * renaming their membership sends the same {@code PATCH} an administrator approving it does.</p>
+     *
+     * <p>{@link Objects#equals} rather than {@code !=}: a membership written before a status existed holds null, and
+     * null → {@code PENDING} is a decision, not the absence of one.</p>
+     */
+    private void announceIfDecided(Membership persisted, MembershipStatus statusHeld) {
+        if (Objects.equals(persisted.getStatus(), statusHeld)) {
+            return;
+        }
+        announceChosenPlan(persisted);
     }
 
     /**
@@ -143,8 +206,11 @@ public class MembershipService {
      * {@code CareDelegationService} does for the same reason.</p>
      *
      * <p><strong>What travels.</strong> The membership id, the plan and the status actually persisted — not the
-     * literal {@code PENDING}, because an administrator may legitimately have created an {@code ACTIVE} one, and an
-     * event should report what was written. The field names are the honest ones for this document: backlog item 18
+     * literal {@code PENDING}, because an administrator may legitimately have created or approved an {@code ACTIVE}
+     * one, and an event should report what was written. That the status is read off the saved document rather than
+     * hardcoded is what makes this method usable for a decision as well as a choice: hc-admin keys the plan group on
+     * {@code membershipId} and replaces it wholesale, so a second frame carrying {@code ACTIVE} retires the row from
+     * the panel their console filters on {@code planStatus=PENDING}. The field names are the honest ones for this document: backlog item 18
      * asks for the plan "code" and "name", and there is no {@code code} field on {@code Membership} — both clients'
      * {@code choosePlan} write the plan's code into {@code plan} and its display name into {@code name}, so those are
      * published as {@code planCode} and {@code planName}. See {@link PatientEventType#PLAN_CHOSEN} for the rest of the

@@ -160,7 +160,11 @@ public class MembershipResource {
         membership.setModifiedBy(AuditStamp.currentUser());
         membership.setModifiedDate(AuditStamp.today());
 
-        Membership result = membershipService.update(membership);
+        // The status the stored document held, so the service can tell an approval from a rename. Read from the
+        // record loaded above rather than from the body: under the write guard a non-administrator's requested status
+        // is discarded and the stored one carried over, so the body and the persisted value routinely differ for a
+        // caller who changed nothing.
+        Membership result = membershipService.update(membership, existing.getStatus());
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, membership.getId()))
@@ -210,7 +214,8 @@ public class MembershipResource {
         membership.setModifiedBy(AuditStamp.currentUser());
         membership.setModifiedDate(AuditStamp.today());
 
-        Optional<Membership> result = membershipService.partialUpdate(membership);
+        // The held status, for the reason given on the PUT above.
+        Optional<Membership> result = membershipService.partialUpdate(membership, existing.getStatus());
 
         return ResponseUtil.wrapOrNotFound(
             result,
