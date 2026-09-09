@@ -21,6 +21,7 @@ import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.service.MembershipService;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,7 @@ class MembershipPlanEventTest {
         patientScope = mock(PatientScope.class);
         profiles = mock(ProfileRepository.class);
         events = mock(PatientEventPublisher.class);
-        resource = new MembershipResource(memberships, patientScope, profiles, events);
+        resource = new MembershipResource(new MembershipService(memberships, profiles, events), memberships, patientScope);
 
         when(patientScope.requirePatientIdForWrite(any())).thenReturn(PATIENT_ID);
         when(memberships.save(any(Membership.class))).thenAnswer(call -> ((Membership) call.getArgument(0)).id("membership-1"));
@@ -152,10 +153,9 @@ class MembershipPlanEventTest {
         StreamBridge brokenBroker = mock(StreamBridge.class);
         when(brokenBroker.send(anyString(), any())).thenThrow(new IllegalStateException("broker down"));
         MembershipResource withRealPublisher = new MembershipResource(
+            new MembershipService(memberships, profiles, new PatientEventPublisher(brokenBroker)),
             memberships,
-            patientScope,
-            profiles,
-            new PatientEventPublisher(brokenBroker)
+            patientScope
         );
 
         assertThatCode(() -> withRealPublisher.createMembership(chosenPlan())).doesNotThrowAnyException();
