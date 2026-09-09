@@ -114,6 +114,24 @@ class MembershipPlanEventTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void aMembershipWithNoPlanOmitsTheKeysRatherThanPuttingNullsOnTheWire() throws Exception {
+        // The administrative CRUD path: an administrator creating a membership with no tier named. Membership.plan
+        // carries no @NotNull, so this used to publish planCode: null and planName: null beside a real membership id.
+        // hc-admin's DirectoryProjectionService cites that line of ours by name — it was a defect on their side until
+        // their item 48 review, because our own containsOnlyKeys test above pins the key SET and says nothing about
+        // the values, and they generalised from it. Nothing on their side needs to change for this; it stops us
+        // asking a consumer to tell "no plan" from "we forgot the plan" with nothing on the wire to tell it by.
+        resource.createMembership(new Membership().patientId(PATIENT_ID).status(MembershipStatus.PENDING));
+
+        ArgumentCaptor<Map<String, Object>> data = ArgumentCaptor.forClass(Map.class);
+        verify(events).publish(eq("PlanChosen"), any(), any(), any(), data.capture());
+
+        assertThat(data.getValue()).containsOnlyKeys("membershipId", "status");
+        assertThat(data.getValue()).containsEntry("membershipId", "membership-1").containsEntry("status", "PENDING");
+    }
+
+    @Test
     void aRefusedWritePublishesNothing() throws Exception {
         // The realistic failure: an account with no profile behind it cannot own a record, so PatientScope refuses
         // before anything is saved. There is no membership, so there is nothing to announce.

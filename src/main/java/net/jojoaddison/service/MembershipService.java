@@ -242,12 +242,36 @@ public class MembershipService {
      */
     private void announceChosenPlan(Membership membership) {
         Map<String, Object> data = new HashMap<>();
+        // Unconditional, and the only one: it is read off the saved document after the save, and it is the field
+        // hc-admin keys the whole plan group on — a frame without it describes nothing and they leave it alone.
         data.put("membershipId", membership.getId());
-        data.put("planCode", membership.getPlan());
-        data.put("planName", membership.getName());
+        putIfPresent(data, "planCode", membership.getPlan());
+        putIfPresent(data, "planName", membership.getName());
         // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
-        data.put("status", membership.getStatus() == null ? null : membership.getStatus().name());
+        putIfPresent(data, "status", membership.getStatus() == null ? null : membership.getStatus().name());
         events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
+    }
+
+    /**
+     * Puts a payload field, or leaves it out when there is nothing to say.
+     *
+     * <p><strong>An absent field is absent, not null.</strong> {@code Membership.plan} carries no {@code @NotNull}, so
+     * an administrator creating a membership through the CRUD path with no tier named used to publish
+     * {@code planCode: null} and {@code planName: null} beside a real membership id — hc-admin's
+     * {@code DirectoryProjectionService} names that line of ours in a comment and handles it, having been caught by it
+     * once. Sending a null is asking a consumer to distinguish "we have no plan" from "we forgot the plan", and
+     * nothing on the wire lets them.</p>
+     *
+     * <p>Nothing changes downstream and that was checked rather than assumed: their {@code SiblingEventParser} reads
+     * each key with a helper that answers null for an absent node, and their {@code setOrUnset} removes the field for
+     * a null <em>or blank</em> value. Blank is treated as absent here for the same reason
+     * {@link PatientEventPublisher} treats a blank subject key as no key — every consumer in the estate already reads
+     * the two identically, so a producer that distinguishes them is the only thing that does.</p>
+     */
+    private static void putIfPresent(Map<String, Object> data, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            data.put(key, value);
+        }
     }
 
     /**

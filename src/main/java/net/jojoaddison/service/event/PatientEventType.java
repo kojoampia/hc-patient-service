@@ -53,7 +53,10 @@ public final class PatientEventType {
      * a rename here is not a compile error there, it is an event their {@code switch} silently ignores. Renaming it
      * means changing both repositories and both sides' tests in the same breath.</p>
      *
-     * <p>Payload: {@code membershipId}, {@code planCode}, {@code planName}, {@code status}. <b>{@code planCode} is
+     * <p>Payload: {@code membershipId}, {@code planCode}, {@code planName}, {@code status}. <b>Only
+     * {@code membershipId} is always there</b> — the other three are omitted when the document has no value for them,
+     * rather than sent as null. A field a consumer cannot tell from a forgotten one is worse than a missing field, and
+     * hc-admin reads an absent key and a null one identically. <b>{@code planCode} is
      * {@code Membership.plan} and {@code planName} is {@code Membership.name}</b> — the document has no {@code code}
      * field, and both clients' {@code choosePlan} write {@code plan.code} into {@code plan} and {@code plan.name}
      * into {@code name}. The patient themselves travels in {@code subject}, as on every other event here: the
