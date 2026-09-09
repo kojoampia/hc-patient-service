@@ -2,21 +2,17 @@ package net.jojoaddison.web.rest;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.jojoaddison.domain.Membership;
-import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
-import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.AuditStamp;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.security.SecurityUtils;
-import net.jojoaddison.service.event.PatientEventPublisher;
+import net.jojoaddison.service.MembershipService;
 import net.jojoaddison.service.event.PatientEventType;
 import net.jojoaddison.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -51,14 +47,16 @@ import tech.jhipster.web.util.ResponseUtil;
  * <h2>Choosing a plan says so on {@code patient-events}</h2>
  *
  * <p>Until 2026-09-08 a patient chose a tier, a {@code PENDING} membership was written, and <em>nothing told
- * anybody</em> — so the request sat until somebody in the back office happened to look. {@code POST} now publishes
- * {@link PatientEventType#PLAN_CHOSEN}, which hc-admin is contracted to consume and raise for action. <strong>Their
- * side is not built yet</strong> (their item 48), so today the frame is published and nothing acts on it; the
- * back-office prompt this exists to deliver arrives when they land their consumer, not when this ships.</p>
+ * anybody</em> — so the request sat until somebody in the back office happened to look. Choosing a plan now publishes
+ * {@link PatientEventType#PLAN_CHOSEN}, which hc-admin consumes and raises for action.</p>
  *
  * <p><strong>Here rather than in a client.</strong> {@code web} and {@code mobile} each have their own
- * {@code choosePlan} and both come through this method; a browser-side publish would miss the app, miss any future
+ * {@code choosePlan} and both come through this class; a browser-side publish would miss the app, miss any future
  * caller, and put a broker on the far side of a CSP.</p>
+ *
+ * <p><strong>And not in this class either.</strong> Announcing lives in {@link MembershipService}, which owns every
+ * write to a {@code Membership} — this resource holds the HTTP contract and the guards on what a caller may decide,
+ * and nothing about the wire beyond them. See that class for why the seam exists at all.</p>
  */
 @RestController
 @RequestMapping("/api/memberships")
@@ -71,24 +69,16 @@ public class MembershipResource {
     @Value("${jhipster.clientApp.name}")
     private String applicationName;
 
+    private final MembershipService membershipService;
+
     private final MembershipRepository membershipRepository;
 
     private final PatientScope patientScope;
 
-    private final ProfileRepository profileRepository;
-
-    private final PatientEventPublisher events;
-
-    public MembershipResource(
-        MembershipRepository membershipRepository,
-        PatientScope patientScope,
-        ProfileRepository profileRepository,
-        PatientEventPublisher events
-    ) {
+    public MembershipResource(MembershipService membershipService, MembershipRepository membershipRepository, PatientScope patientScope) {
+        this.membershipService = membershipService;
         this.membershipRepository = membershipRepository;
         this.patientScope = patientScope;
-        this.profileRepository = profileRepository;
-        this.events = events;
     }
 
     /**
@@ -121,9 +111,7 @@ public class MembershipResource {
         membership.setCreatedDate(AuditStamp.today());
         membership.setModifiedBy(AuditStamp.currentUser());
         membership.setModifiedDate(AuditStamp.today());
-        Membership result = membershipRepository.save(membership);
-        // Saved first, then announced. The event is a notification, never the mechanism — see announceChosenPlan.
-        announceChosenPlan(result);
+        Membership result = membershipService.save(membership);
         return ResponseEntity
             .created(new URI("/api/memberships/" + result.getId()))
             .headers(HeaderUtil.createEntityCreationAlert(applicationName, false, ENTITY_NAME, result.getId()))
@@ -166,13 +154,21 @@ public class MembershipResource {
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
         // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
         membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
+        // And neither are the terms of the subscription — see termsForUpdate. POST has stripped these since
+        // 2026-09-08 and these two verbs did not, which is the drift this class's own javadoc warns about twice.
+        membership.setMemberNumber(termForUpdate(existing.getMemberNumber(), membership.getMemberNumber()));
+        membership.setRenewalDate(termForUpdate(existing.getRenewalDate(), membership.getRenewalDate()));
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         membership.setCreatedBy(existing.getCreatedBy());
         membership.setCreatedDate(existing.getCreatedDate());
         membership.setModifiedBy(AuditStamp.currentUser());
         membership.setModifiedDate(AuditStamp.today());
 
-        Membership result = membershipRepository.save(membership);
+        // The status the stored document held, so the service can tell an approval from a rename. Read from the
+        // record loaded above rather than from the body: under the write guard a non-administrator's requested status
+        // is discarded and the stored one carried over, so the body and the persisted value routinely differ for a
+        // caller who changed nothing.
+        Membership result = membershipService.update(membership, existing.getStatus());
         return ResponseEntity
             .ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, false, ENTITY_NAME, membership.getId()))
@@ -216,55 +212,18 @@ public class MembershipResource {
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
         // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
         membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
+        // And neither are the terms of the subscription — see termsForUpdate. POST has stripped these since
+        // 2026-09-08 and these two verbs did not, which is the drift this class's own javadoc warns about twice.
+        membership.setMemberNumber(termForUpdate(existing.getMemberNumber(), membership.getMemberNumber()));
+        membership.setRenewalDate(termForUpdate(existing.getRenewalDate(), membership.getRenewalDate()));
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         membership.setCreatedBy(existing.getCreatedBy());
         membership.setCreatedDate(existing.getCreatedDate());
         membership.setModifiedBy(AuditStamp.currentUser());
         membership.setModifiedDate(AuditStamp.today());
 
-        Optional<Membership> result = membershipRepository
-            .findById(membership.getId())
-            .map(existingMembership -> {
-                if (membership.getPatientId() != null) {
-                    existingMembership.setPatientId(membership.getPatientId());
-                }
-                if (membership.getName() != null) {
-                    existingMembership.setName(membership.getName());
-                }
-                if (membership.getDescription() != null) {
-                    existingMembership.setDescription(membership.getDescription());
-                }
-                if (membership.getStatus() != null) {
-                    existingMembership.setStatus(membership.getStatus());
-                }
-                if (membership.getMemberNumber() != null) {
-                    existingMembership.setMemberNumber(membership.getMemberNumber());
-                }
-                if (membership.getPlan() != null) {
-                    existingMembership.setPlan(membership.getPlan());
-                }
-                if (membership.getStartDate() != null) {
-                    existingMembership.setStartDate(membership.getStartDate());
-                }
-                if (membership.getRenewalDate() != null) {
-                    existingMembership.setRenewalDate(membership.getRenewalDate());
-                }
-                if (membership.getCreatedDate() != null) {
-                    existingMembership.setCreatedDate(membership.getCreatedDate());
-                }
-                if (membership.getModifiedDate() != null) {
-                    existingMembership.setModifiedDate(membership.getModifiedDate());
-                }
-                if (membership.getCreatedBy() != null) {
-                    existingMembership.setCreatedBy(membership.getCreatedBy());
-                }
-                if (membership.getModifiedBy() != null) {
-                    existingMembership.setModifiedBy(membership.getModifiedBy());
-                }
-
-                return existingMembership;
-            })
-            .map(membershipRepository::save);
+        // The held status, for the reason given on the PUT above.
+        Optional<Membership> result = membershipService.partialUpdate(membership, existing.getStatus());
 
         return ResponseUtil.wrapOrNotFound(
             result,
@@ -305,6 +264,33 @@ public class MembershipResource {
     }
 
     /**
+     * A term of the subscription an update must keep, which for anybody but an administrator is the stored one.
+     *
+     * <p>{@code memberNumber} and {@code renewalDate} are back-office assignments for the reason {@code statusOnCreate}
+     * gives: a value a client may choose is a claim, not a record, and a self-chosen renewal date is a year of care
+     * nobody sold them. {@code POST} has stripped both from a non-administrator since 2026-09-08 and <strong>{@code
+     * PUT} and {@code PATCH} did not</strong> — so a patient could not issue themselves a membership number at
+     * creation and could issue themselves one a second later. Found by review of backlog item 27; the javadoc on
+     * {@link PatientEventType#PLAN_CHOSEN} had been asserting the guard held on every verb, which is the same
+     * defect-shape as the missing guard item 18's review found behind a javadoc that had been written before it.</p>
+     *
+     * <p><strong>Carried over rather than nulled, which is not what {@code POST} does and must not be.</strong>
+     * {@code POST} strips because there is nothing to preserve. Here there is: {@code PUT} replaces the document
+     * wholesale, so nulling would mean a patient renaming their membership <em>erases</em> the number and renewal date
+     * an administrator assigned — trading a privilege escalation for silent data loss. Carrying the stored value over
+     * is exactly what {@link #statusForUpdate} does, and on {@code PATCH} it is also the right merge behaviour: the
+     * merge copies non-null fields only, so handing back the stored value writes it over itself and changes
+     * nothing.</p>
+     *
+     * @param storedTerm the value on the stored document.
+     * @param requestedTerm the value in the request body.
+     * @return the value to persist.
+     */
+    private <T> T termForUpdate(T storedTerm, T requestedTerm) {
+        return mayDecideStatus() ? requestedTerm : storedTerm;
+    }
+
+    /**
      * Whether the caller may say where a membership stands.
      *
      * <p><strong>{@code ROLE_ADMIN} alone</strong>, and deliberately not {@code PatientScope.isUnrestricted()},
@@ -315,97 +301,6 @@ public class MembershipResource {
      */
     private static boolean mayDecideStatus() {
         return SecurityUtils.hasCurrentUserAnyOfAuthorities(AuthoritiesConstants.ADMIN);
-    }
-
-    /**
-     * Says on {@code patient-events} that this patient chose a plan, so that hc-admin can raise the pending
-     * membership once their consumer exists — it does not today.
-     *
-     * <p><strong>Keyed on the patient's email, resolved from their profile rather than taken from the token.</strong>
-     * Usually they are the same person, but an administrator creating a membership for somebody is not, and keying on
-     * the caller would file that event under the administrator — on a different partition from the patient's own
-     * account and onboarding events, which is exactly the ordering guarantee
-     * {@link net.jojoaddison.service.event.PatientEventPublisher} exists to keep. Same resolution
-     * {@code CareDelegationService} does for the same reason.</p>
-     *
-     * <p><strong>What travels.</strong> The membership id, the plan and the status actually persisted — not the
-     * literal {@code PENDING}, because an administrator may legitimately have created an {@code ACTIVE} one, and an
-     * event should report what was written. The field names are the honest ones for this document: backlog item 18
-     * asks for the plan "code" and "name", and there is no {@code code} field on {@code Membership} — both clients'
-     * {@code choosePlan} write the plan's code into {@code plan} and its display name into {@code name}, so those are
-     * published as {@code planCode} and {@code planName}. See {@link PatientEventType#PLAN_CHOSEN} for the rest of the
-     * contract, including why the missing {@code memberNumber} and {@code renewalDate} are not an oversight.</p>
-     *
-     * <p><strong>An event we cannot key is refused by {@link PatientEventPublisher}, not by this method.</strong> That
-     * guard lived here for one commit and was immediately shown to be in the wrong place — {@code CareDelegationService}
-     * has the same shape and had the same hole. It is a rule about the envelope, so it belongs to the envelope; read it
-     * there. This method's only part in it is to pass a null email rather than invent one.</p>
-     *
-     * <p><strong>What refusing does and does not buy.</strong> It is <em>not</em> a louder failure: nothing in this
-     * stack alerts on a log line — {@code deploy/observability/alert-rules.yml} says so in as many words, the JVMs push
-     * OTLP and no log pipeline exists — so an unannounced membership is unnoticed either way, and nothing here
-     * enumerates {@code PENDING} memberships to notice it later. What it buys is narrower and still worth having: no
-     * unattributable record on a retained, replayed topic; the diagnosis in the repository whose operator caused it
-     * rather than in hc-admin's log; and a behaviour that is still correct once their item 48 lands, where publishing
-     * an unkeyed frame would fail again. If this condition should be alertable, that needs a counter and the Micrometer
-     * bridge the alert-rules file already names as outstanding — not a WARN.</p>
-     *
-     * <p><strong>Nothing an operator or a caller does may fail the request</strong> — the membership is already saved
-     * by the time this runs, and a charged-but-told-it-failed response is worse than a lost event. Only the profile
-     * lookup is guarded, because it is a Mongo query this method introduced. <em>One thing may still throw, and is
-     * meant to:</em> {@link PatientEventPublisher#assertNothingClinical} rejects a payload carrying a clinical key, and
-     * that is a bug in this service rather than anything a caller did. A blanket catch would convert that deliberate
-     * shout into a WARN and lose every event in production while this method reported success. It surfaces as a 500,
-     * and {@code MembershipPlanEventIT} exercises the real publisher, so it cannot reach production without failing
-     * CI.</p>
-     */
-    private void announceChosenPlan(Membership membership) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("membershipId", membership.getId());
-        data.put("planCode", membership.getPlan());
-        data.put("planName", membership.getName());
-        // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
-        data.put("status", membership.getStatus() == null ? null : membership.getStatus().name());
-        events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
-    }
-
-    /**
-     * The email of the patient a membership belongs to, or null when there is no profile to read it from.
-     *
-     * <p>Null rather than the caller's own address: an event filed under the wrong person is worse than one filed
-     * under nobody. Note that "under nobody" means <em>not filed at all</em> — {@link PatientEventPublisher} refuses a
-     * frame it cannot key rather than sending one every consumer discards.</p>
-     *
-     * <p>Falls back to a lookup by id because {@code patientId} was added after some profiles were written and those
-     * carry only their own id — the same fallback {@code CareDelegationService} applies, and the one
-     * {@code PatientScope} applies when resolving the other direction. The qualifier matters: {@code PatientScope}
-     * goes profile → id and this goes id → profile, so they are duals rather than the same call, and a reader who
-     * looks for this exact expression there will not find it.</p>
-     *
-     * <p><strong>Returns null rather than throwing on a failed lookup.</strong> This is a Mongo query running after
-     * the membership is already saved, so a database hiccup here must cost the announcement and not the
-     * subscription.</p>
-     */
-    private String patientEmail(String patientId) {
-        if (patientId == null) {
-            return null;
-        }
-        try {
-            return lookUpPatientEmail(patientId);
-        } catch (Exception e) {
-            log.warn("Could not resolve an email for patient {} — the membership is unaffected", patientId, e);
-            return null;
-        }
-    }
-
-    private String lookUpPatientEmail(String patientId) {
-        return profileRepository
-            .findByPatientId(patientId)
-            .stream()
-            .findFirst()
-            .or(() -> profileRepository.findById(patientId))
-            .map(Profile::getEmail)
-            .orElse(null);
     }
 
     /**

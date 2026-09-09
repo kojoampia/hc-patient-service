@@ -53,7 +53,10 @@ public final class PatientEventType {
      * a rename here is not a compile error there, it is an event their {@code switch} silently ignores. Renaming it
      * means changing both repositories and both sides' tests in the same breath.</p>
      *
-     * <p>Payload: {@code membershipId}, {@code planCode}, {@code planName}, {@code status}. <b>{@code planCode} is
+     * <p>Payload: {@code membershipId}, {@code planCode}, {@code planName}, {@code status}. <b>Only
+     * {@code membershipId} is always there</b> — the other three are omitted when the document has no value for them,
+     * rather than sent as null. A field a consumer cannot tell from a forgotten one is worse than a missing field, and
+     * hc-admin reads an absent key and a null one identically. <b>{@code planCode} is
      * {@code Membership.plan} and {@code planName} is {@code Membership.name}</b> — the document has no {@code code}
      * field, and both clients' {@code choosePlan} write {@code plan.code} into {@code plan} and {@code plan.name}
      * into {@code name}. The patient themselves travels in {@code subject}, as on every other event here: the
@@ -77,8 +80,10 @@ public final class PatientEventType {
      * /api/memberships} persists both, so a membership created that way can carry values this event does not publish.
      * The payload is fixed at four fields for the clients' sake; read the document if you need the rest. (Until
      * 2026-09-08 <em>any</em> caller could set those two — a patient could issue themselves a membership number and
-     * choose their own renewal date. They are stripped for non-administrators now, which is why "an administrator"
-     * above is a real restriction rather than a description of who happens to use it.)</p>
+     * choose their own renewal date. They are stripped from a non-administrator's {@code POST} now, and carried over
+     * from the stored document on {@code PUT} and {@code PATCH} since 2026-09-09, which is why "an administrator"
+     * above is a real restriction rather than a description of who happens to use it. This sentence claimed the whole
+     * guard for a day while only {@code POST} had it; the two update verbs were caught by review of item 27.)</p>
      */
     public static final String PLAN_CHOSEN = "PlanChosen";
 

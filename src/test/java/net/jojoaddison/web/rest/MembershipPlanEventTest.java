@@ -21,6 +21,7 @@ import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.PatientScope;
+import net.jojoaddison.service.MembershipService;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,7 @@ class MembershipPlanEventTest {
         patientScope = mock(PatientScope.class);
         profiles = mock(ProfileRepository.class);
         events = mock(PatientEventPublisher.class);
-        resource = new MembershipResource(memberships, patientScope, profiles, events);
+        resource = new MembershipResource(new MembershipService(memberships, profiles, events), memberships, patientScope);
 
         when(patientScope.requirePatientIdForWrite(any())).thenReturn(PATIENT_ID);
         when(memberships.save(any(Membership.class))).thenAnswer(call -> ((Membership) call.getArgument(0)).id("membership-1"));
@@ -113,6 +114,24 @@ class MembershipPlanEventTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void aMembershipWithNoPlanOmitsTheKeysRatherThanPuttingNullsOnTheWire() throws Exception {
+        // The administrative CRUD path: an administrator creating a membership with no tier named. Membership.plan
+        // carries no @NotNull, so this used to publish planCode: null and planName: null beside a real membership id.
+        // hc-admin's DirectoryProjectionService cites that line of ours by name — it was a defect on their side until
+        // their item 48 review, because our own containsOnlyKeys test above pins the key SET and says nothing about
+        // the values, and they generalised from it. Nothing on their side needs to change for this; it stops us
+        // asking a consumer to tell "no plan" from "we forgot the plan" with nothing on the wire to tell it by.
+        resource.createMembership(new Membership().patientId(PATIENT_ID).status(MembershipStatus.PENDING));
+
+        ArgumentCaptor<Map<String, Object>> data = ArgumentCaptor.forClass(Map.class);
+        verify(events).publish(eq("PlanChosen"), any(), any(), any(), data.capture());
+
+        assertThat(data.getValue()).containsOnlyKeys("membershipId", "status");
+        assertThat(data.getValue()).containsEntry("membershipId", "membership-1").containsEntry("status", "PENDING");
+    }
+
+    @Test
     void aRefusedWritePublishesNothing() throws Exception {
         // The realistic failure: an account with no profile behind it cannot own a record, so PatientScope refuses
         // before anything is saved. There is no membership, so there is nothing to announce.
@@ -152,10 +171,9 @@ class MembershipPlanEventTest {
         StreamBridge brokenBroker = mock(StreamBridge.class);
         when(brokenBroker.send(anyString(), any())).thenThrow(new IllegalStateException("broker down"));
         MembershipResource withRealPublisher = new MembershipResource(
+            new MembershipService(memberships, profiles, new PatientEventPublisher(brokenBroker)),
             memberships,
-            patientScope,
-            profiles,
-            new PatientEventPublisher(brokenBroker)
+            patientScope
         );
 
         assertThatCode(() -> withRealPublisher.createMembership(chosenPlan())).doesNotThrowAnyException();
