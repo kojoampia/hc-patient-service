@@ -34,15 +34,27 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * with no authority check, so the patient could make that transition themselves by echoing one word back at the
  * endpoint that had just sent it to them — over their own record, which both verbs already let them edit.</p>
  *
- * <p><strong>Four of the five fail without the guard,</strong> which is the point of the class: it is not asserting
+ * <p><strong>The patient cases fail without the guard,</strong> which is the point of the class: it is not asserting
  * that a refusal happens somewhere, it is asserting the stored value after a request that used to work. Revert
- * {@link MembershipResource} to its pre-guard state and the four patient cases turn red with
+ * {@link MembershipResource} to its pre-guard state and they turn red with
  * {@code JSON path "$.status" expected:<PENDING> but was:<ACTIVE>} — measured, not assumed.</p>
  *
- * <p>The fifth, {@code anAdministratorApprovesIt}, passes either way <b>by design</b>: it is the path the guard
- * exists to let through. Said explicitly because an earlier version of this comment claimed all five turn red, and a
- * doc comment that overstates its own coverage is the same defect as a test that reports success without having
- * looked — the next reader counts five red, sees four, and doubts the guard rather than the sentence.</p>
+ * <p>The administrator cases pass either way <b>by design</b>: they are the path the guard exists to let through.
+ * Said explicitly because an earlier version of this comment claimed every test turns red, and a doc comment that
+ * overstates its own coverage is the same defect as a test that reports success without having looked — the next
+ * reader counts the red ones, comes up short, and doubts the guard rather than the sentence. For the same reason this
+ * paragraph no longer gives a number: it named one, tests were added, and the number went stale within the week.</p>
+ *
+ * <h2>The subscription terms, added 2026-09-09</h2>
+ *
+ * <p>{@code memberNumber} and {@code renewalDate} are the same rule and were guarded on {@code POST} alone until
+ * review of backlog item 27 — so a patient could not issue themselves a membership number at creation and could
+ * issue themselves one a second later. That is the third time in this repo a rule has been written for one verb and
+ * missed the next; it is the reason {@link net.jojoaddison.service.MembershipService} exists as a seam.</p>
+ *
+ * <p>They are <b>carried over from the stored document rather than nulled</b>, unlike on {@code POST}, and
+ * {@code aPatientEditingTheirMembershipDoesNotEraseTheTermsAnAdministratorAssigned} is the test that pins the
+ * difference: {@code PUT} replaces wholesale, so nulling would trade a privilege escalation for silent data loss.</p>
  *
  * <p>Separate from {@link MembershipResourceIT}, which runs as {@code ROLE_ADMIN} and therefore cannot see this at
  * all: an administrator is precisely the caller the guard lets through. Mixing the two would mean changing that
@@ -158,6 +170,103 @@ class MembershipStatusWriteGuardIT {
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.memberNumber").doesNotExist())
             .andExpect(jsonPath("$.renewalDate").doesNotExist());
+    }
+
+    @Test
+    void aPatientCannotPutThemselvesAMemberNumberOrARenewalDate() throws Exception {
+        // POST has stripped these since 2026-09-08 and PUT did not, so the guard was true of one verb and false of
+        // the other for a day — the same drift this repo has now hit three times, and the one PatientEventType's
+        // javadoc was asserting had been closed. Found by review of item 27.
+        restMockMvc
+            .perform(
+                put(ENTITY_API_URL_ID, pending.getId())
+                    .with(patient())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        json(
+                            new Membership()
+                                .id(pending.getId())
+                                .patientId(PATIENT_ID)
+                                .plan("PAWPAW")
+                                .memberNumber("MBR-00001")
+                                .renewalDate(LocalDate.parse("2099-12-31"))
+                        )
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.memberNumber").doesNotExist())
+            .andExpect(jsonPath("$.renewalDate").doesNotExist());
+
+        Membership stored = membershipRepository.findById(pending.getId()).orElseThrow();
+        assertThat(stored.getMemberNumber()).isNull();
+        assertThat(stored.getRenewalDate()).isNull();
+    }
+
+    @Test
+    void aPatientCannotPatchThemselvesAMemberNumberOrARenewalDate() throws Exception {
+        restMockMvc
+            .perform(
+                patch(ENTITY_API_URL_ID, pending.getId())
+                    .with(patient())
+                    .contentType("application/merge-patch+json")
+                    .content(
+                        json(new Membership().id(pending.getId()).memberNumber("MBR-00001").renewalDate(LocalDate.parse("2099-12-31")))
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.memberNumber").doesNotExist())
+            .andExpect(jsonPath("$.renewalDate").doesNotExist());
+    }
+
+    @Test
+    void aPatientEditingTheirMembershipDoesNotEraseTheTermsAnAdministratorAssigned() throws Exception {
+        // The reason the guard carries the stored value over instead of nulling it, which is what POST does. PUT
+        // replaces the document wholesale, so a guard copied from POST would turn a privilege escalation into silent
+        // data loss: the patient renames their membership and the number and renewal date they were sold vanish.
+        Membership assigned = membershipRepository.save(
+            new Membership()
+                .patientId(PATIENT_ID)
+                .plan("PAWPAW")
+                .name("PAWPAW Plan")
+                .status(MembershipStatus.ACTIVE)
+                .memberNumber("MBR-00042")
+                .renewalDate(LocalDate.parse("2027-01-31"))
+        );
+
+        restMockMvc
+            .perform(
+                put(ENTITY_API_URL_ID, assigned.getId())
+                    .with(patient())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().id(assigned.getId()).patientId(PATIENT_ID).plan("PAWPAW").name("Our family plan")))
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("Our family plan"))
+            .andExpect(jsonPath("$.memberNumber").value("MBR-00042"))
+            .andExpect(jsonPath("$.renewalDate").value("2027-01-31"));
+
+        Membership stored = membershipRepository.findById(assigned.getId()).orElseThrow();
+        assertThat(stored.getMemberNumber()).isEqualTo("MBR-00042");
+        assertThat(stored.getRenewalDate()).isEqualTo(LocalDate.parse("2027-01-31"));
+    }
+
+    @Test
+    void anAdministratorMayStillAssignThemOnAnUpdate() throws Exception {
+        // The other half, for the same reason anAdministratorMayStillAssignThem exists on POST: assigning a member
+        // number IS the back-office action item 18's event exists to prompt, and it must stay possible after
+        // creation — item 17 records that nothing assigns one at creation time on the path a patient uses.
+        restMockMvc
+            .perform(
+                patch(ENTITY_API_URL_ID, pending.getId())
+                    .with(administrator())
+                    .contentType("application/merge-patch+json")
+                    .content(
+                        json(new Membership().id(pending.getId()).memberNumber("MBR-00007").renewalDate(LocalDate.parse("2027-06-30")))
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.memberNumber").value("MBR-00007"))
+            .andExpect(jsonPath("$.renewalDate").value("2027-06-30"));
     }
 
     @Test

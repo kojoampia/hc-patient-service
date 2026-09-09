@@ -154,6 +154,10 @@ public class MembershipResource {
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
         // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
         membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
+        // And neither are the terms of the subscription — see termsForUpdate. POST has stripped these since
+        // 2026-09-08 and these two verbs did not, which is the drift this class's own javadoc warns about twice.
+        membership.setMemberNumber(termForUpdate(existing.getMemberNumber(), membership.getMemberNumber()));
+        membership.setRenewalDate(termForUpdate(existing.getRenewalDate(), membership.getRenewalDate()));
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         membership.setCreatedBy(existing.getCreatedBy());
         membership.setCreatedDate(existing.getCreatedDate());
@@ -208,6 +212,10 @@ public class MembershipResource {
         membership.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), membership.getPatientId()));
         // Where the membership stands is the back office's to say, not the subscriber's — see statusForUpdate.
         membership.setStatus(statusForUpdate(existing.getStatus(), membership.getStatus()));
+        // And neither are the terms of the subscription — see termsForUpdate. POST has stripped these since
+        // 2026-09-08 and these two verbs did not, which is the drift this class's own javadoc warns about twice.
+        membership.setMemberNumber(termForUpdate(existing.getMemberNumber(), membership.getMemberNumber()));
+        membership.setRenewalDate(termForUpdate(existing.getRenewalDate(), membership.getRenewalDate()));
         // Creation facts are the stored ones; a caller cannot rewrite who created a record or when.
         membership.setCreatedBy(existing.getCreatedBy());
         membership.setCreatedDate(existing.getCreatedDate());
@@ -253,6 +261,33 @@ public class MembershipResource {
      */
     private MembershipStatus statusForUpdate(MembershipStatus storedStatus, MembershipStatus requestedStatus) {
         return mayDecideStatus() ? requestedStatus : storedStatus;
+    }
+
+    /**
+     * A term of the subscription an update must keep, which for anybody but an administrator is the stored one.
+     *
+     * <p>{@code memberNumber} and {@code renewalDate} are back-office assignments for the reason {@code statusOnCreate}
+     * gives: a value a client may choose is a claim, not a record, and a self-chosen renewal date is a year of care
+     * nobody sold them. {@code POST} has stripped both from a non-administrator since 2026-09-08 and <strong>{@code
+     * PUT} and {@code PATCH} did not</strong> — so a patient could not issue themselves a membership number at
+     * creation and could issue themselves one a second later. Found by review of backlog item 27; the javadoc on
+     * {@link PatientEventType#PLAN_CHOSEN} had been asserting the guard held on every verb, which is the same
+     * defect-shape as the missing guard item 18's review found behind a javadoc that had been written before it.</p>
+     *
+     * <p><strong>Carried over rather than nulled, which is not what {@code POST} does and must not be.</strong>
+     * {@code POST} strips because there is nothing to preserve. Here there is: {@code PUT} replaces the document
+     * wholesale, so nulling would mean a patient renaming their membership <em>erases</em> the number and renewal date
+     * an administrator assigned — trading a privilege escalation for silent data loss. Carrying the stored value over
+     * is exactly what {@link #statusForUpdate} does, and on {@code PATCH} it is also the right merge behaviour: the
+     * merge copies non-null fields only, so handing back the stored value writes it over itself and changes
+     * nothing.</p>
+     *
+     * @param storedTerm the value on the stored document.
+     * @param requestedTerm the value in the request body.
+     * @return the value to persist.
+     */
+    private <T> T termForUpdate(T storedTerm, T requestedTerm) {
+        return mayDecideStatus() ? requestedTerm : storedTerm;
     }
 
     /**

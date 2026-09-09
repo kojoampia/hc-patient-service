@@ -80,8 +80,10 @@ public final class PatientEventType {
      * /api/memberships} persists both, so a membership created that way can carry values this event does not publish.
      * The payload is fixed at four fields for the clients' sake; read the document if you need the rest. (Until
      * 2026-09-08 <em>any</em> caller could set those two — a patient could issue themselves a membership number and
-     * choose their own renewal date. They are stripped for non-administrators now, which is why "an administrator"
-     * above is a real restriction rather than a description of who happens to use it.)</p>
+     * choose their own renewal date. They are stripped from a non-administrator's {@code POST} now, and carried over
+     * from the stored document on {@code PUT} and {@code PATCH} since 2026-09-09, which is why "an administrator"
+     * above is a real restriction rather than a description of who happens to use it. This sentence claimed the whole
+     * guard for a day while only {@code POST} had it; the two update verbs were caught by review of item 27.)</p>
      */
     public static final String PLAN_CHOSEN = "PlanChosen";
 
