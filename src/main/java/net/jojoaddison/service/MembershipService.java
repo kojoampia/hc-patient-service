@@ -55,11 +55,34 @@ import org.springframework.stereotype.Service;
  * plan group is replaced wholesale, so the second frame changes nothing — but it is stated here because a second frame
  * reads as a bug to whoever finds it.</p>
  *
- * <p><strong>{@code DELETE} announces nothing, and that is a known remainder rather than an omission.</strong> There is
- * no event type for a deleted membership and no disposition on hc-admin's side that clears the plan group, so a
- * deletion would leave {@code plan_membership_id} and its status on their directory row for ever — a phantom nothing
- * retires. Nothing in either client deletes a membership ({@code DELETE} is {@code ROLE_ADMIN}-only CRUD), so it is
- * recorded rather than built. Revisit it if a deletion path is ever added to a client. Backlog item 27.</p>
+ * <p><strong>More frames are self-healing only for transitions, and that limit is worth knowing before relying on
+ * it.</strong> hc-admin dispatches {@code PlanChosen} as {@code UPDATE_ONLY} and writes nothing at all for a subject
+ * it holds no link for — so a frame arriving before their {@code AccountCreated} landed is lost, and because a
+ * repeat of the same status is suppressed here by design, no later frame recreates it. Every <em>transition</em> after
+ * that heals the row; a membership whose only frame was dropped stays missing until its status next moves.</p>
+ *
+ * <h2>Three things this deliberately does not do</h2>
+ *
+ * <p><strong>{@code DELETE} announces nothing.</strong> There is no event type for a deleted membership and no
+ * disposition on hc-admin's side that clears the plan group, so a deletion would leave {@code plan_membership_id} and
+ * its status on their directory row for ever — a phantom nothing retires. Nothing in either client deletes a
+ * membership ({@code DELETE} is {@code ROLE_ADMIN}-only CRUD), so it is recorded rather than built. Revisit it if a
+ * deletion path is ever added to a client. Backlog item 27.</p>
+ *
+ * <p><strong>A plan change with no status change announces nothing either, so {@code plan_code} can go stale
+ * permanently.</strong> A patient moving {@code PEAR → MELON} on an {@code ACTIVE} membership leaves hc-admin showing
+ * the tier they left. That follows from item 18's decision — the rule is written on the status and only the status —
+ * and it is not a bug against that decision, but the event is called {@code PlanChosen} and carries the plan, so the
+ * gap is worth naming rather than leaving for someone to find on a dashboard. Widening the rule to "status or plan"
+ * is a decision for item 18, not for this class.</p>
+ *
+ * <p><strong>This class owns the three save paths the REST API exposes, and that is a convention rather than a
+ * boundary anything enforces.</strong> {@code MembershipResource} still injects {@code MembershipRepository} and calls
+ * {@code deleteById} on it directly, and {@code DevelopmentDataInitializer} saves seeded memberships straight through
+ * the repository — so a fourth {@code membershipRepository.save(...)} elsewhere would compile, pass
+ * {@code TechnicalStructureTest} and announce nothing. The seam removes the <em>reason</em> to write one; it cannot
+ * stop you. If that ever needs teeth, the enforcement would be an ArchUnit rule naming this class as the only caller
+ * of {@code MembershipRepository.save}.</p>
  */
 @Service
 public class MembershipService {
@@ -84,10 +107,13 @@ public class MembershipService {
      * <p>Saved first, then announced. The event is a notification, never the mechanism — see
      * {@link #announceChosenPlan}.</p>
      *
-     * <p><strong>Unconditionally, unlike the two updates.</strong> There is no held status to compare against and
-     * nothing on hc-admin's side to compare with: this is the frame that creates the row their queue is made of. A
-     * membership an administrator creates already {@code ACTIVE} is announced as {@code ACTIVE}, because this reports
-     * what was written rather than what was asked for.</p>
+     * <p><strong>Unconditionally, unlike the two updates.</strong> There is no held status to compare against, so
+     * there is nothing the rule could ask. This frame <em>fills the plan group on a directory row
+     * {@code AccountCreated} already made</em> — it does not create one: hc-admin treats {@code PlanChosen} as
+     * {@code UPDATE_ONLY} and writes nothing for a subject it does not know, on the reasoning that a plan choice for
+     * an unknown patient means their earlier events were missed rather than that a new person exists. A membership an
+     * administrator creates already {@code ACTIVE} is announced as {@code ACTIVE}, because this reports what was
+     * written rather than what was asked for.</p>
      *
      * @param membership the entity to save, already stripped of anything the caller may not decide.
      * @return the persisted entity.
