@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.PlanVerification;
 import net.jojoaddison.domain.Profile;
@@ -23,6 +24,9 @@ import net.jojoaddison.service.MembershipService;
 import net.jojoaddison.service.event.PlanVerificationRefusedException.Reason;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.dao.DataAccessResourceFailureException;
 
 /**
@@ -133,26 +137,31 @@ class PlanVerificationConsumerTest {
      *
      * <h2>This test exists because the fix it guards was, for one commit, guarded by a paragraph</h2>
      *
-     * <p>{@code record()} caught {@code DuplicateKeyException} and was documented as the safety net against exactly
-     * this half-apply. Mutation showed the throw going straight past it: the frame dead-lettered with the membership
-     * already {@code ACTIVE} and hc-admin already told. The catch was broadened to {@code RuntimeException} — and
-     * <b>nothing failed when it was narrowed back</b>, so the correction was protected by prose in a method whose own
-     * javadoc tells the next reader that nothing reaches it. Reverting the fix, or deleting the catch as dead code,
-     * was a silent green change.</p>
+     * <p>{@code record()} caught {@code DuplicateKeyException} and was documented as the safety net against this
+     * half-apply. It was broadened to {@code RuntimeException} — and <b>nothing failed when it was narrowed
+     * back</b>, so the correction was protected by prose in a method whose own javadoc tells the next reader that
+     * nothing reaches it. Reverting the fix, or deleting the catch as dead code, was a silent green change.</p>
      *
-     * <p><b>The exception thrown here is deliberately not a {@code DuplicateKeyException}</b>, because that is the
-     * specific defect. A test that threw one would pass under the narrow catch and prove nothing.
-     * {@code DataAccessResourceFailureException} is a sibling under {@code DataAccessException} — a Mongo that went
-     * away mid-write, which is the realistic cause here now that a duplicate key is unreachable.</p>
+     * <p><b>⚠ The reason originally given for the broadening was a misattribution, and it is corrected in
+     * {@code PlanVerificationConsumer.record()} rather than here.</b> The short version: the exception seen escaping
+     * under mutation came from the profile lookup in {@code apply()}, not from this insert. Read that javadoc before
+     * citing this test as evidence of what {@code insert} throws — it does not show that, and nothing does.</p>
+     *
+     * <p><b>What this test does establish is the width of the catch, which is the part that matters.</b> Neither
+     * exception below is a {@code DuplicateKeyException}, so both fail under the narrow catch; and they are on
+     * either side of {@code DataAccessException}, so the obvious tidy-up — narrowing to
+     * {@code catch (DataAccessException)}, which every exception named in the javadoc satisfies — fails on the
+     * second. Without that second case the test pins "wider than {@code DuplicateKeyException}" and leaves the rest
+     * of the width open.</p>
      *
      * <p>"Announced" is asserted as {@code activateIfPending} having been called: the announcement is that method's,
      * not this class's, and {@code MembershipStatusAnnouncementTest} is what pins it. This consumer holds no
      * publisher — {@link #applyingItAnnouncesWithoutTheConsumerPublishingAnything} asserts that too.</p>
      */
-    @Test
-    void aLedgerWriteThatFailsDoesNotUndoOrDeadLetterAnAppliedAcknowledgement() {
-        when(verifications.insert(any(PlanVerification.class)))
-            .thenThrow(new DataAccessResourceFailureException("the database went away mid-write"));
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("ledgerWriteFailures")
+    void aLedgerWriteThatFailsDoesNotUndoOrDeadLetterAnAppliedAcknowledgement(String name, RuntimeException failure) {
+        when(verifications.insert(any(PlanVerification.class))).thenThrow(failure);
 
         // Must not propagate. Anything escaping here reaches the binder, which retries and dead-letters a frame that
         // has already written and announced — the one half-apply this consumer cannot undo, and the one whose replay
@@ -162,6 +171,32 @@ class PlanVerificationConsumerTest {
         // And the work that was already done stands: written, and announced through the seam item 27 built.
         verify(membershipService).activateIfPending(MEMBERSHIP_ID);
         verify(verifications).insert(any(PlanVerification.class));
+    }
+
+    /**
+     * The two failures, chosen to sit on either side of {@code DataAccessException}.
+     *
+     * <p>{@code DataAccessResourceFailureException} is a sibling of {@code DuplicateKeyException} under
+     * {@code NonTransientDataAccessException} — neither is an ancestor of the other — and is a real Mongo
+     * translation target: {@code MongoExceptionTranslator} maps socket, timeout and server-selection failures onto
+     * it. That is the realistic way this insert fails.</p>
+     *
+     * <p>{@code IllegalStateException} is not a {@code DataAccessException} at all, and it is here for the tidy-up
+     * rather than for realism: narrowing the catch to {@code DataAccessException} looks obviously correct — every
+     * exception the javadoc names is one — and would pass with only the first case. A Mongo driver or Spring Data
+     * upgrade throwing something outside the hierarchy would then dead-letter an applied frame, silently.</p>
+     */
+    private static Stream<Arguments> ledgerWriteFailures() {
+        return Stream.of(
+            Arguments.of(
+                "a DataAccessException that is not a DuplicateKeyException",
+                new DataAccessResourceFailureException("the database went away mid-write")
+            ),
+            Arguments.of(
+                "a RuntimeException that is not a DataAccessException",
+                new IllegalStateException("something outside the Spring data-access hierarchy")
+            )
+        );
     }
 
     // ---------------------------------------------------------------------------------------------------------

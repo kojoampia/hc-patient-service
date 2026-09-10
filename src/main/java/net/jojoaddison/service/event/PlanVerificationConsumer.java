@@ -518,13 +518,33 @@ public class PlanVerificationConsumer {
      * conditional update matches nothing and the caller refuses before arriving here. That the conditional update
      * lets exactly one frame through is the same property that makes idempotency structural rather than incidental.</p>
      *
-     * <p><b>It was {@code catch (DuplicateKeyException)} and that was proved insufficient by mutation, which is the
-     * only reason this paragraph exists.</b> Deleting the {@code existsById} guard to check the replay test could see
-     * it made this line reachable, and what came out was <em>not</em> a {@code DuplicateKeyException}: the throw went
-     * straight past the catch, the frame dead-lettered, and the membership stayed activated and announced. So the
-     * narrow catch was documented as a safety net against a half-apply while not actually catching the one throw that
-     * causes it. That is the shape this repository keeps recording — <em>a javadoc asserting a guard that does not
-     * hold</em> — and it survived here precisely because the code was unreachable and therefore untested.</p>
+     * <p><b>⚠ It was {@code catch (DuplicateKeyException)}, and the reason first given for broadening it was
+     * WRONG. The wrong claim is kept here rather than deleted, because it is the third time on this item that a
+     * paragraph asserted a measurement nobody could reproduce.</b> It read:</p>
+     *
+     * <blockquote>"Deleting the {@code existsById} guard to check the replay test could see it made this line
+     * reachable, and what came out was <em>not</em> a {@code DuplicateKeyException}: the throw went straight past the
+     * catch, the frame dead-lettered, and the membership stayed activated and announced."</blockquote>
+     *
+     * <p><b>An exception did escape, and it did not come from here.</b> Traced through the run that produced the
+     * claim: all four occurrences are {@code IncorrectResultSizeDataAccessException} raised by
+     * {@code profileRepository.findOneByEmailIgnoreCase} in {@link #apply}, on the query
+     * {@code email =~ ^\Qkofi.replay@example.test\E$ returned non unique result} — a test-fixture artefact, since
+     * {@code PlanVerificationRoundTripIT.givenAPendingMembership} saves a {@code Profile} on every call and that test
+     * calls it twice for one address. One of the four is wrapped in a deliberate {@link PlanVerificationRefusedException}
+     * from an unrelated refusal-path test. <b>None of them is this insert.</b></p>
+     *
+     * <p><b>And the narrow catch was never insufficient for what this insert actually throws.</b> Driven directly
+     * through the repository proxy on the resolved classpath — {@code insert} with an {@code _id} that already
+     * exists, against both a standalone and a replica-set {@code mongo:7.0.6} — the answer is
+     * {@code DuplicateKeyException} both times, which {@code catch (DuplicateKeyException)} would have caught. There
+     * is no {@code @Transactional} anywhere in {@code src/main/java}, so that probe is faithful to the listener path.</p>
+     *
+     * <p><b>The broadening still stands, on the argument below rather than on that history.</b> Nothing about the
+     * corrected account weakens it: the reason to swallow everything here is what has already happened by the time
+     * this line runs, not what any particular Mongo failure is called. The lesson is the misattribution itself —
+     * an exception seen in a mutation run was assigned to the method being mutated rather than traced to its
+     * origin, and it read as freshly measured for two commits.</p>
      *
      * <p><b>Broad is right rather than lazy at this point in the method.</b> By the time this runs the membership is
      * written and hc-admin has been told; nothing that fails here may undo either, so the ledger write is
