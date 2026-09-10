@@ -34,7 +34,7 @@ spring:
         enabled: false
       enabled: false
     function:
-      definition: kafkaConsumer;kafkaProducer
+      definition: kafkaConsumer;kafkaProducer;patientPlanEventsConsumer
     stream:
       kafka:
         binder:
@@ -49,6 +49,13 @@ spring:
               configuration:
                 key.serializer: org.apache.kafka.common.serialization.StringSerializer
               messageKeyExpression: headers['patientKey']
+          # Mirrors the main config. Without it the tests would run with no DLQ at all and the one property this
+          # binding exists to prove — that a poison frame does not stall the partition — would be untested while
+          # reading as configured. PlanVerificationConsumerBindingIT asserts the name, not just the flag.
+          patientPlanEventsConsumer-in-0:
+            consumer:
+              enableDlq: true
+              dlqName: patient-events-plan.hc-patient-dlq
       bindings:
         binding-out-0:
           content-type: text/plain
@@ -66,6 +73,16 @@ spring:
         patientEvents-out-0:
           destination: patient-events
           content-type: application/json
+        # Mirrors the main config, for the reason the comment above gives. This one is the inbound half — backlog
+        # item 19 — and it is the first binding in this repo where the mirror does more than keep a destination
+        # honest: with no binding here there is no consumer group, no DLQ and no subscription, so every test of the
+        # handler would exercise a method nothing calls.
+        patientPlanEventsConsumer-in-0:
+          destination: patient-events-plan
+          content-type: application/json
+          group: hc-patient-service
+          consumer:
+            maxAttempts: 3
   jackson:
     # Jackson 3 moved this off SerializationFeature onto DateTimeFeature, so Spring Boot 4 binds it
     # under spring.jackson.datatype.datetime.*. Left on the old key it does not merely stop working:

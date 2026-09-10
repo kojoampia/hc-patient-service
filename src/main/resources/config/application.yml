@@ -111,7 +111,11 @@ spring:
         watch:
           enabled: false
     function:
-      definition: kafkaConsumer;kafkaProducer
+      # `patientPlanEventsConsumer` is a @Bean METHOD NAME, and the binding name is derived from it —
+      # rename the method and Spring Cloud Stream has no function to bind, the context still starts,
+      # every request is still served, and hc-admin's acknowledgements are silently never applied.
+      # PlanVerificationConsumerBindingIT is what stops that being discovered in production.
+      definition: kafkaConsumer;kafkaProducer;patientPlanEventsConsumer
     stream:
       kafka:
         binder:
@@ -145,6 +149,23 @@ spring:
               # Every event about one person lands on one partition. Without this they scatter and "what happened to
               # this patient, in what order" stops being answerable, which is the only question the stream is for.
               messageKeyExpression: headers['patientKey']
+          # THIS REPO'S FIRST DEAD-LETTER QUEUE, and it is here because of what the alternatives do.
+          #
+          # A frame this consumer cannot apply — unreadable bytes, no subject, a plan that disagrees with the
+          # membership — throws. Without a DLQ the binder's default (`autoCommitOnError` follows `autoCommitOffset`,
+          # both true) LOGS AND COMMITS THE OFFSET: the acknowledgement is discarded, an administrator's decision
+          # never takes effect, and nothing in this stack alerts on a log line. Turning that off instead
+          # (`autoCommitOnError: false`) is worse — the container seeks back and redelivers the same poison for ever,
+          # so one bad frame stalls the partition and every LATER patient's verification queues behind it.
+          # The DLQ is the third answer: keep the bytes where they can be read and replayed, advance the offset,
+          # take the next frame. A poison frame must cost one patient, never the binding.
+          patientPlanEventsConsumer-in-0:
+            consumer:
+              enableDlq: true
+              # `<destination>.<who-dead-lettered-it>`, which is the shape hc-admin already uses for the other
+              # direction (`patient-events.hc-admin-dlq`). The binder's default name is `error.<destination>.<group>`
+              # and would be the only topic in the estate not following that convention.
+              dlqName: patient-events-plan.hc-patient-dlq
       bindings:
         binding-out-0:
           content-type: text/plain
@@ -162,6 +183,26 @@ spring:
         patientEvents-out-0:
           destination: patient-events
           content-type: application/json
+        # The return leg, and the only topic this service consumes that it does not own: hc-admin publishes an
+        # administrator's decision on a plan here and this service applies it. Backlog item 19.
+        #
+        # A SEPARATE TOPIC RATHER THAN A TYPE ON `patient-events`, unlike everything above, because the producer is
+        # a different product. `patient-events` is this subsystem's own stream and both its producers are ours;
+        # a sibling writing into it would make our own ordering guarantee depend on their deploys.
+        #
+        # THE GROUP IS WHAT MAKES A REPLICA A REPLICA. Without it every running instance receives every
+        # acknowledgement and each one tries the same PENDING → ACTIVE write. The name matches the other three
+        # bindings deliberately: Kafka scopes offsets per (group, topic), so one name across bindings is one
+        # deployment consuming each topic once, not one queue shared between unrelated streams.
+        patientPlanEventsConsumer-in-0:
+          destination: patient-events-plan
+          content-type: application/json
+          group: hc-patient-service
+          consumer:
+            # Explicit rather than left at the identical default, because it is half of the DLQ's behaviour and a
+            # reader should not have to know the default to work out how many times a refusal is logged. Three
+            # attempts buy a transient Mongo blip; a refusal is deterministic and simply refuses three times.
+            maxAttempts: 3
   profiles:
     # The commented value for `active` can be replaced with valid Spring profiles to load.
     # Otherwise, it will be filled in by maven when building the JAR file
