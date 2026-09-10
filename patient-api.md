@@ -768,10 +768,13 @@ Blueprint prompt 2.2. Blocked on decision 2 for storage; the event contract can 
 > `user_id` rather than `patient_id`, so the erasure loop could not see it. `PaymentOptionResource` sets that field
 > from `requirePatientIdForWrite`, so it is the same value wearing another name.
 >
-> **The existing guard could not have caught it.** `everyPatientScopedCollectionIsInTheList` scans the domain for
-> `patient_id` and asserts the list matches — which is a good test and blind to precisely this case. Found by
-> comparing the erasure list against the sixteen resources the DELETE lockdown covers, and now pinned by
-> `aPaymentOptionIsErasedEvenThoughItKeysOnUserId`.
+> **The existing guard could not have caught it.** `everyPatientScopedCollectionIsInTheList` scanned the domain for
+> `patient_id` and asserted the list matched — blind to precisely this case. Found by comparing the erasure list
+> against the sixteen resources the DELETE lockdown covers, and pinned at the time by a hand-written
+> `aPaymentOptionIsErasedEvenThoughItKeysOnUserId`. **Both are gone as of item 31 (2026-09-10)**: the guard because it
+> could be talked out of the question by a rename, and the hand-written test because `PaymentOption` is now an
+> ordinary case for `PatientErasureOutcomeIT` — verified by deleting the `user_id` sweep from `erase`, which fails
+> that test with `["payment_option"]`.
 >
 > `Metadata` was checked at the same time and is genuinely not patient-scoped: it has no patient link at all.
 
@@ -805,10 +808,26 @@ the request is marked `COMPLETED` only after the erasure returns, and every dele
 `patientId` alone so re-running removes what the first run did not and nothing else. A half-finished
 erasure is a job still on the queue.
 
-`PatientErasureServiceIT.everyPatientScopedCollectionIsInTheList` asserts `PATIENT_SCOPED` against
-the domain package by reflection. That is the test that matters: a seventeenth patient-scoped
-collection added later and not added there breaks nothing, reports success, and leaves a patient who
-was told they were forgotten not forgotten.
+**What guards the list is `PatientErasureOutcomeIT`, and since item 31 (2026-09-10) it does not read a
+field name at all.** It enumerates every `@Document` class in the domain package, writes one document
+per collection with _every_ `String` property set to one sentinel, stores a GridFS file through
+`ReportFileService` so the metadata key comes from main code, runs the erasure, and then reads every
+collection in the database back looking for that sentinel in any value at any depth. A collection
+missing from `PATIENT_SCOPED` fails as a survivor whatever its key is called; a neighbour's documents
+are seeded identically and asserted intact, so the test cannot be satisfied by deleting everything.
+
+The one thing it is told is `SURVIVES_THE_ERASURE` — five classes with a written reason each
+(`DeletionRequest`, `Metadata`, `Professional`, `Recommendation`, `Team`). That is a class-level
+declaration rather than a convention: a new `@Document` is patient data until somebody says otherwise
+in writing, and no rename can move a class in or out of it.
+
+It replaced `PatientErasureServiceIT.everyPatientScopedCollectionIsInTheList`, which asserted
+`PATIENT_SCOPED` equalled the set of `@Document` classes declaring a `patient_id` field —
+**the predicate it discovered by was the property it guarded.** Rename the field and drop the class
+from the list, which its own failure message instructed, and it went green over a collection that was
+never erased again; measured on `Stat`, 8 tests passing. `PATIENT_SCOPED` stays as the erasure's
+driver, because a runtime scan deciding what to delete is a worse thing to own than a list whose
+correctness is now checkable without it.
 
 - `[x]` Entity, service, resource, 28 integration tests.
 - `[~]` **The gateway account is not closed by `complete`, and the event that will close it now exists.**

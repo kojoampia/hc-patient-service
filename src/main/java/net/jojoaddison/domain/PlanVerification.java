@@ -31,10 +31,12 @@ import org.springframework.data.mongodb.core.mapping.Field;
  *
  * <h2>It is patient data, and it is erased with the patient</h2>
  *
- * <p><b>This was missed when the collection was added and caught by {@code PatientErasureServiceIT}</b>, which is the
- * guard that exists for exactly this: {@code PATIENT_SCOPED} must name every {@code @Document} carrying a
- * {@code patient_id}, and for the length of one review this one was not on it — so a patient exercising deletion
- * would have been told their record was gone while a row naming them, their plan and when it was approved survived.
+ * <p><b>This was missed when the collection was added and caught by a test rather than by review</b> — for the length
+ * of one review it was not on {@code PatientErasureService.PATIENT_SCOPED}, so a patient exercising deletion would
+ * have been told their record was gone while a row naming them, their plan and when it was approved survived. The
+ * test that caught it compared that list against a scan for {@code patient_id} fields and was itself removed on
+ * 2026-09-10, because a rename could talk it out of the question; {@code PatientErasureOutcomeIT} asks the same thing
+ * of the outcome instead and reads no field names at all.
  * The audit case for keeping it is argued and refused in {@code PatientErasureService}'s javadoc; the short form is
  * that {@link Membership} is the commercial record and is already erased, so keeping the acknowledgement would
  * preserve a pointer to something that no longer exists.</p>

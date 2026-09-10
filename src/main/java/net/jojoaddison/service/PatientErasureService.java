@@ -40,17 +40,25 @@ import org.springframework.stereotype.Service;
  *
  * <h2>Seventeen collections, named once</h2>
  *
- * <p>{@link #PATIENT_SCOPED} is the list, and it must stay exactly the set of {@code @Document} classes carrying a
- * {@code patient_id} field. A collection added later and not added here is the failure mode that matters: nothing
- * breaks, the erasure reports success, and a patient told they were forgotten is not. {@code PatientErasureServiceIT}
- * asserts the list against the domain package by reflection so that omission fails a test rather than a regulator's
- * question.</p>
+ * <p>{@link #PATIENT_SCOPED} is the list and it drives the sweep. A collection added later and not added here is the
+ * failure mode that matters: nothing breaks, the erasure reports success, and a patient told they were forgotten is
+ * not.</p>
  *
- * <p><strong>It has now caught one, which is the answer to whether it earns its keep.</strong> The seventeenth is
+ * <p><strong>What keeps the list honest is no longer a scan for a field name.</strong> Until 2026-09-10 an integration
+ * test asserted this list equalled the set of {@code @Document} classes declaring a {@code patient_id} field — and the
+ * predicate it discovered by was the property it guarded, so renaming a class's field and dropping it from this list,
+ * which that test's own failure message instructed, left it green over a collection that was never erased again.
+ * {@code PatientErasureOutcomeIT} replaced it: it seeds one document in <em>every</em> {@code @Document} collection
+ * with every string property set to the same sentinel, runs this method, and asserts that nothing carrying that
+ * sentinel survives in any collection in the database. It never reads a field name, so nothing about a rename can
+ * quiet it, and a collection missing from this list fails as a survivor whatever its key is called. See
+ * {@code docs/backlog.md} item 31.</p>
+ *
+ * <p><strong>The list has caught one, which is the answer to whether it earns its keep.</strong> The seventeenth is
  * {@link PlanVerification}, added with item 19's inbound consumer on 2026-09-10 and not added here — so for the length
  * of one review a patient exercising deletion would have been told their record was gone while a ledger naming their
  * {@code patientId}, their plan and when it was approved survived. Nothing in that item, its contract or its diff
- * would have surfaced it; this guard did, on a collection whose author had read this javadoc.</p>
+ * would have surfaced it; the guard of the day did, on a collection whose author had read this javadoc.</p>
  *
  * <h2>It is not atomic, and is safe to re-run</h2>
  *
@@ -173,6 +181,10 @@ public class PatientErasureService {
         // Handled separately rather than by teaching PATIENT_SCOPED about field names, because a list of types that
         // all key the same way is readable at a glance and a list of type-plus-field pairs is not -- and the value
         // of that list is that an omission is visible when reading it.
+        //
+        // It is no longer an exception to what any test can see, though: PatientErasureOutcomeIT seeds every string
+        // property of every @Document with the same sentinel and asserts none of it survives, so this collection is
+        // an ordinary case there and the query below is covered by the same assertion as the loop above.
         Query byUserId = Query.query(Criteria.where("user_id").is(patientId));
         counts.put(
             mongoTemplate.getCollectionName(PaymentOption.class),
