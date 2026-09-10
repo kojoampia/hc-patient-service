@@ -17,6 +17,7 @@ import net.jojoaddison.domain.Medication;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.domain.PersonalDocument;
+import net.jojoaddison.domain.PlanVerification;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.Report;
 import net.jojoaddison.domain.Stat;
@@ -37,19 +38,25 @@ import org.springframework.stereotype.Service;
  * path. It is the only code in the service that deletes clinical data in bulk, and the only thing standing between it
  * and the wrong record is the {@code patientId} it is handed.</p>
  *
- * <h2>Sixteen collections, named once</h2>
+ * <h2>Seventeen collections, named once</h2>
  *
  * <p>{@link #PATIENT_SCOPED} is the list, and it must stay exactly the set of {@code @Document} classes carrying a
- * {@code patient_id} field. A seventeenth collection added later and not added here is the failure mode that matters:
- * nothing breaks, the erasure reports success, and a patient told they were forgotten is not. {@code
- * PatientErasureServiceIT} asserts the list against the domain package by reflection so that omission fails a test
- * rather than a regulator's question.</p>
+ * {@code patient_id} field. A collection added later and not added here is the failure mode that matters: nothing
+ * breaks, the erasure reports success, and a patient told they were forgotten is not. {@code PatientErasureServiceIT}
+ * asserts the list against the domain package by reflection so that omission fails a test rather than a regulator's
+ * question.</p>
+ *
+ * <p><strong>It has now caught one, which is the answer to whether it earns its keep.</strong> The seventeenth is
+ * {@link PlanVerification}, added with item 19's inbound consumer on 2026-09-10 and not added here — so for the length
+ * of one review a patient exercising deletion would have been told their record was gone while a ledger naming their
+ * {@code patientId}, their plan and when it was approved survived. Nothing in that item, its contract or its diff
+ * would have surfaced it; this guard did, on a collection whose author had read this javadoc.</p>
  *
  * <h2>It is not atomic, and is safe to re-run</h2>
  *
  * <p>MongoDB multi-document transactions need a replica set; this service runs against a standalone node in
- * development and in the quality stack, so sixteen deletes are sixteen operations and a failure can land between any
- * two of them. That is why {@link DeletionRequestService} marks the request {@code COMPLETED} only after this returns,
+ * development and in the quality stack, so seventeen deletes are seventeen operations and a failure can land between
+ * any two of them. That is why {@link DeletionRequestService} marks the request {@code COMPLETED} only after this returns,
  * and why every delete here is keyed on {@code patientId} alone: running it again removes whatever the first run did
  * not, and removes nothing else. A half-finished erasure is a job still on the queue, not a corrupted state.</p>
  *
@@ -63,6 +70,17 @@ import org.springframework.stereotype.Service;
  * carried out. And the account in the gateway: {@code hc-patient-api} runs {@code skipUserManagement} and has no
  * {@code User} document to delete. Closing the account is a second step, in the gateway, by the same administrator —
  * see {@code DeletionRequestResource.complete}.</p>
+ *
+ * <p><strong>{@link PlanVerification} is not on that list, and the question was asked rather than defaulted.</strong>
+ * It is an audit record — that an administrator approved a plan, and when — so there is a case for outliving the
+ * patient. It is refused on this repository's own precedent: {@link Membership} is the commercial record, carrying
+ * the plan, the member number and the renewal date, and it is erased. This estate has therefore <em>already decided</em>
+ * that a patient's commercial history goes with them, and keeping the acknowledgement while erasing the thing
+ * acknowledged would leave a record naming a {@code membershipId} that resolves to nothing and a {@code patientId}
+ * that resolves to nobody — strictly less useful than the record it points at, at exactly the same cost to the person.
+ * There is also no retention policy written anywhere in this estate, and a consumer's bookkeeping is the wrong place
+ * to invent one. If retention is ever required it belongs here as a named exception, argued, like the
+ * {@code DeletionRequest} above.</p>
  */
 @Service
 public class PatientErasureService {
@@ -88,6 +106,7 @@ public class PatientErasureService {
         Medication.class,
         Membership.class,
         PersonalDocument.class,
+        PlanVerification.class,
         Report.class,
         Stat.class,
         Task.class,
@@ -121,7 +140,7 @@ public class PatientErasureService {
     public Map<String, Long> erase(String patientId, String angelEmail) {
         // A blank id would build the query {patient_id: null}, which in MongoDB matches every document that has no
         // patient_id at all — and then deletes them. This guard is the difference between erasing one patient and
-        // emptying sixteen collections, and it is why the check is an exception rather than an early return.
+        // emptying seventeen collections, and it is why the check is an exception rather than an early return.
         if (patientId == null || patientId.isBlank()) {
             throw new IllegalArgumentException("Refusing to erase: no patientId was given");
         }

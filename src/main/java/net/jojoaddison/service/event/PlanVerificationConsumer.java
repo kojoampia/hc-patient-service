@@ -82,6 +82,11 @@ import org.springframework.stereotype.Component;
  * and recoverable. Writing the ledger first would make the same crash lose the verification silently, and this file
  * chooses the loud failure every time it has the choice.</p>
  *
+ * <p><b>The ledger is patient data and is erased with the patient</b> — {@code PatientErasureService.PATIENT_SCOPED}
+ * names it, and it was missed there for one review. So idempotency is bounded by the patient's existence: a
+ * redelivery arriving after an erasure is no longer recognised as a replay and refuses
+ * {@link Reason#UNKNOWN_PATIENT} instead. Loud, correct, and not a regression — see {@link PlanVerification}.</p>
+ *
  * <h2>It idles, and that is the design rather than a defect</h2>
  *
  * <p><b>hc-admin publishes nothing on this topic today</b> — their item 54 is unbuilt, and {@code patient-events-plan}

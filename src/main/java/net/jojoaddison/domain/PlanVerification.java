@@ -29,6 +29,23 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * claim rather than a record. If the identity of the approver is ever wanted, it has to be added to the contract on
  * their side first.</p>
  *
+ * <h2>It is patient data, and it is erased with the patient</h2>
+ *
+ * <p><b>This was missed when the collection was added and caught by {@code PatientErasureServiceIT}</b>, which is the
+ * guard that exists for exactly this: {@code PATIENT_SCOPED} must name every {@code @Document} carrying a
+ * {@code patient_id}, and for the length of one review this one was not on it — so a patient exercising deletion
+ * would have been told their record was gone while a row naming them, their plan and when it was approved survived.
+ * The audit case for keeping it is argued and refused in {@code PatientErasureService}'s javadoc; the short form is
+ * that {@link Membership} is the commercial record and is already erased, so keeping the acknowledgement would
+ * preserve a pointer to something that no longer exists.</p>
+ *
+ * <p><b>One consequence, so it is not read later as a regression.</b> Erasure takes the idempotency key with it. A
+ * redelivery of a frame that was already applied, arriving <em>after</em> the patient is erased, is therefore no
+ * longer recognised as a replay — it refuses {@code UNKNOWN_PATIENT}, because the {@code Profile} is gone, and is
+ * dead-lettered. That is the right outcome and a loud one, and it leaks nothing new: the same frame is already
+ * sitting on {@code patient-events-plan} under the broker's retention, so the dead-letter copy reveals nothing the
+ * source topic does not.</p>
+ *
  * <h2>Two things it deliberately is not</h2>
  *
  * <p><b>Not a record of refusals.</b> Only an acknowledgement this service actually applied is written here. A frame
