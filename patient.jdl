@@ -155,11 +155,6 @@ enum AllergySeverity {
 // New. Deliberately not ScheduleStatus, which is the lifecycle of a patient appointment
 // (confirmed/pending/attended/cancelled) and answers a different question about a different thing.
 /** Where a shift sits relative to now: still to come, being worked, or over. */
-enum ShiftStatus {
-  ACTIVE,
-  UPCOMING,
-  COMPLETED
-}
 
 // New. Was a free String until an administrator's approval needed a vocabulary to be expressed in.
 // Five values rather than the two first specified: the shipped i18n bundles in web and mobile already
@@ -547,48 +542,20 @@ entity Allergy {
   modifiedBy String
 }
 
-// New. `ClinicalCase.assignedRosterId` has pointed at nothing since the portal refactor named it —
-// these two entities are what it points at.
+// DutyRoster and Shift WERE declared here and were removed on 2026-09-11, following `28c0b0d`
+// (2026-09-03) which deleted the classes: "hc-patient owns no roster, and deletes what it had."
+// hc-professional owns the roster of record. The declarations outlived the code by eight days, and
+// `docs/backlog.md` item 33 records what that cost — both CLAUDE.md files went on describing the two
+// entities as shipped, including a maintenance note for a field on a class nobody could open.
 //
-// DutyRoster additionally carries `subscribedProfessionalIds`, a Mongo array of Professional ids,
-// which is NOT declared below because JDL has no list-of-scalars type. It is maintained by hand in
-// `domain/DutyRoster.java` and a regeneration of this entity will drop it — see the comment on the
-// field. The alternative, a @DBRef many-to-many to Professional, was rejected on the grounds that it
-// would be the second relationship in a domain that holds every other cross-entity reference as a
-// bare String id.
+// `ClinicalCase.assignedRosterId` STAYS and is not dangling: hc-professional reads it on the wire.
+// It is a plain String id naming a roster another product owns, which is this domain's convention
+// for every cross-entity reference except ClinicalCase<->Recommendation and Profile->Address.
 //
-// That argument no longer stands on its own: Profile -> Address is now a real relationship too (see
-// the Relationships section). The rejection here still holds, but for the narrower reason that a
-// roster's subscribers are a set of ids with no attributes of their own, where an address is a
-// document with nine fields. Rarity was never the real objection; needing a document was.
-/** A named rota a professional can be on duty for — a ward, a clinic, a night shift. */
-entity DutyRoster {
-  id String
-  name String
-  description String
-  location String
-  createdDate LocalDate
-  modifiedDate LocalDate
-  createdBy String
-  modifiedBy String
-}
-
-// New. Subscription to a roster and being rostered on it are different facts: a professional
-// subscribed to a roster has no Shift until one is assigned, and a roster can exist with neither.
-/** One professional's turn on a duty roster, between two instants. */
-entity Shift {
-  id String
-  rosterId String
-  professionalId String
-  startsAt Instant
-  endsAt Instant
-  status ShiftStatus
-  notes String
-  createdDate LocalDate
-  modifiedDate LocalDate
-  createdBy String
-  modifiedBy String
-}
+// The rejected alternative is worth keeping, because it is about THIS domain rather than about the
+// roster: a @DBRef many-to-many was refused because a roster's subscribers are a set of ids with no
+// attributes of their own, where an address is a document with nine fields. Rarity was never the
+// objection; needing a document was.
 
 // New with care onboarding. This is the record that a care angel's access rests on, and the only
 // thing PatientScope may consult when deciding whether one person may act for another —
@@ -642,8 +609,8 @@ relationship ManyToMany {
 
 // Profile.address was a plain String until care onboarding needed a real one — a digital address,
 // a town and a region cannot be recovered from "5 Ankobra River Street". This is the second real
-// relationship in the domain, and the comment on DutyRoster above explains why that count used to
-// be one. Address already carries `patientId` and AddressResource already scopes on it, so the
+// relationship in the domain; the note above, where DutyRoster used to be declared, explains why that
+// count used to be one. Address already carries `patientId` and AddressResource already scopes on it, so the
 // referenced document is protected by the same rules as everything else the patient owns.
 relationship OneToOne {
   Profile{address} to Address
