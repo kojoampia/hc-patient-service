@@ -102,12 +102,18 @@ import org.springframework.stereotype.Component;
  * verification silently, and this file chooses the visible failure every time it has the choice.</p>
  *
  * <p><b>Two protections, and they overlap almost everywhere.</b> {@link #alreadySatisfied} catches most of what the
- * ledger catches, because a replay usually asks for a state that already holds — so a lost ledger row costs nothing
- * in the ordinary case. <b>They separate in exactly one place, and it is the one that matters:</b> when the patient
- * has since chosen the same tier again, a redelivery finds a fresh {@code PENDING} membership whose plan agrees, and
- * only the event id stops it being activated by an acknowledgement about a different membership. That is what
- * {@code PlanVerificationRoundTripIT} mutates against; the overlap is why two earlier versions of that test passed
- * with the guard deleted.</p>
+ * ledger catches, because a replay usually asks for a state that already holds. <b>They separate in exactly one
+ * place, and it is the one that matters:</b> when the patient has since chosen the same tier again, a redelivery
+ * finds a fresh {@code PENDING} membership whose plan agrees — {@code alreadySatisfied} is never consulted, because
+ * the pending check runs first — and only the event id stops it being activated by an acknowledgement about a
+ * different membership. That is what {@code PlanVerificationRoundTripIT} mutates against; the overlap is why two
+ * earlier versions of that test passed with the guard deleted.</p>
+ *
+ * <p><b>So a lost ledger row is not harmless, and the sentence that used to say it "costs nothing in the ordinary
+ * case" was wrong in the direction that matters.</b> The ordinary case is fine; the one case the ledger uniquely
+ * covers is exactly the one a lost row re-opens. {@link #record} swallows a failed insert anyway — dead-lettering a
+ * frame that has already written and announced is the worse of the two — but it logs at {@code ERROR} rather than
+ * {@code WARN}, and the reasoning for the trade is written out there rather than implied here.</p>
  *
  * <p><b>The ledger is patient data and is erased with the patient</b> — {@code PatientErasureService.PATIENT_SCOPED}
  * names it, and it was missed there for one review. So idempotency is bounded by the patient's existence: a
@@ -526,9 +532,22 @@ public class PlanVerificationConsumer {
      * happened"</em>. Letting anything propagate would dead-letter a frame that has been applied, which is the one
      * half-apply this class cannot undo and the one whose replay would do damage.</p>
      *
-     * <p>And losing the row costs less than it looks: a later redelivery is no longer recognised by event id, but it
-     * finds the membership already {@code ACTIVE} on the plan named and is ignored by {@link #alreadySatisfied}. The
-     * two protections overlap here, which is what makes swallowing safe.</p>
+     * <p><b>Swallowing is not free, and the earlier version of this paragraph said it was.</b> It claimed the loss
+     * cost nothing because {@link #alreadySatisfied} would ignore the later redelivery anyway — "the two protections
+     * overlap here, which is what makes swallowing safe". That contradicts the class javadoc, and the class javadoc
+     * is the correct one: the protections <b>separate in exactly one place</b>, and a lost ledger row is precisely
+     * the condition that re-opens it. If the patient chooses the same tier again, a redelivery finds a fresh
+     * {@code PENDING} membership whose plan agrees, {@code alreadySatisfied} is never consulted because the pending
+     * check runs first, and the only thing that would have stopped that membership being activated by an
+     * acknowledgement about a different one was the row that was just lost. That is verbatim the hazard
+     * {@code PlanVerificationRoundTripIT} was rewritten to catch.</p>
+     *
+     * <p><b>So this is a trade, and it is the one being chosen deliberately:</b> a dead-lettered frame that has
+     * already written and announced, against a re-opened re-selection window that needs a Mongo failure <em>and</em>
+     * a later duplicate delivery <em>and</em> the patient re-choosing the same tier before it does any harm. The
+     * first is certain whenever the insert fails; the second needs three things to coincide. Hence
+     * {@code log.error} rather than {@code log.warn} — a lost row is the one condition under which a duplicate
+     * delivery can activate a membership nobody verified, and it is the line an operator should be able to find.</p>
      */
     private void record(PatientEvent event, String patientId, Membership activated, String planCode) {
         try {
@@ -544,7 +563,18 @@ public class PlanVerificationConsumer {
             );
         } catch (RuntimeException e) {
             // Deliberately swallowed, and deliberately broad — see the javadoc for both halves.
-            log.warn("Plan acknowledgement {} was applied but could not be recorded — the membership is unaffected", event.eventId(), e);
+            //
+            // ERROR rather than WARN: the membership is fine, but the idempotency key for this frame is gone, and
+            // that is the one condition under which a duplicate delivery can activate a membership nobody verified.
+            log.error(
+                "Plan acknowledgement {} was applied but its ledger row was NOT written — the membership is correct, " +
+                "but a redelivery of this frame is no longer recognised, so a later choice of the same plan could be " +
+                "activated by it. Check membership {} for patient {}.",
+                event.eventId(),
+                activated.getId(),
+                patientId,
+                e
+            );
         }
     }
 

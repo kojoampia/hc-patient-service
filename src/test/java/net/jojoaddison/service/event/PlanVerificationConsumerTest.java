@@ -23,6 +23,7 @@ import net.jojoaddison.service.MembershipService;
 import net.jojoaddison.service.event.PlanVerificationRefusedException.Reason;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 /**
  * The rules an acknowledgement on {@code patient-events-plan} has to pass, one at a time.
@@ -124,6 +125,42 @@ class PlanVerificationConsumerTest {
 
         // The audit record item 19 left unplaced — VERIFIED is "who approved and when", never a live status — and the
         // idempotency ledger, which is the same document because the event id is the key of both questions.
+        verify(verifications).insert(any(PlanVerification.class));
+    }
+
+    /**
+     * That a ledger write which fails does not dead-letter a frame that has already been applied.
+     *
+     * <h2>This test exists because the fix it guards was, for one commit, guarded by a paragraph</h2>
+     *
+     * <p>{@code record()} caught {@code DuplicateKeyException} and was documented as the safety net against exactly
+     * this half-apply. Mutation showed the throw going straight past it: the frame dead-lettered with the membership
+     * already {@code ACTIVE} and hc-admin already told. The catch was broadened to {@code RuntimeException} — and
+     * <b>nothing failed when it was narrowed back</b>, so the correction was protected by prose in a method whose own
+     * javadoc tells the next reader that nothing reaches it. Reverting the fix, or deleting the catch as dead code,
+     * was a silent green change.</p>
+     *
+     * <p><b>The exception thrown here is deliberately not a {@code DuplicateKeyException}</b>, because that is the
+     * specific defect. A test that threw one would pass under the narrow catch and prove nothing.
+     * {@code DataAccessResourceFailureException} is a sibling under {@code DataAccessException} — a Mongo that went
+     * away mid-write, which is the realistic cause here now that a duplicate key is unreachable.</p>
+     *
+     * <p>"Announced" is asserted as {@code activateIfPending} having been called: the announcement is that method's,
+     * not this class's, and {@code MembershipStatusAnnouncementTest} is what pins it. This consumer holds no
+     * publisher — {@link #applyingItAnnouncesWithoutTheConsumerPublishingAnything} asserts that too.</p>
+     */
+    @Test
+    void aLedgerWriteThatFailsDoesNotUndoOrDeadLetterAnAppliedAcknowledgement() {
+        when(verifications.insert(any(PlanVerification.class)))
+            .thenThrow(new DataAccessResourceFailureException("the database went away mid-write"));
+
+        // Must not propagate. Anything escaping here reaches the binder, which retries and dead-letters a frame that
+        // has already written and announced — the one half-apply this consumer cannot undo, and the one whose replay
+        // would activate a membership nobody verified.
+        consumer.apply(acknowledgement());
+
+        // And the work that was already done stands: written, and announced through the seam item 27 built.
+        verify(membershipService).activateIfPending(MEMBERSHIP_ID);
         verify(verifications).insert(any(PlanVerification.class));
     }
 
