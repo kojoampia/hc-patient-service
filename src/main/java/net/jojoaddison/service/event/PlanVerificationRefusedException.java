@@ -34,8 +34,29 @@ public class PlanVerificationRefusedException extends RuntimeException {
      * patient it names happens to exist.</p>
      */
     public enum Reason {
+        /**
+         * No frame at all.
+         *
+         * <p>The binder does not hand a function a null payload, so this is defensive. It has its own constant rather
+         * than borrowing {@link #NO_EVENT_ID} because a refusal that names the wrong cause sends the next reader to
+         * hc-admin's serialiser for a fault in this one.
+         */
+        NO_FRAME,
+
         /** No {@code eventId}, so the frame cannot be deduplicated and a replay could not be told from a retry. */
         NO_EVENT_ID,
+
+        /**
+         * The frame is not the type this topic carries.
+         *
+         * <p><b>hc-admin publishes {@code PlanVerified} and nothing else here</b>, so a second type is a contract
+         * change rather than an event to skip. The estate's usual rule — meet a type you do not know and ignore it —
+         * is written for {@code patient-events}, a shared topic where unknown types are normal and ignoring one costs
+         * nothing. This topic carries one exchange by agreement, and the frame most likely to arrive under another
+         * name is a <em>rejection</em>: ignoring it silently would be the half-loop, and applying it would activate a
+         * membership an administrator refused. Refusing keeps it in the dead-letter queue until somebody models it.
+         */
+        UNEXPECTED_TYPE,
 
         /**
          * No {@code subject.email}. Every frame in this estate is keyed on the lower-cased email, and one without it
@@ -68,7 +89,15 @@ public class PlanVerificationRefusedException extends RuntimeException {
         /** No profile with that email. Either the patient does not exist here or hc-admin is keyed on something else. */
         UNKNOWN_PATIENT,
 
-        /** The patient holds no {@code PENDING} membership, so there is nothing this acknowledgement can be about. */
+        /**
+         * The patient holds no {@code PENDING} membership, and none already {@code ACTIVE} on the plan named.
+         *
+         * <p>Both halves matter. hc-admin republishes unconditionally — <em>"the echo is the acknowledgement"</em> —
+         * with a <b>fresh {@code eventId} each time</b>, so a second press of their verify button is not caught by the
+         * ledger and arrives as a new frame asking for a state that already holds. That is satisfied, not refused;
+         * see {@code PlanVerificationConsumer.alreadySatisfied}. This reason is for the case where the patient has no
+         * pending choice <em>and</em> nothing matching was ever activated.
+         */
         NO_PENDING_MEMBERSHIP,
 
         /**

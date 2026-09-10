@@ -31,8 +31,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p>"It refused" is one assertion and the refusals are not interchangeable. Two pending memberships and a plan that
  * disagrees are the pair this consumer could most easily confuse — both end in a throw, both mention a plan — so a
- * test matching on message text would pass with either wired to the other. Asserting {@link Reason} is what makes
- * these nine tests nine tests.</p>
+ * test matching on message text would pass with either wired to the other. Asserting {@link Reason} is what keeps
+ * one test per reason honest; there are twelve reasons and each is mutated separately.</p>
  *
  * <p>Written against the handler with the repositories mocked, deliberately. What is under test here is the rule; that
  * the rule is reachable from a real topic at all is {@code PlanVerificationConsumerBindingIT}'s question, and that a
@@ -70,11 +70,14 @@ class PlanVerificationConsumerTest {
         return new Membership().id(id).patientId(PATIENT_ID).plan(plan).name(plan + " Plan").status(MembershipStatus.PENDING);
     }
 
-    /** An acknowledgement in the shape item 19 settled: subject the email, payload one field. */
+    /**
+     * An acknowledgement in the shape hc-admin actually sends — read from their {@code PlanVerificationEvent} at
+     * {@code ceb9eae}, not from item 19: subject the lowercased email, payload one field, type {@code PlanVerified}.
+     */
     private static PatientEvent acknowledgement(Map<String, Object> data) {
         return new PatientEvent(
             UUID.randomUUID().toString(),
-            "PlanVerified",
+            PlanVerificationConsumer.PLAN_VERIFIED,
             PatientEvent.VERSION,
             Instant.now(),
             "hcAdminService",
@@ -209,6 +212,49 @@ class PlanVerificationConsumerTest {
         assertRefusedWith(Reason.NO_PENDING_MEMBERSHIP, acknowledgement());
     }
 
+    /**
+     * That an administrator pressing verify twice does not dead-letter the second press.
+     *
+     * <p>hc-admin mints a <b>fresh event id</b> per press on purpose — republishing unconditionally is how they
+     * recover a frame they think was lost, and <em>"two presses of the button must be two ids or the second is
+     * silently ignored as a redelivery"</em>. So the ledger cannot suppress this one, and without the
+     * already-satisfied check every repeat, and every successful recovery-republish, would refuse and fill the queue
+     * that is supposed to hold only real refusals.</p>
+     */
+    @Test
+    void aSecondVerificationForAMembershipAlreadyActiveOnThatPlanIsIgnored() {
+        when(membershipService.pendingFor(PATIENT_ID)).thenReturn(List.of());
+        when(membershipService.activeFor(PATIENT_ID)).thenReturn(List.of(pending(MEMBERSHIP_ID, PLAN).status(MembershipStatus.ACTIVE)));
+
+        consumer.apply(acknowledgement());
+
+        // Nothing written, nothing announced, nothing thrown — the state it asks for already holds.
+        verify(membershipService, never()).activateIfPending(anyString());
+        verify(verifications, never()).insert(any(PlanVerification.class));
+    }
+
+    @Test
+    void anActiveMembershipOnAnotherPlanDoesNotSatisfyTheAcknowledgement() {
+        // The guard on the guard. "Already done" is asked on the plan named, so a patient holding some other tier
+        // does not silently absorb a verification that really is about a membership this service cannot find.
+        when(membershipService.pendingFor(PATIENT_ID)).thenReturn(List.of());
+        when(membershipService.activeFor(PATIENT_ID)).thenReturn(List.of(pending(MEMBERSHIP_ID, "MELON").status(MembershipStatus.ACTIVE)));
+
+        assertRefusedWith(Reason.NO_PENDING_MEMBERSHIP, acknowledgement());
+    }
+
+    @Test
+    void aPendingChoiceIsAppliedEvenWhenTheSameTierIsAlreadyHeld() {
+        // Order matters: pending is asked first, so a patient re-subscribing to a tier they already hold is applied
+        // rather than swallowed as "already done". Without that ordering the already-satisfied check would lose a
+        // real verification.
+        when(membershipService.activeFor(PATIENT_ID)).thenReturn(List.of(pending("membership-old", PLAN).status(MembershipStatus.ACTIVE)));
+
+        consumer.apply(acknowledgement());
+
+        verify(membershipService).activateIfPending(MEMBERSHIP_ID);
+    }
+
     @Test
     void aPatientWithTwoPendingMembershipsIsRefusedRatherThanGuessedAt() {
         when(membershipService.pendingFor(PATIENT_ID)).thenReturn(List.of(pending(MEMBERSHIP_ID, PLAN), pending("membership-2", PLAN)));
@@ -228,6 +274,49 @@ class PlanVerificationConsumerTest {
         // mismatch into a stop. Delete the check and this test is what fails.
         assertRefusedWith(Reason.PLAN_DISAGREES, acknowledgement());
         verify(membershipService, never()).activateIfPending(anyString());
+    }
+
+    /**
+     * The type string, pinned as a literal on this side too.
+     *
+     * <p>It is a contract with a repository that cannot be compiled against this one — hc-admin's
+     * {@code PlanVerificationEvent.TYPE}. A rename here is not a compile error there, so without this test the
+     * constant could be renamed, every test that builds a fixture through it would follow, and the frames would
+     * simply stop being recognised.</p>
+     */
+    @Test
+    void theTypeThisTopicCarriesIsTheLiteralHcAdminPublishes() {
+        assertThat(PlanVerificationConsumer.PLAN_VERIFIED).isEqualTo("PlanVerified");
+    }
+
+    @Test
+    void aFrameOfAnotherTypeIsRefusedRatherThanAppliedAsAnApproval() {
+        // THE HAZARD THIS CHECK EXISTS FOR, and it is a rejection rather than a typo. Their item 54 says a second
+        // control follows the moment a rejection path is decided; that frame carries a matching plan and no status,
+        // so before the type was pinned it went the whole way through and ACTIVATED a membership an administrator
+        // had refused. assertActivating cannot catch it — it only fires when a status is present, and the settled
+        // payload has none.
+        PatientEvent rejection = new PatientEvent(
+            UUID.randomUUID().toString(),
+            "PlanRejected",
+            PatientEvent.VERSION,
+            Instant.now(),
+            "hcAdminService",
+            new PatientEvent.Subject(EMAIL, null, null),
+            Map.of("plan", PLAN)
+        );
+
+        PlanVerificationRefusedException refusal = assertRefusedWith(Reason.UNEXPECTED_TYPE, rejection);
+        assertThat(refusal).hasMessageContaining("PlanRejected").hasMessageContaining("PlanVerified");
+        verify(membershipService, never()).activateIfPending(anyString());
+    }
+
+    @Test
+    void aNullFrameIsRefusedUnderItsOwnReason() {
+        // NO_FRAME rather than NO_EVENT_ID: a refusal naming the wrong cause sends the next reader to hc-admin's
+        // serialiser for a fault on this side. The binder does not hand a function a null, so this is defensive —
+        // but an untested defensive branch is how the wrong reason survives review.
+        assertRefusedWith(Reason.NO_FRAME, null);
     }
 
     @Test
@@ -278,21 +367,37 @@ class PlanVerificationConsumerTest {
     }
 
     // ---------------------------------------------------------------------------------------------------------
-    // The payload shapes the record describes and hc-admin has not built
+    // The payload shape, now that hc-admin has chosen one
     // ---------------------------------------------------------------------------------------------------------
 
     @Test
-    void thePlanMayArriveAsAnObjectWithACodeOrAsAFlatString() {
-        // Item 18 defines Plan as a commercial object with a code; item 19 says what comes back is "the planCode this
-        // repo sent", which is flat. hc-admin has written neither, so both are read. This test is the reminder to
-        // collapse it to whichever they ship.
-        consumer.apply(acknowledgement(Map.of("plan", Map.of("code", PLAN, "name", "PAWPAW Plan"))));
+    void thePlanArrivesUnderPlanAsAFlatString() {
+        // Their PlanData record serialises to exactly {"plan":"MELON"}. This is the shape, and the object-with-a-code
+        // branch that read item 18's "Plan is a commercial object" has been dropped now that they have chosen.
+        consumer.apply(acknowledgement(Map.of("plan", PLAN)));
         verify(membershipService).activateIfPending(MEMBERSHIP_ID);
     }
 
     @Test
-    void thePlanMayArriveUnderThePlanCodeSpellingThisRepoPublishes() {
+    void thePlanMayStillArriveUnderThePlanCodeSpellingThisRepoPublishes() {
+        // Kept as an alias, demoted from an open question: planCode is this service's own outbound spelling on
+        // PlanChosen, which their earlier draft echoed. One line, and a plausible refactor next door is a non-event.
         consumer.apply(acknowledgement(Map.of("planCode", PLAN)));
+        verify(membershipService).activateIfPending(MEMBERSHIP_ID);
+    }
+
+    @Test
+    void aNullValuedPlanKeyFallsThroughToPlanCodeRatherThanRefusing() {
+        // Choosing between the spellings with containsKey refused this frame NO_PLAN_NAMED with a perfectly good code
+        // unread in the same map. NULL-VALUED KEYS ARE hc-admin'S HOUSE STYLE — item 27's closing note records them
+        // putting a null planCode straight on the wire — so this would have read as a contract disagreement when it
+        // was a serialisation habit.
+        Map<String, Object> both = new java.util.HashMap<>();
+        both.put("plan", null);
+        both.put("planCode", PLAN);
+
+        consumer.apply(acknowledgement(both));
+
         verify(membershipService).activateIfPending(MEMBERSHIP_ID);
     }
 

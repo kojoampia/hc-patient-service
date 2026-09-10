@@ -106,6 +106,12 @@ class PlanVerificationConsumerBindingIT {
 
         // And that the binder read it. The dead-letter topic is provisioned while the consumer binds, so its absence
         // here would mean the two properties above are being written somewhere nothing consults.
+        //
+        // CAVEAT, because this assertion is weaker where it is usually run than where it gates. With
+        // TESTCONTAINERS_REUSE_ENABLE=true — which this repo's own guide recommends for local runs — the broker
+        // survives between runs, so a topic an EARLIER run provisioned is still here and this would pass even if the
+        // binder had stopped creating it. In CI, where reuse is deliberately off, the broker is new and the
+        // assertion is exact. Read a local pass as "still configured"; read a CI pass as "the binder read it".
         String brokers = environment.getRequiredProperty("spring.cloud.stream.kafka.binder.brokers");
         try (AdminClient admin = AdminClient.create(Map.of("bootstrap.servers", brokers))) {
             Set<String> topics = admin.listTopics().names().get(Duration.ofSeconds(20).toSeconds(), java.util.concurrent.TimeUnit.SECONDS);

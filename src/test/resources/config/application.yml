@@ -54,6 +54,7 @@ spring:
           # reading as configured. PlanVerificationConsumerBindingIT asserts the name, not just the flag.
           patientPlanEventsConsumer-in-0:
             consumer:
+              startOffset: earliest
               enableDlq: true
               dlqName: patient-events-plan.hc-patient-dlq
       bindings:
@@ -83,6 +84,18 @@ spring:
           group: hc-patient-service
           consumer:
             maxAttempts: 3
+            # THE ONE PROPERTY ON THIS BINDING THAT DELIBERATELY DIFFERS FROM MAIN, and it is timing rather than
+            # behaviour. Main leaves the backoff at its defaults, which put the four handlings at roughly 0s, 1s, 3s
+            # and 7s — so every test that proves a frame IS dead-lettered waits eight seconds, and every test that
+            # proves one IS NOT has to wait longer than that to mean anything. PlanVerificationRoundTripIT took 225
+            # seconds with the defaults.
+            #
+            # The retry COUNT is untouched, so the number of handlings and the dead-letter outcome are exactly
+            # production's; only the wall clock between them shrinks. WHAT IS THEREFORE NOT EXERCISED HERE is main's
+            # actual schedule — the 0/1/3/7 figure quoted in its comment was measured on a run with these overrides
+            # removed, and re-measuring it means removing them again.
+            backOffInitialInterval: 50
+            backOffMaxInterval: 200
   jackson:
     # Jackson 3 moved this off SerializationFeature onto DateTimeFeature, so Spring Boot 4 binds it
     # under spring.jackson.datatype.datetime.*. Left on the old key it does not merely stop working:

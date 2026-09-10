@@ -161,6 +161,16 @@ spring:
           # take the next frame. A poison frame must cost one patient, never the binding.
           patientPlanEventsConsumer-in-0:
             consumer:
+              # EXPLICIT BECAUSE IT IS THE JUSTIFICATION FOR THE BUILD ORDER, not because the default differs.
+              # Item 19 built this consumer before hc-admin's publisher on the argument that a consumer nobody
+              # publishes to "idles, loses nothing, and the day the producer starts the backlog on the topic drains
+              # into it". THAT SENTENCE IS ONLY TRUE WITH `earliest`. On `latest` a group created before the producer
+              # existed would skip every frame published before its first poll — the backlog would be silently
+              # discarded and the loop would look healthy. hc-admin sets theirs explicitly with the same reasoning.
+              #
+              # `resetOffsets` stays at its default of false, which is the half that matters afterwards: startOffset
+              # applies only while the group has no committed offset, so this cannot re-read the topic on a restart.
+              startOffset: earliest
               enableDlq: true
               # `<destination>.<who-dead-lettered-it>`, which is the shape hc-admin already uses for the other
               # direction (`patient-events.hc-admin-dlq`). The binder's default name is `error.<destination>.<group>`
@@ -206,7 +216,12 @@ spring:
             # MEASURED, because the arithmetic is not what the name suggests: under Spring Integration's retry policy
             # this is the number of RETRIES AFTER the first delivery, so a poison frame is handled four times — at
             # roughly 0s, 1s, 3s and 7s with the default backoff — and is dead-lettered about eight seconds after it
-            # arrives. PlanVerificationRoundTripIT waits that out; a shorter wait there would be flaky rather than wrong.
+            # arrives. An operator seeing one event id four times in the log is seeing one frame, not four.
+            #
+            # THE BACKOFF IS LEFT AT ITS DEFAULTS HERE AND OVERRIDDEN IN THE TEST CONFIG, which is the only place
+            # these two files intentionally differ on this binding. Eight seconds per refusal is right in production
+            # and made the round-trip suite take 225 seconds; the retry COUNT is the same in both, so the tests
+            # exercise production's behaviour on a shorter clock. See the note in src/test/resources/config.
             maxAttempts: 3
   profiles:
     # The commented value for `active` can be replaced with valid Spring profiles to load.

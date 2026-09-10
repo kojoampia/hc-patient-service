@@ -243,6 +243,22 @@ public class MembershipService {
     }
 
     /**
+     * One patient's memberships already in force.
+     *
+     * <p>For the inbound consumer's second question, which only arises because of how hc-admin publishes: they
+     * republish a verification unconditionally with a <b>fresh event id</b> every time an administrator presses the
+     * button, deliberately, because republishing is how they recover a lost frame. So a repeat is not a redelivery
+     * and the event-id ledger does not suppress it — it arrives asking for a state that already holds. Without this
+     * the consumer would refuse it, and every successful recovery-republish would dead-letter.</p>
+     *
+     * @param patientId the patient, never null.
+     * @return their {@code ACTIVE} memberships, in no particular order.
+     */
+    public List<Membership> activeFor(String patientId) {
+        return membershipRepository.findByPatientIdAndStatus(patientId, MembershipStatus.ACTIVE);
+    }
+
+    /**
      * Moves one membership from {@code PENDING} to {@code ACTIVE} if it is still {@code PENDING}, and announces it.
      *
      * <h2>Why this is a conditional update and not a third caller of {@link #update}</h2>
@@ -267,13 +283,19 @@ public class MembershipService {
      * <p><strong>What this does not close, stated rather than left to be found.</strong> It makes one document's
      * transition atomic; it does not make the consumer's whole rule atomic. The caller counts the patient's
      * {@code PENDING} memberships before calling this, and a second one created in the window between that count and
-     * this write would not be seen — so the "exactly one pending" rule is checked against a snapshot. It cannot be
+     * this write would not be seen — so the <em>"exactly one pending"</em> rule is checked against a snapshot, and the
+     * residue is <b>any</b> second {@code PENDING} membership created in that window, on any tier. It cannot be
      * closed here: production runs MongoDB standalone with no replica set, which is why
      * {@link PatientEventPublisher} has no outbox either, so there is no transaction to put the count and the write
-     * inside. Two things bound it. The window is the width of one query rather than of a whole request, and the
-     * consumer's plan consistency check has to pass as well — a concurrently created membership on a different plan
-     * cannot be the one activated. The residue is a patient choosing a second plan in the same millisecond an
-     * administrator approves their first, on the same tier. Recorded, not handled.</p>
+     * inside.</p>
+     *
+     * <p><strong>What it does guarantee is narrower and worth stating exactly, because the tempting overstatement is
+     * wrong.</strong> It is <em>not</em> that the plan check bounds the race — this is called with the id read from
+     * the snapshot, so no concurrently created membership can be activated whatever its plan, and citing the plan
+     * check as a bound is inert. What holds is that <b>the wrong membership cannot be activated</b>: this writes only
+     * the id it was given, and if that document has moved out of {@code PENDING} the criterion matches nothing and
+     * the caller refuses. So the failure available in the window is a verification refused or applied to the older of
+     * two pending choices — never a membership activated that nobody verified.</p>
      *
      * @param membershipId the membership to activate.
      * @return the membership as persisted, or empty when it was not {@code PENDING} by the time the write landed —
