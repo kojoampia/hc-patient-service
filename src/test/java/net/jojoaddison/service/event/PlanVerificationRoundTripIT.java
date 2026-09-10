@@ -169,9 +169,31 @@ class PlanVerificationRoundTripIT {
      * replay is <em>ignored</em> rather than refused and the queue is empty either way. Measured again: still 5/5
      * with the bug present.</p>
      *
+     * <p><b>The third version failed under the mutation for the wrong reason, and that is the subtlest of the
+     * three.</b> {@link #givenAPendingMembership} saved a {@code Profile} on every call, so calling it twice for one
+     * address left two — and {@code findOneByEmailIgnoreCase} throws {@code IncorrectResultSizeDataAccessException}
+     * on two matches. With the guard deleted the replay therefore died at the <em>patient lookup</em>, before
+     * reaching any membership: the frame dead-lettered, the DLQ assertion fired, the test went red, and the
+     * re-selection hazard it names was never exercised at all. The assertion labelled below as the one the ledger
+     * exists for never even ran.</p>
+     *
+     * <p><b>The evidence is which assertion fails, not that one does.</b> With the duplicate profile, deleting the
+     * guard failed the <em>dead-letter</em> assertion; with the fixture fixed, the same mutation fails the
+     * <em>membership</em> assertion instead — the re-selection hazard itself. Measured twice, at {@code :210 → :217}
+     * in the file as it then stood and again at {@code :229 → :239} after these edits. The assertions are the
+     * durable reference; the numbers move. That shift is the whole point: <em>a test can fail under the right
+     * mutation for the wrong reason</em>, and going red is not evidence that the stated mechanism is the one
+     * operating.</p>
+     *
+     * <p>It was worth measuring before touching the fixture rather than after, and the reason is not obvious: had
+     * this gone <b>green</b> once the duplicate was removed, it would have meant the hazard is not reachable at IT
+     * level at all and the assertion below was decorative. It goes red, so the hazard is genuinely detectable
+     * here.</p>
+     *
      * <p>Item 19 records this trap against its own idempotence test — <em>"observed mutation where the hazard is
-     * re-selection … all five tests stayed green with the bug present"</em>. It has now caught the same author twice,
-     * which is the argument for mutating every guard rather than trusting that an assertion looks relevant.</p>
+     * re-selection … all five tests stayed green with the bug present"</em>. It has now caught the same author three
+     * times, twice while writing the correction. The argument is not merely to mutate every guard; it is to check
+     * <b>where</b> the mutation lands.</p>
      *
      * <h2>What the ledger uniquely buys, which is what this asserts</h2>
      *
@@ -210,8 +232,9 @@ class PlanVerificationRoundTripIT {
                 .isNull();
         }
 
-        // THE ASSERTION THE LEDGER EXISTS FOR. Without existsById this membership is ACTIVE, activated by a duplicate
-        // delivery of an acknowledgement that was about the one above it.
+        // THE ASSERTION THE LEDGER EXISTS FOR, and the one the mutation now lands on. Without existsById this
+        // membership is ACTIVE, activated by a duplicate delivery of an acknowledgement that was about the one above
+        // it. It did not run at all until the fixture stopped creating a second Profile — see the javadoc.
         assertThat(membershipRepository.findById(chosenLater).orElseThrow().getStatus())
             .as("a redelivered acknowledgement activated a membership chosen after it — nobody verified this one")
             .isEqualTo(MembershipStatus.PENDING);
@@ -308,9 +331,24 @@ class PlanVerificationRoundTripIT {
 
     // -------------------------------------------------------------------------------------------------------------
 
-    /** A patient with one membership awaiting a decision — the state hc-admin's acknowledgement is about. */
+    /**
+     * A patient with one more membership awaiting a decision — the state hc-admin's acknowledgement is about.
+     *
+     * <p><b>One {@code Profile} per address, and the check is load-bearing rather than tidiness.</b> This saved a
+     * profile on every call, so the one test that calls it twice for a patient — a patient choosing the same tier
+     * again — created two documents with one email. {@code PlanVerificationConsumer} resolves the patient with
+     * {@code findOneByEmailIgnoreCase}, which throws {@code IncorrectResultSizeDataAccessException} on two matches,
+     * so that test's frames failed at the patient lookup before reaching any membership. See
+     * {@link #aReplayCannotActivateAMembershipChosenAfterTheAcknowledgement} for what that cost.</p>
+     *
+     * <p>A patient really does hold at most one profile — {@code PatientScope} resolves a caller through the same
+     * single-result query — so the duplicate was never a state this service can be in, and no test wanted one. The
+     * other three call sites use an address of their own and call once, so this changes nothing for them.</p>
+     */
     private String givenAPendingMembership(String email, String patientId, String plan) {
-        profileRepository.save(new Profile().email(email).patientId(patientId));
+        if (profileRepository.findOneByEmailIgnoreCase(email).isEmpty()) {
+            profileRepository.save(new Profile().email(email).patientId(patientId));
+        }
         return membershipRepository
             .save(new Membership().patientId(patientId).plan(plan).name(plan + " Plan").status(MembershipStatus.PENDING))
             .getId();
