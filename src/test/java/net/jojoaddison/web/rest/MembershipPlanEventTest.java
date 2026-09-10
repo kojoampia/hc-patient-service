@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 /**
@@ -63,7 +64,14 @@ class MembershipPlanEventTest {
         patientScope = mock(PatientScope.class);
         profiles = mock(ProfileRepository.class);
         events = mock(PatientEventPublisher.class);
-        resource = new MembershipResource(new MembershipService(memberships, profiles, events), memberships, patientScope);
+        // The MongoTemplate is item 19's, not this test's: MembershipService reaches for it only in
+        // activateIfPending, which is the inbound consumer's conditional update and no part of any HTTP path.
+        resource =
+            new MembershipResource(
+                new MembershipService(memberships, profiles, events, mock(MongoTemplate.class)),
+                memberships,
+                patientScope
+            );
 
         when(patientScope.requirePatientIdForWrite(any())).thenReturn(PATIENT_ID);
         when(memberships.save(any(Membership.class))).thenAnswer(call -> ((Membership) call.getArgument(0)).id("membership-1"));
@@ -171,7 +179,7 @@ class MembershipPlanEventTest {
         StreamBridge brokenBroker = mock(StreamBridge.class);
         when(brokenBroker.send(anyString(), any())).thenThrow(new IllegalStateException("broker down"));
         MembershipResource withRealPublisher = new MembershipResource(
-            new MembershipService(memberships, profiles, new PatientEventPublisher(brokenBroker)),
+            new MembershipService(memberships, profiles, new PatientEventPublisher(brokenBroker), mock(MongoTemplate.class)),
             memberships,
             patientScope
         );

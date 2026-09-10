@@ -12,11 +12,13 @@ import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.domain.CareDelegation;
 import net.jojoaddison.domain.PaymentOption;
+import net.jojoaddison.domain.PlanVerification;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.DelegationStatus;
 import net.jojoaddison.repository.AllergyRepository;
 import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.PaymentOptionRepository;
+import net.jojoaddison.repository.PlanVerificationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +63,9 @@ class PatientErasureServiceIT {
     private CareDelegationRepository careDelegationRepository;
 
     @Autowired
+    private PlanVerificationRepository planVerificationRepository;
+
+    @Autowired
     private GridFsOperations gridFs;
 
     @BeforeEach
@@ -68,6 +73,7 @@ class PatientErasureServiceIT {
         profileRepository.deleteAll();
         allergyRepository.deleteAll();
         careDelegationRepository.deleteAll();
+        planVerificationRepository.deleteAll();
         gridFs.delete(new Query());
     }
 
@@ -108,6 +114,46 @@ class PatientErasureServiceIT {
         assertThat(paymentOptionRepository.findById(mine.getId())).as("the erased patient's payment details").isEmpty();
         assertThat(counts).containsEntry("payment_option", 1L);
         assertThat(paymentOptionRepository.findById(theirs.getId())).as("somebody else's are untouched").isPresent();
+    }
+
+    /**
+     * That item 19's plan-verification ledger goes with the patient it names.
+     *
+     * <h2>Why this exists when the guard above already names the collection</h2>
+     *
+     * <p>Because the guard checks <em>membership of a list</em> and this checks <em>that the sweep reaches the
+     * documents</em>, and the gap between the two is not hypothetical — it was measured. Rename
+     * {@code PlanVerification}'s field from {@code patient_id} to anything else and the guard does go red, but
+     * <b>its message tells you to fix it the wrong way</b>: "{@code PATIENT_SCOPED} must name every {@code @Document}
+     * with a {@code patient_id} field" reads, for a class that no longer has one, as <em>remove it from the list</em>.
+     * Do that and <b>the guard goes green</b> while the ledger quietly survives every erasure. Verified by mutation:
+     * with the field renamed and the class dropped from the list, this is the only test in the repository that stays
+     * red.</p>
+     *
+     * <p>That is the {@code PaymentOption}/{@code user_id} shape the test above this one records, arriving a second
+     * time by a different door — and the reason a list-membership guard needs a behavioural one beside it for any
+     * collection anybody actually cares about.</p>
+     *
+     * <p>The ledger was missed from the list when it was added, and caught by the guard rather than by item 19's own
+     * review. Erasing it is a decision rather than a default — {@code PatientErasureService}'s javadoc argues it
+     * against the audit case — and this test is what pins the decision to behaviour.</p>
+     */
+    @Test
+    void aPlanVerificationIsErasedWithThePatientItNames() {
+        PlanVerification mine = planVerificationRepository.insert(
+            new PlanVerification().id("event-mine").patientId(PATIENT_ID).membershipId("membership-1").planCode("PAWPAW")
+        );
+        PlanVerification theirs = planVerificationRepository.insert(
+            new PlanVerification().id("event-theirs").patientId(OTHER_PATIENT_ID).membershipId("membership-2").planCode("MELON")
+        );
+
+        Map<String, Long> counts = patientErasureService.erase(PATIENT_ID, PATIENT_EMAIL);
+
+        assertThat(planVerificationRepository.findById(mine.getId()))
+            .as("a patient told they were erased still had an approved plan on record, with the date it was approved")
+            .isEmpty();
+        assertThat(counts).containsEntry("plan_verification", 1L);
+        assertThat(planVerificationRepository.findById(theirs.getId())).as("somebody else's is untouched").isPresent();
     }
 
     @Test
@@ -167,7 +213,7 @@ class PatientErasureServiceIT {
         seed(PATIENT_ID);
 
         // {patient_id: null} matches every document that has no patient_id — this guard is the difference between
-        // erasing one patient and emptying sixteen collections.
+        // erasing one patient and emptying seventeen collections.
         assertThatThrownBy(() -> patientErasureService.erase(null, PATIENT_EMAIL)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> patientErasureService.erase("  ", PATIENT_EMAIL)).isInstanceOf(IllegalArgumentException.class);
 

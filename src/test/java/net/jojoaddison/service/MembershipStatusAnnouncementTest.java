@@ -20,6 +20,8 @@ import net.jojoaddison.service.event.PatientEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.data.mongodb.core.MongoTemplate;
 
 /**
  * That a decision about a membership is announced, and that ordinary editing is not.
@@ -49,6 +51,7 @@ class MembershipStatusAnnouncementTest {
     private MembershipRepository memberships;
     private ProfileRepository profiles;
     private PatientEventPublisher events;
+    private MongoTemplate mongoTemplate;
     private MembershipService service;
 
     @BeforeEach
@@ -56,7 +59,8 @@ class MembershipStatusAnnouncementTest {
         memberships = mock(MembershipRepository.class);
         profiles = mock(ProfileRepository.class);
         events = mock(PatientEventPublisher.class);
-        service = new MembershipService(memberships, profiles, events);
+        mongoTemplate = mock(MongoTemplate.class);
+        service = new MembershipService(memberships, profiles, events, mongoTemplate);
 
         when(memberships.save(any(Membership.class))).thenAnswer(call -> call.getArgument(0));
         when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL)));
@@ -156,6 +160,38 @@ class MembershipStatusAnnouncementTest {
 
         verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(PATIENT_ID), any());
         assertThat(published()).containsEntry("status", "ACTIVE");
+    }
+
+    /**
+     * That the shape item 19's consumer actually uses announces too.
+     *
+     * <p>The test above is how the consumer was <em>imagined</em> when item 27 landed, and it is not how it was
+     * built: read-then-save is a lost-update window with a sibling product holding the pen, so the consumer calls
+     * {@link MembershipService#activateIfPending} and the held status is the update's criterion rather than an
+     * earlier read. The announcement had to come with it — a conditional update that did not announce would have
+     * dequeued nothing on hc-admin's panel, which is the entire point of the transition.</p>
+     */
+    @Test
+    void theInboundConsumersConditionalUpdateAnnouncesToo() {
+        when(mongoTemplate.findAndModify(any(), any(), any(FindAndModifyOptions.class), eq(Membership.class)))
+            .thenReturn(membership(MembershipStatus.ACTIVE));
+
+        assertThat(service.activateIfPending(MEMBERSHIP_ID)).isPresent();
+
+        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(PATIENT_ID), any());
+        assertThat(published()).containsEntry("status", "ACTIVE");
+    }
+
+    @Test
+    void aConditionalUpdateThatMatchedNothingAnnouncesNothing() {
+        // Somebody else moved the membership out of PENDING first. Their decision is a real decision and this one is
+        // stale, so there is nothing to report — and, crucially, nothing was written either. An announcement here
+        // would tell hc-admin the membership went ACTIVE when it did not.
+        when(mongoTemplate.findAndModify(any(), any(), any(FindAndModifyOptions.class), eq(Membership.class))).thenReturn(null);
+
+        assertThat(service.activateIfPending(MEMBERSHIP_ID)).isEmpty();
+
+        verifyNoInteractions(events);
     }
 
     /** The payload of the one event this service published, failing the test if it published none. */
