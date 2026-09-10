@@ -200,8 +200,13 @@ spring:
           group: hc-patient-service
           consumer:
             # Explicit rather than left at the identical default, because it is half of the DLQ's behaviour and a
-            # reader should not have to know the default to work out how many times a refusal is logged. Three
-            # attempts buy a transient Mongo blip; a refusal is deterministic and simply refuses three times.
+            # reader should not have to know the default to work out how long a refusal takes to reach the DLQ.
+            # The retries buy a transient Mongo blip; a refusal is deterministic and simply refuses again.
+            #
+            # MEASURED, because the arithmetic is not what the name suggests: under Spring Integration's retry policy
+            # this is the number of RETRIES AFTER the first delivery, so a poison frame is handled four times — at
+            # roughly 0s, 1s, 3s and 7s with the default backoff — and is dead-lettered about eight seconds after it
+            # arrives. PlanVerificationRoundTripIT waits that out; a shorter wait there would be flaky rather than wrong.
             maxAttempts: 3
   profiles:
     # The commented value for `active` can be replaced with valid Spring profiles to load.

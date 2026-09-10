@@ -1,6 +1,7 @@
 package net.jojoaddison.service;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -13,6 +14,11 @@ import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 /**
@@ -29,8 +35,11 @@ import org.springframework.stereotype.Service;
  * So the seam is created rather than found. Backlog item 27.</p>
  *
  * <p><strong>A private helper on the resource would have worked today and been wrong within the week.</strong> Item
- * 19's inbound {@code patient-events-plan} consumer writes {@code PENDING → ACTIVE} and will live in this package,
- * where it cannot call a private method on a {@code web} class at all. This repo has twice in one week proved that a
+ * 19's inbound {@code patient-events-plan} consumer writes {@code PENDING → ACTIVE} and lives in this package since
+ * 2026-09-10 ({@link net.jojoaddison.service.event.PlanVerificationConsumer}), where it could not have called a
+ * private method on a {@code web} class at all. It inherited the announcement without a new call site, which is what
+ * item 27 was for — and it needed one thing the seam did not have, {@link #activateIfPending}, for the reason that
+ * method's own javadoc gives. This repo has twice in one week proved that a
  * rule written at one call site is wrong one file away — item 19's own write guard, where {@code PUT} had drifted from
  * {@code PATCH}, and item 18's unkeyed-event guard, which {@code CareDelegationService} broke within the hour and
  * which had to move into {@link PatientEventPublisher}. Add a write path here, not beside here.</p>
@@ -95,10 +104,18 @@ public class MembershipService {
 
     private final PatientEventPublisher events;
 
-    public MembershipService(MembershipRepository membershipRepository, ProfileRepository profileRepository, PatientEventPublisher events) {
+    private final MongoTemplate mongoTemplate;
+
+    public MembershipService(
+        MembershipRepository membershipRepository,
+        ProfileRepository profileRepository,
+        PatientEventPublisher events,
+        MongoTemplate mongoTemplate
+    ) {
         this.membershipRepository = membershipRepository;
         this.profileRepository = profileRepository;
         this.events = events;
+        this.mongoTemplate = mongoTemplate;
     }
 
     /**
@@ -208,6 +225,76 @@ public class MembershipService {
         // clears.
         result.ifPresent(saved -> announceIfDecided(saved, statusHeld));
         return result;
+    }
+
+    /**
+     * One patient's memberships awaiting a decision.
+     *
+     * <p>For the inbound {@code patient-events-plan} consumer, which is handed an email rather than a membership id
+     * and has to decide which membership an acknowledgement applies to. It returns <em>all</em> of them because item
+     * 19's rule is "the single {@code PENDING} one, refusing rather than guessing if there is not exactly one" — the
+     * count is the decision, so the caller has to be able to see it.</p>
+     *
+     * @param patientId the patient, never null.
+     * @return their {@code PENDING} memberships, in no particular order.
+     */
+    public List<Membership> pendingFor(String patientId) {
+        return membershipRepository.findByPatientIdAndStatus(patientId, MembershipStatus.PENDING);
+    }
+
+    /**
+     * Moves one membership from {@code PENDING} to {@code ACTIVE} if it is still {@code PENDING}, and announces it.
+     *
+     * <h2>Why this is a conditional update and not a third caller of {@link #update}</h2>
+     *
+     * <p><strong>Because item 19's consumer is the second writer item 30 said would make the lost-update window
+     * routine, and it would have had to open that window itself to use the seam as it stood.</strong> {@link #update}
+     * takes a {@code statusHeld} the caller has already read, which for the web layer costs nothing — {@code PUT} and
+     * {@code PATCH} read the stored document anyway for their ownership check. A consumer has no such read, so it
+     * would have to do one, and read-then-save is not the same operation as compare-and-set: between the two an
+     * administrator's {@code PATCH} setting {@code CANCELLED} would be silently overwritten with {@code ACTIVE}, and
+     * silently is exact — {@code announceIfDecided} would receive the stale {@code PENDING}, compare unequal, and
+     * publish the overwrite to hc-admin as though it were the decision. That is item 30's defect with a sibling
+     * product holding the pen, and item 30's own note says the fix is <em>"one read or a version, not a third
+     * guard."</em></p>
+     *
+     * <p><strong>So the held status stops being something a caller reads and becomes part of the write.</strong> The
+     * criterion <em>is</em> {@code status == PENDING}, MongoDB applies {@code findAndModify} atomically to the
+     * document, and an empty answer means somebody else moved it first — which the caller must treat as a refusal
+     * rather than retry, because whatever they decided is a real decision and this is not. The announcement can then
+     * pass {@code PENDING} as the held status as a <em>fact</em> rather than as a hopeful earlier read.</p>
+     *
+     * <p><strong>What this does not close, stated rather than left to be found.</strong> It makes one document's
+     * transition atomic; it does not make the consumer's whole rule atomic. The caller counts the patient's
+     * {@code PENDING} memberships before calling this, and a second one created in the window between that count and
+     * this write would not be seen — so the "exactly one pending" rule is checked against a snapshot. It cannot be
+     * closed here: production runs MongoDB standalone with no replica set, which is why
+     * {@link PatientEventPublisher} has no outbox either, so there is no transaction to put the count and the write
+     * inside. Two things bound it. The window is the width of one query rather than of a whole request, and the
+     * consumer's plan consistency check has to pass as well — a concurrently created membership on a different plan
+     * cannot be the one activated. The residue is a patient choosing a second plan in the same millisecond an
+     * administrator approves their first, on the same tier. Recorded, not handled.</p>
+     *
+     * @param membershipId the membership to activate.
+     * @return the membership as persisted, or empty when it was not {@code PENDING} by the time the write landed —
+     *     including when there is no such membership at all.
+     */
+    public Optional<Membership> activateIfPending(String membershipId) {
+        log.debug("Request to activate Membership if pending : {}", membershipId);
+        Membership persisted = mongoTemplate.findAndModify(
+            Query.query(Criteria.where("_id").is(membershipId).and("status").is(MembershipStatus.PENDING)),
+            new Update().set("status", MembershipStatus.ACTIVE),
+            // The document AFTER the write. announceChosenPlan reads the status off what it is given and reports what
+            // was written rather than what was asked for, so handing it the pre-image would publish PENDING.
+            FindAndModifyOptions.options().returnNew(true),
+            Membership.class
+        );
+        if (persisted == null) {
+            return Optional.empty();
+        }
+        // PENDING as a fact rather than as a read: nothing else could have satisfied the criterion above.
+        announceIfDecided(persisted, MembershipStatus.PENDING);
+        return Optional.of(persisted);
     }
 
     /**
