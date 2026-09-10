@@ -6,39 +6,38 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Allergy;
 import net.jojoaddison.domain.CareDelegation;
-import net.jojoaddison.domain.PaymentOption;
 import net.jojoaddison.domain.PlanVerification;
 import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.DelegationStatus;
 import net.jojoaddison.repository.AllergyRepository;
 import net.jojoaddison.repository.CareDelegationRepository;
-import net.jojoaddison.repository.PaymentOptionRepository;
 import net.jojoaddison.repository.PlanVerificationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
-import org.springframework.core.type.filter.AnnotationTypeFilter;
-import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.gridfs.GridFsOperations;
 
 /**
- * The erasure itself, below HTTP.
+ * The erasure itself, below HTTP — the decisions it makes, one at a time.
  *
- * <p>{@link #everyPatientScopedCollectionIsInTheList} is the test this file exists for. The rest of the erasure is
- * ordinary code that either runs or does not; the failure that would go unnoticed is a seventeenth patient-scoped
- * collection added months from now and not added to {@code PATIENT_SCOPED} — nothing breaks, the erasure reports
- * success, and a patient who was told they had been forgotten has not been. Asserting the list against the domain
- * package by reflection is what turns that into a red test at the moment the collection is created.</p>
+ * <p><b>The question of whether the sweep reaches every collection is not asked here.</b> It belongs to
+ * {@link PatientErasureOutcomeIT}, which seeds one document in every {@code @Document} collection and asserts nothing
+ * keyed to the patient survives anywhere. This file kept a guard that answered the same question by scanning the
+ * domain package for a {@code patient_id} field and comparing that set with {@code PATIENT_SCOPED}; it was removed on
+ * 2026-09-10 because <b>the predicate it discovered by was the property it guarded</b> — rename the field, take the
+ * class out of the list as its own failure message instructed, and it went green over a collection that was never
+ * erased again. Verified by mutation on {@code Stat}. See {@code docs/backlog.md} item 31.</p>
+ *
+ * <p>What is left here is the behaviour that is a decision rather than a sweep: that the delegations this person held
+ * over <em>other</em> patients are revoked, that the plan-verification ledger goes with them, that a blank id is
+ * refused, that re-running is safe, and that the counts handed back name what was removed.</p>
  */
 @IntegrationTest
 class PatientErasureServiceIT {
@@ -52,9 +51,6 @@ class PatientErasureServiceIT {
 
     @Autowired
     private ProfileRepository profileRepository;
-
-    @Autowired
-    private PaymentOptionRepository paymentOptionRepository;
 
     @Autowired
     private AllergyRepository allergyRepository;
@@ -78,65 +74,19 @@ class PatientErasureServiceIT {
     }
 
     /**
-     * The list must be exactly the set of persisted domain classes carrying a {@code patient_id} field.
-     *
-     * <p>Both directions matter. A missing entry leaves data behind after an erasure that reported success; a spurious
-     * one names a collection that has no such field, where the delete would match every document that lacks it.</p>
-     */
-    @Test
-    void everyPatientScopedCollectionIsInTheList() {
-        Set<Class<?>> patientScopedInDomain = scanDomainForPatientScopedDocuments();
-        Set<Class<?>> listed = Set.copyOf(PatientErasureService.PATIENT_SCOPED);
-
-        assertThat(listed)
-            .as(
-                "PatientErasureService.PATIENT_SCOPED must name every @Document with a patient_id field. " +
-                "Add the new collection to it, or a patient told they were erased will not have been. " +
-                "NOTE this guard sees only patient_id -- PaymentOption stores the same value under user_id and " +
-                "was missed for exactly that reason; see aPaymentOptionIsErasedEvenThoughItKeysOnUserId."
-            )
-            .isEqualTo(patientScopedInDomain);
-    }
-
-    @Test
-    void aPaymentOptionIsErasedEvenThoughItKeysOnUserId() {
-        // The gap the guard above cannot see. PaymentOption is patient data -- it is DELETE-locked like the rest and
-        // ClinicalDomain counts it as IDENTITY -- but its field is user_id, not patient_id, so a scan for patient_id
-        // will never name it. The value is the same: PaymentOptionResource sets it from requirePatientIdForWrite.
-        //
-        // Without this, a patient's payment details outlived the erasure they asked for, which is the one failure
-        // this whole feature exists to prevent.
-        PaymentOption mine = paymentOptionRepository.save(new PaymentOption().type("card").userID(PATIENT_ID));
-        PaymentOption theirs = paymentOptionRepository.save(new PaymentOption().type("card").userID(OTHER_PATIENT_ID));
-
-        Map<String, Long> counts = patientErasureService.erase(PATIENT_ID, PATIENT_EMAIL);
-
-        assertThat(paymentOptionRepository.findById(mine.getId())).as("the erased patient's payment details").isEmpty();
-        assertThat(counts).containsEntry("payment_option", 1L);
-        assertThat(paymentOptionRepository.findById(theirs.getId())).as("somebody else's are untouched").isPresent();
-    }
-
-    /**
      * That item 19's plan-verification ledger goes with the patient it names.
      *
-     * <h2>Why this exists when the guard above already names the collection</h2>
+     * <h2>Why this exists when {@link PatientErasureOutcomeIT} sweeps every collection anyway</h2>
      *
-     * <p>Because the guard checks <em>membership of a list</em> and this checks <em>that the sweep reaches the
-     * documents</em>, and the gap between the two is not hypothetical — it was measured. Rename
-     * {@code PlanVerification}'s field from {@code patient_id} to anything else and the guard does go red, but
-     * <b>its message tells you to fix it the wrong way</b>: "{@code PATIENT_SCOPED} must name every {@code @Document}
-     * with a {@code patient_id} field" reads, for a class that no longer has one, as <em>remove it from the list</em>.
-     * Do that and <b>the guard goes green</b> while the ledger quietly survives every erasure. Verified by mutation:
-     * with the field renamed and the class dropped from the list, this is the only test in the repository that stays
-     * red.</p>
+     * <p>Because that test asserts the mechanism and this one pins a <em>decision</em>. Keeping the ledger as an audit
+     * record — that an administrator approved a plan, and when — is a defensible position, and it was argued and
+     * refused in {@code PatientErasureService}'s javadoc on this repository's own precedent that {@code Membership},
+     * the commercial record, is erased. A decision reached that way should fail a test with its own name on it if
+     * somebody quietly reverses it, rather than only turning up as one entry in a set comparison.</p>
      *
-     * <p>That is the {@code PaymentOption}/{@code user_id} shape the test above this one records, arriving a second
-     * time by a different door — and the reason a list-membership guard needs a behavioural one beside it for any
-     * collection anybody actually cares about.</p>
-     *
-     * <p>The ledger was missed from the list when it was added, and caught by the guard rather than by item 19's own
-     * review. Erasing it is a decision rather than a default — {@code PatientErasureService}'s javadoc argues it
-     * against the audit case — and this test is what pins the decision to behaviour.</p>
+     * <p>The ledger was missed from {@code PATIENT_SCOPED} when the collection was added, and caught for one review
+     * round by the scanning guard that has since been removed. What catches it now is the outcome test, which cannot
+     * be talked out of the question by renaming a field.</p>
      */
     @Test
     void aPlanVerificationIsErasedWithThePatientItNames() {
@@ -243,37 +193,5 @@ class PatientErasureServiceIT {
 
     private java.util.List<com.mongodb.client.gridfs.model.GridFSFile> filesFor(String patientId) {
         return gridFs.find(Query.query(Criteria.where("metadata.patientId").is(patientId))).into(new ArrayList<>());
-    }
-
-    /** Every {@code @Document} class in the domain package that declares a {@code patient_id} field. */
-    private Set<Class<?>> scanDomainForPatientScopedDocuments() {
-        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
-        scanner.addIncludeFilter(new AnnotationTypeFilter(org.springframework.data.mongodb.core.mapping.Document.class));
-
-        return scanner
-            .findCandidateComponents("net.jojoaddison.domain")
-            .stream()
-            .map(definition -> {
-                try {
-                    return Class.forName(definition.getBeanClassName());
-                } catch (ClassNotFoundException e) {
-                    throw new IllegalStateException(e);
-                }
-            })
-            .filter(PatientErasureServiceIT::hasPatientIdField)
-            // The DeletionRequest is patient-scoped and deliberately outlives the erasure it commissions: it is the
-            // evidence the erasure was asked for, authorised and carried out. Named here rather than filtered by
-            // accident, so that removing it from the exception list is a decision somebody has to make on purpose.
-            .filter(type -> !type.equals(net.jojoaddison.domain.DeletionRequest.class))
-            .collect(Collectors.toSet());
-    }
-
-    private static boolean hasPatientIdField(Class<?> type) {
-        return java.util.Arrays
-            .stream(type.getDeclaredFields())
-            .anyMatch(field -> {
-                Field annotation = field.getAnnotation(Field.class);
-                return annotation != null && "patient_id".equals(annotation.value());
-            });
     }
 }
