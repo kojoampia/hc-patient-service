@@ -153,9 +153,9 @@ Full rules live in `.github/instructions/rest-patterns.instructions.md` and `.gi
 
 Present as `@Document` classes with a repository — twenty-three. All but `CareDelegation` also have a generated resource and a CRUD `*ResourceIT`:
 
-`ActivityLog`, `Address`, `Allergy`, `CareDelegation`, `CarePlanItem`, `ClinicalCase`, `Condition`, `DutyRoster`,
-`Emergency`, `Medication`, `Membership`, `Metadata`, `PaymentOption`, `PersonalDocument`, `Professional`, `Profile`,
-`Recommendation`, `Report`, `Shift`, `Stat`, `Task`, `Team`, `Visitation`.
+`ActivityLog`, `Address`, `Allergy`, `CareDelegation`, `CarePlanItem`, `ClinicalCase`, `Condition`,
+`DeletionRequest`, `Emergency`, `Medication`, `Membership`, `Metadata`, `PaymentOption`, `PersonalDocument`,
+`PlanVerification`, `Professional`, `Profile`, `Recommendation`, `Report`, `Stat`, `Task`, `Team`, `Visitation`.
 
 `CareDelegation` (2026-08-19) is the exception to every convention here and deliberately so: **no generated CRUD
 resource and no `DELETE`.** Its endpoints are one per state transition. A generic `PATCH` would let a care angel set
@@ -177,14 +177,34 @@ the data that already exists: every case written before those fields has no `arc
 a null match also matches a missing field, so they all read as live with no migration. `GET /api/clinical-cases`
 excludes archived cases unless `includeArchived=true`; `GET /{id}` still returns one, so a link keeps working.
 
-`DutyRoster` and `Shift` are the newest (2026-08-11) and are what `ClinicalCase.assignedRosterId` points at; it
-named nothing until they existed. Both are **staff reference data**, so they follow `Team`/`Professional` rather than
-the patient entities: readable by any authenticated caller, writable only by `ROLE_ADMIN` or any clinical
-discipline (`AuthoritiesConstants.CLINICAL`), no
-`patientId` and no `PatientScope`. `ShiftStatus` (ACTIVE/UPCOMING/COMPLETED) is deliberately not `ScheduleStatus`,
-which is an appointment's lifecycle. One caveat: `DutyRoster.subscribedProfessionalIds` is a `Set<String>` that
-**does not exist in `patient.jdl`** — JDL has no list-of-scalars type — so regenerating that entity drops it. The
-field carries a comment saying so.
+**`DutyRoster`, `Shift` and `ShiftStatus` DO NOT EXIST HERE, and this paragraph used to say they did.** They were
+built on 2026-08-11 and **deleted on 2026-09-03** by `28c0b0d`, whose subject is the whole story: _"hc-patient owns
+no roster, and deletes what it had."_ Three products held four models of a duty roster and none of them fed this
+portal; hc-professional owns the roster of record, hc-admin keeps planning and pay, and this repo's share of the
+resolution was a deletion — the two entities, `ShiftStatus`, their resources, repositories, `.jhipster` configs, seed
+rows and `ReferenceDataIT` lines. `Task` (planned) and `Visitation` (completed) already answer the question the
+entity could not, both patient-scoped through `PatientScope`.
+
+The removed text is worth keeping visible because every specific claim in it was **checkable and wrong** for eight
+days: that they were "the newest", that `ClinicalCase.assignedRosterId` "points at" them, and a maintenance note
+about `DutyRoster.subscribedProfessionalIds` being a `Set<String>` JDL cannot express — a caveat about regenerating
+a class nobody can open.
+
+**`ClinicalCase.assignedRosterId` stays and is not dangling.** `28c0b0d` says why: _"hc-professional reads it on the
+wire."_ It is a plain `String` id naming a roster another product owns, which is exactly this estate's convention —
+everything except `ClinicalCase`↔`Recommendation` and `Profile`→`Address` references by plain String id.
+
+**Twenty-three `@Document` classes, twenty-one JDL entities, and that is correct rather than a second
+discrepancy.** `patient.jdl` is the model of record for the _generated_ entities and renders both repos'
+`.jhipster/*.json` through `api/tools/render-entity-configs.mjs` — 21 of each. `DeletionRequest` and
+`PlanVerification` are **hand-written** domain classes with no JDL declaration and no `.jhipster` config;
+`PlanVerification` arrived with item 19's inbound consumer. So when comparing the two sets, expect 21 = 21
+and 23 = 21 + 2, and do not "fix" the JDL by adding the hand-written pair.
+
+**The count is the reason this survived.** The list above said "twenty-three" and there are exactly twenty-three
+`@Document` classes — because two phantom names balanced two omissions (`DeletionRequest` and `PlanVerification`,
+both real, both missing). `patient.jdl` repeated the coincidence with its own 23 declarations, of which two were
+these. A count is only a check when the set is also right.
 
 `PaymentOption` and `PersonalDocument` (renamed from the removed `HCPayOption` and `IDocument`) are generated too, so
 Phase A of `patient-api.md` is done. `HCCredential`, `HCPayOption`, `HCDocument`/`IDocument` no longer exist as code.
