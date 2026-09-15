@@ -93,6 +93,19 @@ public class MembershipResource {
     /**
      * {@code POST  /memberships} : Create a new membership.
      *
+     * <p><strong>A second choice replaces the first; it is not refused.</strong> A patient holds at most one
+     * {@code PENDING} membership, and this endpoint establishes that rather than guarding against it: the new
+     * membership is written, and any earlier pending one of the same patient's is moved to {@code CANCELLED}. Until
+     * 2026-09-15 this method guarded only against a client-supplied id, so every tap of CHOOSE wrote another pending
+     * membership and item 19's verifier — which applies an email-keyed acknowledgement to the patient's <em>single</em>
+     * pending choice and refuses rather than guessing — then refused every one of them for ever. Backlog item 40, from
+     * a live incident.</p>
+     *
+     * <p><strong>The rule lives in {@link MembershipService}, not here, and that is the third time this class has
+     * said so.</strong> Writing it at this call site would leave {@code PUT} and {@code PATCH} free to produce a
+     * second pending membership by sending an {@code ACTIVE} one back to {@code PENDING} — the drift between verbs
+     * this file has now recorded three times. It is written on the persisted status of every write instead.</p>
+     *
      * @param membership the membership to create.
      * @return the {@link ResponseEntity} with status {@code 201 (Created)} and with body the new membership, or with status {@code 400 (Bad Request)} if the membership has already an ID.
      * @throws URISyntaxException if the Location URI syntax is incorrect.

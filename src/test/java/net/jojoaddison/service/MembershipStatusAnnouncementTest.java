@@ -48,6 +48,9 @@ class MembershipStatusAnnouncementTest {
     private static final String PATIENT_EMAIL = "Ama@Example.Test";
     private static final String MEMBERSHIP_ID = "membership-1";
 
+    /** The earlier pending choice a second CHOOSE supersedes. */
+    private static final String SUPERSEDED_ID = "membership-0";
+
     private MembershipRepository memberships;
     private ProfileRepository profiles;
     private PatientEventPublisher events;
@@ -64,6 +67,22 @@ class MembershipStatusAnnouncementTest {
 
         when(memberships.save(any(Membership.class))).thenAnswer(call -> call.getArgument(0));
         when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL)));
+    }
+
+    /**
+     * Makes the supersession sweep find one earlier pending membership and cancel it.
+     *
+     * <p>Both halves, because the sweep is an enumerating {@code find} followed by a compare-and-set per document —
+     * stub only the first and it cancels nothing, which would make every assertion about the supersession pass for
+     * the wrong reason. The cancelled document is returned because the service holds it: that is what lets a test
+     * see whether it is announced.</p>
+     */
+    private void anEarlierPendingChoiceExists() {
+        Membership earlier = membership(MembershipStatus.PENDING).plan("PAWPAW");
+        earlier.setId(SUPERSEDED_ID);
+        when(mongoTemplate.find(any(), eq(Membership.class))).thenReturn(List.of(earlier));
+        when(mongoTemplate.findAndModify(any(), any(), any(FindAndModifyOptions.class), eq(Membership.class)))
+            .thenReturn(membership(MembershipStatus.CANCELLED).id(SUPERSEDED_ID));
     }
 
     private static Membership membership(MembershipStatus status) {
@@ -192,6 +211,86 @@ class MembershipStatusAnnouncementTest {
         assertThat(service.activateIfPending(MEMBERSHIP_ID)).isEmpty();
 
         verifyNoInteractions(events);
+    }
+
+    /**
+     * That superseding the patient's earlier pending choice puts <b>one</b> frame on the topic, and it is the new
+     * membership's.
+     *
+     * <p>This is item 40's most consequential design question and this test is the whole of the answer. hc-admin holds
+     * one plan group per patient, keyed on {@code membershipId} and replaced wholesale, and both frames would carry
+     * the same subject key and so land on the same partition in order. A second frame announcing the superseded
+     * membership as {@code CANCELLED} would therefore arrive <em>after</em> the creation frame and leave their
+     * directory row naming a cancelled membership — <b>the patient's new choice would never reach the
+     * {@code planStatus=PENDING} queue their console is built on</b>. Nothing would retire it, because nothing had
+     * raised it.</p>
+     *
+     * <p><strong>Asserted here rather than over a real broker, deliberately.</strong> {@code MembershipPlanEventIT}
+     * says in as many words why: proving an absence on Kafka means waiting out a timeout and calling silence a pass,
+     * which is a slow test that cannot fail honestly. A mocked publisher can count frames.</p>
+     *
+     * <p><strong>{@code verify(events)} with no count is the assertion.</strong> Mockito's default is exactly one
+     * invocation, so a supersession that announced would fail here with "wanted 1 time but was 2" — and
+     * {@code published()} would fail on the same call. Both directions were measured; see backlog item 40.</p>
+     */
+    @Test
+    void supersedingAnEarlierPendingChoiceAnnouncesOnlyTheNewOne() {
+        anEarlierPendingChoiceExists();
+
+        service.save(membership(MembershipStatus.PENDING).plan("MELON").name("MELON Plan"));
+
+        // That a membership really was superseded, so "one frame" is an absence caused by the rule rather than by the
+        // sweep quietly not running. The query itself is pinned against a database in MembershipStatusWriteGuardIT —
+        // a mocked MongoTemplate can see that this service asked, never what it asked for.
+        verify(mongoTemplate).findAndModify(any(), any(), any(FindAndModifyOptions.class), eq(Membership.class));
+        // Exactly one frame, and it names the membership just written rather than the one just cancelled.
+        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(PATIENT_ID), any());
+        assertThat(published())
+            .containsEntry("membershipId", MEMBERSHIP_ID)
+            .containsEntry("planCode", "MELON")
+            .containsEntry("status", "PENDING");
+    }
+
+    @Test
+    void aMembershipThatIsNotPendingSupersedesNothing() {
+        // The invariant is about pending choices only, so an administrator creating an ACTIVE membership directly
+        // must not reach for the sweep at all. Whether an approval moots a request the patient made is a back-office
+        // judgement and not this service's to take.
+        service.save(membership(MembershipStatus.ACTIVE));
+
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void aMembershipWithNoOwnerSupersedesNothing() {
+        // PatientScope.requirePatientIdForWrite lets an unrestricted caller create a record with no patientId, so
+        // without this guard a sweep keyed on a null owner would match EVERY ownerless pending membership in the
+        // collection and cancel the lot as though they belonged to one person.
+        service.save(new Membership().id(MEMBERSHIP_ID).plan("PAWPAW").status(MembershipStatus.PENDING));
+
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void aMembershipWhoseOwnerIsBlankSupersedesNothingEither() {
+        // Blank counts as absent, the reading PatientEventPublisher already applies to a subject key. A whitespace
+        // patientId would otherwise group with nothing and match nothing, which is a query nobody meant to run.
+        service.save(new Membership().id(MEMBERSHIP_ID).patientId("   ").plan("PAWPAW").status(MembershipStatus.PENDING));
+
+        verifyNoInteractions(mongoTemplate);
+    }
+
+    @Test
+    void anAdministratorSendingAMembershipBackToPendingSupersedesToo() {
+        // The PUT/PATCH half. A patient cannot reach it — their requested status is discarded and the stored one
+        // carried over — but an administrator can move an ACTIVE membership back to PENDING, which is the second way
+        // into two pending choices and the one a rule written only on POST would miss. That drift is the reason the
+        // rule is written on the persisted status of every write, exactly as the announcement rule is.
+        anEarlierPendingChoiceExists();
+
+        service.update(membership(MembershipStatus.PENDING), MembershipStatus.ACTIVE);
+
+        verify(mongoTemplate).findAndModify(any(), any(), any(FindAndModifyOptions.class), eq(Membership.class));
     }
 
     /** The payload of the one event this service published, failing the test if it published none. */
