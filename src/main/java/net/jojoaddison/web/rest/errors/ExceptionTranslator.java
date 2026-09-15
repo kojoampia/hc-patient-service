@@ -227,6 +227,55 @@ public class ExceptionTranslator extends ResponseEntityExceptionHandler {
         return URI.create(extractURI(request));
     }
 
+    /**
+     * Puts the failure-alert headers back on a {@link BadRequestAlertException}.
+     *
+     * <h2>Why {@code handleAnyException} never gets the chance</h2>
+     *
+     * <p>{@code handleAnyException} calls {@link #buildHeaders} and <b>never runs for this family</b>.
+     * {@code BadRequestAlertException} extends {@link ErrorResponseException}, and
+     * {@link ResponseEntityExceptionHandler#handleException} declares a handler for that which is
+     * <em>more specific</em> than this advice's {@code @ExceptionHandler(Throwable)}. Spring dispatches
+     * there and answers with the exception's own headers — a freshly constructed, permanently empty
+     * {@code HttpHeaders}: {@code ErrorResponseException} initialises the field and offers no setter.
+     * So {@code buildHeaders} built a perfectly good pair of headers that nothing ever received.</p>
+     *
+     * <p><b>The asymmetry is what made it hard to see.</b> The success path sets its alert header at the
+     * resource and works; only the refusal path went through here. An operator saving a record got a
+     * confirmation and an operator whose write was refused got nothing, which reads as "errors are
+     * broken" rather than as one unfinished seam.</p>
+     *
+     * <h2>Why an override rather than a second {@code @ExceptionHandler}</h2>
+     *
+     * <p>{@code @ExceptionHandler(BadRequestAlertException.class)} would also work — a subclass outranks
+     * its parent in {@code ExceptionHandlerMethodResolver}. It is <b>not</b> what this does, because
+     * <em>competing for dispatch is what broke this in the first place</em>: the advice claimed
+     * {@code Throwable} and quietly lost to a framework handler it did not know about. Adding a second
+     * claimant would leave two paths that can each win. {@code handleException} is {@code final}, so
+     * this protected seam is the framework's own answer — one dispatch path, not two.</p>
+     *
+     * <p>Fixed 2026-09-16, backlog item 41. hc-admin hit the identical defect in both its services and
+     * fixed it the same way (`hc-admin-service` {@code 02f128d}); this repo is worse affected, because
+     * its console's interceptor matches the header by case-insensitive suffix and therefore would have
+     * rendered these alerts correctly all along had any arrived.</p>
+     */
+    @Override
+    protected ResponseEntity<Object> handleErrorResponseException(
+        ErrorResponseException ex,
+        HttpHeaders headers,
+        HttpStatusCode statusCode,
+        WebRequest request
+    ) {
+        HttpHeaders alertHeaders = buildHeaders(ex);
+        if (alertHeaders == null) return super.handleErrorResponseException(ex, headers, statusCode, request);
+        // A copy rather than a mutation of either argument: the alert headers belong to this response,
+        // not to the exception instance, and not to a map the framework may reuse.
+        HttpHeaders merged = new HttpHeaders();
+        if (headers != null) merged.putAll(headers);
+        merged.putAll(alertHeaders);
+        return super.handleErrorResponseException(ex, merged, statusCode, request);
+    }
+
     private HttpHeaders buildHeaders(Throwable err) {
         return err instanceof BadRequestAlertException badRequestAlertException
             ? HeaderUtil.createFailureAlert(
