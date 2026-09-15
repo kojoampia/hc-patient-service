@@ -1,5 +1,6 @@
 package net.jojoaddison.service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +70,14 @@ import org.springframework.stereotype.Service;
  * it holds no link for — so a frame arriving before their {@code AccountCreated} landed is lost, and because a
  * repeat of the same status is suppressed here by design, no later frame recreates it. Every <em>transition</em> after
  * that heals the row; a membership whose only frame was dropped stays missing until its status next moves.</p>
+ *
+ * <p><strong>And a supersession announces nothing at all, which is the one write here that is deliberately
+ * silent.</strong> Since 2026-09-15 a second plan choice cancels the patient's earlier pending one, so that the
+ * verifier's "exactly one {@code PENDING}" rule holds by construction — backlog item 40. That cancellation is not
+ * announced, because hc-admin keys one plan group per patient on {@code membershipId} and replaces it wholesale, so a
+ * frame about the superseded membership would arrive <em>after</em> the creation frame on the same partition and
+ * leave their row naming a cancelled membership instead of the choice the patient just made. The whole argument is on
+ * {@link #supersedeOtherPendingChoices}, where the write is.</p>
  *
  * <h2>Three things this deliberately does not do</h2>
  *
@@ -146,6 +155,9 @@ public class MembershipService {
     public Membership save(Membership membership) {
         log.debug("Request to save Membership : {}", membership);
         Membership result = membershipRepository.save(membership);
+        // Before the announcement, so the frame describes a state in which the invariant holds. See
+        // supersedeOtherPendingChoices for why the supersession itself says nothing.
+        supersedeOtherPendingChoices(result);
         announceChosenPlan(result);
         return result;
     }
@@ -161,6 +173,10 @@ public class MembershipService {
     public Membership update(Membership membership, MembershipStatus statusHeld) {
         log.debug("Request to update Membership : {}", membership);
         Membership result = membershipRepository.save(membership);
+        // On every write that leaves a membership PENDING, not only on a creation — an administrator may send an
+        // ACTIVE membership back to PENDING, which is the second way into two pending choices. See
+        // supersedeOtherPendingChoices.
+        supersedeOtherPendingChoices(result);
         announceIfDecided(result, statusHeld);
         return result;
     }
@@ -222,8 +238,12 @@ public class MembershipService {
 
         // Nothing merged means nothing decided: an absent membership has no persisted status to have moved, and
         // announcing one would put a membership id on the topic that hc-admin creates a plan group for and never
-        // clears.
-        result.ifPresent(saved -> announceIfDecided(saved, statusHeld));
+        // clears. The same reasoning keeps the supersession behind the same guard — there is no pending choice to
+        // supersede for a membership that was not written.
+        result.ifPresent(saved -> {
+            supersedeOtherPendingChoices(saved);
+            announceIfDecided(saved, statusHeld);
+        });
         return result;
     }
 
@@ -317,6 +337,163 @@ public class MembershipService {
         // PENDING as a fact rather than as a read: nothing else could have satisfied the criterion above.
         announceIfDecided(persisted, MembershipStatus.PENDING);
         return Optional.of(persisted);
+    }
+
+    /**
+     * Cancels every <em>other</em> {@code PENDING} membership this patient holds, so that the one just written is
+     * their only one.
+     *
+     * <h2>The invariant, and why it is established here rather than refused at the door</h2>
+     *
+     * <p><strong>At most one {@code PENDING} membership per patient, always.</strong> Item 19's inbound consumer is
+     * handed an email rather than a membership id and applies a verification to the patient's <em>single</em> pending
+     * choice, refusing rather than guessing if there is not exactly one — and that refusal was right and stayed right,
+     * while nothing on the writing side agreed with it. {@code POST /api/memberships} guarded only against a
+     * client-supplied id, so every tap of CHOOSE wrote another pending membership. A patient who tapped three times
+     * put their own record into a state the verifier would then refuse to act on for ever, and was told nothing: the
+     * app said "Awaiting confirmation" while an administrator pressed verify and the frame dead-lettered. That is a
+     * live incident, 2026-09-11, and backlog item 40.</p>
+     *
+     * <p><strong>Replacing rather than refusing with a 409, decided by the architect.</strong> A patient who picked
+     * the wrong tier would otherwise be stuck until an administrator acted, which is a worse failure than the one
+     * being fixed — somebody changing their mind from PAWPAW to MELON before the back office has looked expects it to
+     * work. So the second choice succeeds with 201 and the first is superseded, and the consumer's "exactly one"
+     * rule holds by construction instead of by hope.</p>
+     *
+     * <p><strong>{@code CANCELLED}, and the imprecision is accepted rather than unnoticed.</strong> "Cancelled" reads
+     * as the patient's own act of ending a subscription, and this is a consequence of their choosing again — a
+     * {@code SUPERSEDED} constant would say what happened. It is not available: {@link MembershipStatus} shipped five
+     * values <em>because</em> the i18n bundles in {@code web} and {@code mobile} already promised exactly those five
+     * in every language each ships, and hc-admin renders only {@code ACTIVE}, {@code CANCELLED}, {@code EXPIRED} and
+     * {@code PENDING}. A sixth value is a cross-product contract change, and it would render as a raw constant or as
+     * nothing on three screens in three repositories. {@code CANCELLED} already exists everywhere and already means
+     * "this membership is over", which is true of the record either way.</p>
+     *
+     * <p><strong>Cancelled, never deleted.</strong> Nothing patient-owned is deleted here — sixteen resources refuse
+     * {@code DELETE} to anyone but an administrator — and the superseded record is the evidence of what the patient
+     * asked for and when. The production recovery deleted two spares by hand and very nearly deleted the one being
+     * kept; this leaves them readable instead.</p>
+     *
+     * <h2>Why this announces nothing</h2>
+     *
+     * <p><strong>Because hc-admin holds one plan group per patient, keyed on {@code membershipId} and replaced
+     * wholesale, and a supersession frame would overwrite the choice this write just made.</strong> Both frames carry
+     * the same subject key, so they land on the same partition in order: the creation announces the new membership as
+     * {@code PENDING}, and a second frame announcing the old one as {@code CANCELLED} would arrive after it and leave
+     * their directory row naming a cancelled membership. <b>The patient's new choice would never appear on the queue
+     * their console filters on {@code planStatus=PENDING}</b> — dequeued with no decision recorded anywhere, which is
+     * the same failure {@link #announceIfDecided} refuses to cause by announcing a cleared status, arriving from the
+     * other end of the lifecycle.</p>
+     *
+     * <p><strong>Nothing is lost by the silence, and that is checkable rather than hopeful.</strong> hc-admin never
+     * held the superseded membership as a separate row — their row holds the patient's current plan group, which is
+     * exactly what the creation frame carries. Silence leaves them describing the choice that is in force; announcing
+     * would leave them describing one that is not.</p>
+     *
+     * <p><strong>The secondary reason, which is the one a reader will think of first.</strong> A {@code CANCELLED}
+     * frame reads as the patient having quit. Nobody quit — they chose again — and a console showing a cancellation
+     * that never happened is the sort of thing somebody acts on.</p>
+     *
+     * <h2>Atomicity, and what it does not close</h2>
+     *
+     * <p><strong>Written then swept, never counted then written.</strong> Each supersession is a
+     * {@code findAndModify} whose criterion <em>is</em> {@code status == PENDING}, so a document moves only if it is
+     * still pending when that write lands — the same compare-and-set shape as {@link #activateIfPending}, for the same
+     * reason: a read-then-save would silently overwrite a decision an administrator took in the gap. There is no
+     * transaction to put the writes in; production runs MongoDB standalone with no replica set.</p>
+     *
+     * <p><strong>The enumerating query is not the guard, and it deliberately does not repeat it.</strong> It selects
+     * the patient's <em>other</em> memberships, all of them, and the compare-and-set decides which ones move. Adding
+     * {@code status == PENDING} to the read as well would be the same rule written twice, and the copy that is not
+     * the write is the one that can drift — worse, it would <b>shadow</b> the real guard: with both in place,
+     * deleting the criterion from the {@code findAndModify} left all 26 integration tests green, because no test that
+     * can be written without a second thread can tell the two apart. One rule, in the place that enforces it, where a
+     * mutation can be seen.</p>
+     *
+     * <p><strong>And it is a loop rather than one {@code updateMulti}, which was the first form.</strong> The
+     * superseded documents end up <b>in hand rather than merely counted</b>, so the decision not to announce them is
+     * one this method takes with the data available rather than one it falls into for want of it — and a test can
+     * therefore observe the silence. The log line names the ids for the same reason the consumer's refusal does.</p>
+     *
+     * <p><strong>Two racing creations cannot both leave a {@code PENDING} membership, and the argument is short
+     * enough to check.</strong> Each request inserts before it sweeps, so two surviving pending memberships would
+     * need each sweep to have run before the other's insert — {@code insertA &lt; sweepA &lt; insertB &lt; sweepB
+     * &lt; insertA}, which is a cycle. What <em>is</em> available in that window is the opposite outcome: each sweep
+     * sees the other's insert and they cancel each other, leaving the patient <b>zero</b> pending memberships. That is
+     * a refusal the verifier reports loudly as {@code NO_PENDING_MEMBERSHIP}, and one more tap of CHOOSE repairs it —
+     * where the defect this replaces was silent and un-repairable by the patient. Stated rather than left to be
+     * found, exactly as {@link #activateIfPending} states its own residue.</p>
+     *
+     * <p><strong>It repairs as well as prevents.</strong> The sweep cancels <em>every</em> other pending membership,
+     * not just one, so a patient who already holds three of them is reduced to one by their next choice without
+     * anybody running anything. The one-off cleanup in
+     * {@link net.jojoaddison.config.dbmigrations.SinglePendingMembershipMigration} exists because the patients in the
+     * incident should not have to tap CHOOSE again to get their records into a state the back office can act on.</p>
+     *
+     * <h2>Two things it deliberately does not touch</h2>
+     *
+     * <p><strong>A membership that is not itself {@code PENDING} supersedes nothing.</strong> The invariant is about
+     * pending choices, so an administrator creating an {@code ACTIVE} membership directly leaves a pending one alone:
+     * whether an approval elsewhere moots a request the patient made is a back-office judgement, and this method is
+     * not the place to take it. The verifier still sees exactly one pending membership either way.</p>
+     *
+     * <p><strong>A membership with no owner supersedes nothing either, and that guard is load-bearing.</strong>
+     * {@code PatientScope.requirePatientIdForWrite} lets an unrestricted caller create a record with no
+     * {@code patientId} — a deliberate allowance for the reference-shaped entities — so without this check a sweep
+     * keyed on a null owner would match <em>every</em> ownerless pending membership in the collection and cancel the
+     * lot as though they belonged to one person. Blank counts as absent, the same reading
+     * {@link PatientEventPublisher} applies to a subject key.</p>
+     *
+     * <p>{@link #activateIfPending} is not routed through here because it can only ever produce {@code ACTIVE} — it
+     * never leaves a membership pending, so there is nothing for it to supersede.</p>
+     *
+     * @param chosen the membership as persisted, never null.
+     */
+    private void supersedeOtherPendingChoices(Membership chosen) {
+        if (chosen.getStatus() != MembershipStatus.PENDING) {
+            return;
+        }
+        String patientId = chosen.getPatientId();
+        if (patientId == null || patientId.isBlank()) {
+            return;
+        }
+        // DELIBERATELY NOT narrowed to PENDING. Filtering here as well would express the rule twice, and the copy that
+        // is not the compare-and-set is the one that can drift — it also SHADOWS the real guard, so deleting
+        // `status == PENDING` from the write below becomes invisible to every test that can be written without a
+        // second thread. Measured: with both filters in place, removing the criterion from the findAndModify left all
+        // 26 integration tests green. The patient's whole membership list is a handful of documents and this runs only
+        // when somebody chooses a plan.
+        //
+        // Written against Membership.class rather than the collection name so that the mapper translates the property
+        // names to their stored fields and, crucially, converts the id: Membership._id is an ObjectId and chosen.getId()
+        // is its hex spelling, so a criterion built against the raw collection would match nothing and report success.
+        Query theirOtherMemberships = Query.query(Criteria.where("patientId").is(patientId).and("_id").ne(chosen.getId()));
+        List<String> superseded = new ArrayList<>();
+        for (Membership other : mongoTemplate.find(theirOtherMemberships, Membership.class)) {
+            Membership cancelled = mongoTemplate.findAndModify(
+                // The compare-and-set. The query above is only how the documents are found; THIS is what makes each
+                // move conditional, so a decision taken between the two is kept rather than overwritten — the same
+                // reasoning and the same shape as activateIfPending. A null answer means somebody else moved it
+                // first, which needs nothing done about it: it is no longer pending, which is all this wanted.
+                Query.query(Criteria.where("_id").is(other.getId()).and("status").is(MembershipStatus.PENDING)),
+                new Update().set("status", MembershipStatus.CANCELLED),
+                FindAndModifyOptions.options().returnNew(true),
+                Membership.class
+            );
+            if (cancelled != null) {
+                // NOTHING IS ANNOUNCED HERE, and the superseded document is in hand rather than merely counted so
+                // that the silence is a decision this method takes rather than a consequence of not having the data
+                // to announce. The argument is in this method's javadoc; do not add a publish to this loop without
+                // reading it — it would take the patient's new choice off hc-admin's queue.
+                superseded.add(cancelled.getId());
+            }
+        }
+        if (!superseded.isEmpty()) {
+            // The ids, not a count, and at INFO. The consumer's refusal named all three offending ids and that is
+            // what made the incident diagnosable in minutes rather than hours; this is the other half of the same
+            // conversation, written at the end that causes it.
+            log.info("Membership {} is patient {}'s pending choice; superseded {} to CANCELLED", chosen.getId(), patientId, superseded);
+        }
     }
 
     /**

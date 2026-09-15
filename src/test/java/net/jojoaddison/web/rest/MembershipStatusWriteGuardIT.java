@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+import java.util.List;
 import net.jojoaddison.IntegrationTest;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.Profile;
@@ -83,6 +84,24 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * which is why {@code PATCH} never had this defect. (Generated with that shape, though not with that status constant:
  * item 19 retyped {@code DEFAULT_STATUS} when {@code status} became an enum.)</p>
  *
+ * <h2>And a patient may not stack pending choices, added 2026-09-15</h2>
+ *
+ * <p>{@code POST} guarded only against a client-supplied id, so every tap of CHOOSE wrote another {@code PENDING}
+ * membership — while item 19's verifier applies an email-keyed acknowledgement to the patient's <em>single</em>
+ * pending choice and refuses rather than guessing. Permissive creator, strict verifier, and nothing reconciling them:
+ * a patient could put their own record into a state the system would then refuse to act on, and be told nothing.
+ * Found in production on 2026-09-11; backlog item 40.</p>
+ *
+ * <p><strong>A second choice replaces the first rather than being refused</strong>, and the superseded membership is
+ * moved to {@code CANCELLED} rather than deleted. The tests below assert <em>both</em> — the count of what is pending
+ * and the survival of what is not — because a fix that deleted the spares would satisfy the count and lose the record
+ * of what the patient asked for, which is the same "assert the preserved value, not the refused one" rule the
+ * paragraph above was written for.</p>
+ *
+ * <p>These belong here rather than in a class of their own because the question they answer is the same one: which
+ * caller may put a membership into which state, and whose records a write may reach. The cross-patient case is the
+ * point of {@code supersedingOnlyEverTouchesTheSamePatientsMemberships}.</p>
+ *
  * <p>Callers are built with {@code jwt()} rather than {@code @WithMockUser} for the reason {@code PatientScopeIT}
  * gives: the identity under test lives in the token's {@code email} claim, and {@code @WithMockUser} mints no token,
  * so the patient would resolve to nobody and be refused for the wrong reason.</p>
@@ -93,6 +112,10 @@ class MembershipStatusWriteGuardIT {
 
     private static final String PATIENT_EMAIL = "ama@example.test";
     private static final String PATIENT_ID = "patient-ama";
+
+    /** Somebody else entirely, so that a cross-patient write has a victim to be observed on. Item 40. */
+    private static final String OTHER_PATIENT_EMAIL = "kofi@example.test";
+    private static final String OTHER_PATIENT_ID = "patient-kofi";
 
     private static final String ENTITY_API_URL = "/api/memberships";
     private static final String ENTITY_API_URL_ID = ENTITY_API_URL + "/{id}";
@@ -596,6 +619,179 @@ class MembershipStatusWriteGuardIT {
             )
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void aSecondChoiceReplacesThePendingOneRatherThanStackingOnIt() throws Exception {
+        // Item 40, from a live incident on 2026-09-11. Every tap of CHOOSE used to write another PENDING membership,
+        // and item 19's verifier then refused all of them for ever — "who holds 3 PENDING memberships; refusing
+        // rather than choosing one" — while the patient's app said "Awaiting confirmation" and nothing else was
+        // wrong. Replacing rather than refusing with a 409 is the architect's decision: a patient who picked the
+        // wrong tier would otherwise be stuck until an administrator acted.
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(patient())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().plan("MELON").name("MELON Plan")))
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+
+        // Exactly one PENDING, and it is the new choice — which is the consumer's whole precondition.
+        assertThat(pendingFor(PATIENT_ID)).singleElement().extracting(Membership::getPlan).isEqualTo("MELON");
+
+        // NOT DELETED. Nothing patient-owned is deleted in this service, and the superseded record is the evidence of
+        // what the patient asked for and when. Asserting only the PENDING count would certify a fix that erased it.
+        Membership superseded = membershipRepository.findById(pending.getId()).orElseThrow();
+        assertThat(superseded.getStatus()).isEqualTo(MembershipStatus.CANCELLED);
+        assertThat(superseded.getPlan()).as("the superseded record is intact, not blanked").isEqualTo("PAWPAW");
+    }
+
+    @Test
+    void choosingAPlanDoesNotCancelThePlanTheyAlreadyHold() throws Exception {
+        // The compare-and-set, and the reason the sweep is not simply "cancel this patient's other memberships".
+        // Drop `status == PENDING` from the criterion and choosing an upgrade cancels the subscription in force and
+        // the whole history with it — a year of care taken away by a tap, silently, which is the same class of harm
+        // as the self-chosen renewalDate item 18's review stripped. It is also what makes each document's move a
+        // conditional write rather than a read-then-save: an administrator deciding one of these in the gap keeps
+        // their decision.
+        Membership inForce = assigned();
+        Membership lapsed = membershipRepository.save(
+            new Membership().patientId(PATIENT_ID).plan("KUBE").name("KUBE Plan").status(MembershipStatus.EXPIRED)
+        );
+
+        choose("MELON");
+
+        assertThat(membershipRepository.findById(inForce.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.ACTIVE);
+        assertThat(membershipRepository.findById(lapsed.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.EXPIRED);
+        // And the pending one it WAS about did move, so the two assertions above are not passing because the sweep
+        // never ran.
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.CANCELLED);
+    }
+
+    @Test
+    void aThirdChoiceStillLeavesExactlyOnePendingMembership() throws Exception {
+        // The incident had three, so three is the case. The sweep cancels EVERY other pending membership rather than
+        // one, which is also what makes a record that is already stacked repair itself the next time its owner
+        // chooses — the reason the migration is a convenience rather than the only way out.
+        choose("MELON");
+        choose("KUBE");
+
+        assertThat(pendingFor(PATIENT_ID)).singleElement().extracting(Membership::getPlan).isEqualTo("KUBE");
+        assertThat(membershipRepository.findByPatientId(PATIENT_ID)).as("three choices, three records, none deleted").hasSize(3);
+    }
+
+    @Test
+    void supersedingOnlyEverTouchesTheSamePatientsMemberships() throws Exception {
+        // PatientScope decides whose record a write touches, and the sweep has to inherit that rather than reason
+        // about it separately. An administrator creating a membership for one patient must not cancel another
+        // patient's pending choice — which is a cross-patient write, the class of defect this service's whole
+        // authorization model exists to make impossible.
+        profileRepository.save(new Profile().email(OTHER_PATIENT_EMAIL).patientId(OTHER_PATIENT_ID));
+        Membership somebodyElses = membershipRepository.save(
+            new Membership().patientId(OTHER_PATIENT_ID).plan("KUBE").name("KUBE Plan").status(MembershipStatus.PENDING)
+        );
+
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(administrator())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().patientId(PATIENT_ID).plan("MELON").name("MELON Plan")))
+            )
+            .andExpect(status().isCreated());
+
+        assertThat(membershipRepository.findById(somebodyElses.getId()).orElseThrow().getStatus())
+            .as("another patient's pending choice was cancelled by a write that had nothing to do with them")
+            .isEqualTo(MembershipStatus.PENDING);
+        // And the write did do its job for the patient it was about, so the assertion above is not passing because
+        // the sweep never ran at all.
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.CANCELLED);
+    }
+
+    @Test
+    void anAdministratorCreatingAnActiveMembershipLeavesThePendingChoiceAlone() throws Exception {
+        // The invariant is "at most one PENDING", not "at most one membership". Whether an approval granted elsewhere
+        // moots a request the patient made is a back-office judgement, and the verifier is satisfied either way —
+        // it still finds exactly one pending membership.
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(administrator())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().patientId(PATIENT_ID).plan("MELON").name("MELON Plan").status(MembershipStatus.ACTIVE)))
+            )
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.PENDING);
+    }
+
+    @Test
+    void anAdministratorSendingAMembershipBackToPendingSupersedesTheOtherOne() throws Exception {
+        // PUT and PATCH can reach this state and POST is not the only door — an administrator moving an ACTIVE
+        // membership back to PENDING is the second way into two pending choices. A patient cannot: their requested
+        // status is discarded and the stored one carried over. This is why the rule is written on the persisted
+        // status of every write rather than at the one call site that prompted it; that drift is recorded three
+        // times in MembershipResource's own javadoc.
+        Membership active = assigned();
+
+        restMockMvc
+            .perform(
+                patch(ENTITY_API_URL_ID, active.getId())
+                    .with(administrator())
+                    .contentType("application/merge-patch+json")
+                    .content(json(new Membership().id(active.getId()).status(MembershipStatus.PENDING)))
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+
+        assertThat(pendingFor(PATIENT_ID)).singleElement().extracting(Membership::getId).isEqualTo(active.getId());
+        assertThat(membershipRepository.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.CANCELLED);
+    }
+
+    @Test
+    void aMembershipWithNoOwnerSupersedesNothing() throws Exception {
+        // PatientScope.requirePatientIdForWrite deliberately lets an unrestricted caller create a record with no
+        // patientId — the reference-shaped entities need it. Without the guard, a sweep keyed on a null owner would
+        // match EVERY ownerless pending membership in the collection and cancel the lot as though one patient held
+        // them. Two survive here; without the guard the first would be CANCELLED.
+        Membership firstOwnerless = membershipRepository.save(
+            new Membership().plan("KUBE").name("KUBE Plan").status(MembershipStatus.PENDING)
+        );
+
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(administrator())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().plan("MELON").name("MELON Plan")))
+            )
+            .andExpect(status().isCreated());
+
+        assertThat(membershipRepository.findById(firstOwnerless.getId()).orElseThrow().getStatus()).isEqualTo(MembershipStatus.PENDING);
+        assertThat(membershipRepository.findAll().stream().filter(m -> m.getPatientId() == null).toList())
+            .as("both ownerless memberships are still pending — neither was attributed to the other's owner")
+            .hasSize(2)
+            .allMatch(m -> m.getStatus() == MembershipStatus.PENDING);
+    }
+
+    /** One tap of CHOOSE, exactly as both clients send it. */
+    private void choose(String planCode) throws Exception {
+        restMockMvc
+            .perform(
+                post(ENTITY_API_URL)
+                    .with(patient())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(new Membership().plan(planCode).name(planCode + " Plan").status(MembershipStatus.PENDING)))
+            )
+            .andExpect(status().isCreated());
+    }
+
+    /** What the inbound {@code patient-events-plan} consumer counts before it decides anything. */
+    private List<Membership> pendingFor(String patientId) {
+        return membershipRepository.findByPatientIdAndStatus(patientId, MembershipStatus.PENDING);
     }
 
     /**

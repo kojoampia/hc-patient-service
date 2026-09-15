@@ -10,6 +10,72 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 
 ## What changed since the last baseline
 
+### A patient holds at most one `PENDING` membership (2026-09-15, backlog item 40)
+
+**From a live incident on 2026-09-11.** An administrator verified a plan; the patient's app said
+"Awaiting confirmation" indefinitely. The consumer had received every frame and refused all of them —
+_"who holds 3 PENDING memberships ([…]); refusing rather than choosing one"_ — and it was right to.
+Item 19 decided deliberately that an email-keyed verification applies to the patient's **single**
+pending choice and must refuse rather than guess. **The defect was that the writing side did not
+agree**: `POST /api/memberships` guarded only against a client-supplied id, so every tap of CHOOSE
+wrote another pending membership. Permissive creator, strict verifier, nothing in between — and the
+patient could put their own record into a state the system would then refuse to act on, silently.
+
+- [x] **A second choice replaces the pending one; it is not refused.** `POST` still answers 201 and
+      the new membership is `PENDING`; the patient's earlier pending membership is moved to
+      `CANCELLED`. A 409 was considered and rejected by the architect: somebody who picked the wrong
+      tier would be stuck until an administrator acted, which is a worse failure than the one being
+      fixed.
+- [x] **`CANCELLED`, not a new constant, and the imprecision is recorded rather than unnoticed.**
+      "Cancelled" reads as the patient's own act; this is a consequence of their choosing again.
+      `SUPERSEDED` would say what happened and is not available — `MembershipStatus` shipped five
+      values _because_ the i18n bundles in `web` and `mobile` already promised exactly those five in
+      every language each ships, and hc-admin renders only four of them. A sixth is a cross-product
+      contract change that would render as a raw constant or as nothing on three screens in three
+      repositories.
+- [x] **Cancelled, never deleted.** Nothing patient-owned is deleted in this service, and the
+      superseded record is the evidence of what the patient asked for and when. The tests assert the
+      survival of the record as well as the count of what is pending — a fix that deleted the spares
+      would satisfy the count and lose the evidence.
+- [x] **The rule is written on the persisted status of every write**, in `MembershipService`, not at
+      the `POST` call site. `PUT` and `PATCH` can reach the same state: a patient cannot (their
+      requested status is discarded and the stored one carried over) but **an administrator can send
+      an `ACTIVE` membership back to `PENDING`**, which is the second door into two pending choices.
+      That is the drift `MembershipResource`'s own javadoc records three times.
+- [x] **The supersession announces nothing on `patient-events`, and that is the item's one real
+      design question.** hc-admin holds one plan group per patient, keyed on `membershipId` and
+      replaced wholesale. Both frames carry the same subject key and so land on the same partition in
+      order, so a `CANCELLED` frame about the superseded membership would arrive _after_ the creation
+      frame and leave their directory row naming a cancelled membership — **the patient's new choice
+      would never enter the `planStatus=PENDING` queue their console is built on**. That is the
+      dequeued-with-no-decision failure `announceIfDecided` already refuses to cause from the other
+      end of the lifecycle. Nothing is lost by the silence: they never held the superseded membership
+      as a separate row. The secondary reason, which a reader thinks of first, is that a spurious
+      cancellation reads as the patient having quit.
+- [x] **Atomic by compare-and-set, following `activateIfPending` rather than read-then-save.** Each
+      supersession is a `findAndModify` whose criterion _is_ `status == PENDING`. The enumerating
+      query deliberately does **not** repeat that filter: with both in place, deleting the criterion
+      from the write left all 26 integration tests green, because no test that can be written without
+      a second thread can tell the two apart. One rule, in the place that enforces it.
+- [~] **What it does not close, stated rather than left to be found.** Two racing creations cannot
+  both leave a pending membership — each inserts before it sweeps, so two survivors would need a
+  cycle in the ordering. The window that _is_ open is the opposite: each sweep sees the other's
+  insert and they cancel each other, leaving **zero**. The verifier reports that loudly as
+  `NO_PENDING_MEMBERSHIP` and one more tap of CHOOSE repairs it. There is no transaction to close
+  it with; production runs MongoDB standalone with no replica set, which is the same reason
+  `PatientEventPublisher` has no outbox.
+- [x] **A one-off cleanup for the records already in that state** —
+      `SinglePendingMembershipMigration`, change unit `003`. Reduces each patient holding more than
+      one pending membership to their newest and cancels the rest; idempotent, and it never touches a
+      patient holding zero or one. **"Newest" is a guess and is written down as one**: `created_date`
+      first with an unstamped record read as the older, then `_id`. In the incident all three records
+      carried no `created_date` at all, so the whole decision fell to `_id` — which for an `ObjectId`
+      really is creation order, and for a hand-written string id is a total order and nothing more.
+      Memberships with no `patient_id` are left alone: they can be attributed to nobody, and grouping
+      them would assert that they belong to one person.
+- [~] **Not run anywhere but in tests.** The change unit has not been applied to the production
+  database; it runs on the next deploy of this service.
+
 ### Scope of practice: a discipline decides what kind of data (2026-08-22)
 
 - [x] `ScopeOfPractice` + `ClinicalDomain`: one table mapping the eight clinical roles onto six kinds
