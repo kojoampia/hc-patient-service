@@ -1,5 +1,6 @@
 package net.jojoaddison.web.rest.errors;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -62,6 +63,41 @@ class ExceptionTranslatorIT {
             .andExpect(status().isBadRequest())
             .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
             .andExpect(jsonPath("$.message").value("error.http.400"));
+    }
+
+    /**
+     * Item 41. A refused write must carry the failure-alert headers, and until 2026-09-16 it carried none.
+     *
+     * <p>This asserts the HEADERS, not the status or the body. The status was always 400 and the body was
+     * always right — which is exactly why the defect survived: every existing test here checks status and
+     * JSON, and every one of them passed throughout. The console reads
+     * {@code X-<app>-alert} / {@code -error} / {@code -params}, and received nothing on any refusal.</p>
+     *
+     * <p>It asserts by SUFFIX rather than by the full header name, matching what
+     * {@code notification.interceptor.ts} actually does — {@code headerKey.toLowerCase().endsWith('app-alert')}.
+     * Pinning the literal {@code clientApp.name} here would pass while the console still saw nothing if
+     * that name ever drifted, which is the failure hc-admin had.</p>
+     */
+    @Test
+    void aRefusedWriteCarriesTheFailureAlertHeaders() throws Exception {
+        var result = mockMvc.perform(get("/api/exception-translator-test/refused-write")).andExpect(status().isBadRequest()).andReturn();
+
+        var names = result.getResponse().getHeaderNames().stream().map(String::toLowerCase).toList();
+        assertThat(names)
+            .as("the console matches on this suffix; a refusal that sets none is invisible to it")
+            .anyMatch(n -> n.endsWith("app-error"));
+        assertThat(names).anyMatch(n -> n.endsWith("app-params"));
+        assertThat(
+            result
+                .getResponse()
+                .getHeaderNames()
+                .stream()
+                .filter(n -> n.toLowerCase().endsWith("app-params"))
+                .map(result.getResponse()::getHeader)
+                .toList()
+        )
+            .as("the params header must name the entity the write was refused for")
+            .containsExactly("widget");
     }
 
     @Test
