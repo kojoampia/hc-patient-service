@@ -11,6 +11,7 @@ import net.jojoaddison.service.GatewayAccountClient;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -52,9 +53,13 @@ import org.springframework.data.mongodb.core.query.Update;
  * is <em>profiles with no account id</em>, so a second pass sees only what the first did not finish, writes the same
  * value it would have written, and touches nothing it already linked.</p>
  *
- * <p>Two profiles are never given one account id. Before each write this asks whether that {@code account_id} is
- * already on another document and passes over it if so — which also means a re-run cannot duplicate an assignment it
- * made on an earlier pass.</p>
+ * <p>Two profiles are never given one account id, and that is enforced twice over on purpose because the two halves
+ * answer different questions. The check before each write asks <em>is this account already claimed</em>, which is a
+ * data condition this pass can see and report; it is also what makes a re-run free rather than an exception storm.
+ * {@link ProfileAccountIdUniqueIndex} — a partial unique index created by change unit {@code 003.5}, before this one
+ * — answers <em>did somebody claim it since I looked</em>, which no check-then-act here can, because Mongo runs
+ * standalone and there is no transaction to make the check and the write atomic. A patient onboarding while this runs
+ * is a real possibility: Mongock's runner is an {@code ApplicationRunner}, so the service is already serving.</p>
  *
  * <h2>What "nothing to do" looks like, deliberately, at production log level</h2>
  *
@@ -154,6 +159,7 @@ public class ProfileAccountIdBackfill {
         int noEmail = 0;
         int noAccount = 0;
         int alreadyHeld = 0;
+        int lostRace = 0;
         for (Document profile : unlinked) {
             Object stored = profile.get(EMAIL);
             String email = stored == null ? "" : String.valueOf(stored).trim().toLowerCase(Locale.ROOT);
@@ -174,15 +180,25 @@ public class ProfileAccountIdBackfill {
                 alreadyHeld++;
                 continue;
             }
-            // The raw _id, handed straight back rather than stringified: it is an ObjectId for anything this service
-            // wrote and a String for the seeded fixtures, and a criterion built from the printed form of the first
-            // matches nothing while reporting a successful no-op. That cost time during item 40's recovery.
-            mongoTemplate.updateFirst(
-                Query.query(Criteria.where(ID).is(profile.get(ID))),
-                new Update().set(ACCOUNT_ID, accountId),
-                PROFILE
-            );
-            linked++;
+            try {
+                // The raw _id, handed straight back rather than stringified: it is an ObjectId for anything this
+                // service wrote and a String for the seeded fixtures, and a criterion built from the printed form of
+                // the first matches nothing while reporting a successful no-op. That cost time during item 40's
+                // recovery.
+                mongoTemplate.updateFirst(
+                    Query.query(Criteria.where(ID).is(profile.get(ID))),
+                    new Update().set(ACCOUNT_ID, accountId),
+                    PROFILE
+                );
+                linked++;
+            } catch (DuplicateKeyException lost) {
+                // The race ProfileAccountIdUniqueIndex exists to make visible: a patient finished onboarding for this
+                // same account between the check above and this write. The index refused the second write, which is
+                // the correct outcome — the profile stays unlinked and the next start reconsiders it. Counted apart
+                // from alreadyHeld because the two are different things: that one is a data condition this pass could
+                // see, this one is a timing condition it could not.
+                lostRace++;
+            }
         }
 
         LOG.info(
@@ -197,12 +213,14 @@ public class ProfileAccountIdBackfill {
         if (outstanding > 0) {
             LOG.warn(
                 "{} {} profile(s) are still unlinked — {} carry no email, {} match no gateway account, {} name an " +
-                "account another profile already holds; they will be reconsidered on the next start",
+                "account another profile already holds, {} lost a race with a concurrent onboarding; they will be " +
+                "reconsidered on the next start",
                 TAG,
                 outstanding,
                 noEmail,
                 noAccount,
-                alreadyHeld
+                alreadyHeld,
+                lostRace
             );
         }
     }

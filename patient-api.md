@@ -30,7 +30,7 @@ child collection, `PatientScope`, `PatientErasureService`, or any guard keyed on
       subsystem invented for itself: it is the profile's own id on every record onboarding has written, and
       it means nothing to hc-admin, hc-professional or the gateway.
 - [x] **`READ_ONLY` over HTTP, which is a security control and not a modelling preference.** `PUT`/`PATCH
-    /api/profiles/{id}` let a patient edit their own record; a writable `accountId` would let them point
+  /api/profiles/{id}` let a patient edit their own record; a writable `accountId` would let them point
       their profile at a colleague's account and be served in their place. hc-professional shipped it
       writable and had to close exactly that (their item 54). `PUT` carries the stored value over from the
       existing record — without that, an ordinary profile edit would unlink the patient from the estate
@@ -69,10 +69,31 @@ child collection, `PatientScope`, `PatientErasureService`, or any guard keyed on
       read by `SecurityUtils.getCurrentAccountId()`. It removes the outbound HTTP, the live-path latency and
       the service token in one change. Filed rather than assumed, because a token claim is only useful once
       every token in flight carries it, which is the same staged rollout `iss`/`aud` are waiting on.
-- [ ] **`account_id` has no unique index.** Nothing in this repository declares `@Indexed` and
-      `spring.data.mongodb.auto-index-creation` is off, so the annotation would be decorative. Uniqueness is
-      enforced in code at both writers instead; a real index belongs with item 53, when the field starts
-      carrying authorization.
+- [x] **`account_id` is unique in the database, by a partial unique index created in change unit `003.5`.** Filed as
+      a follow-up at first and **brought forward by the architect on review**, and the reason is the whole decision:
+      both writers do check-then-act, Mongo runs standalone with no transaction to make a check and its write atomic,
+      and Mongock's lock serialises concurrent application _starts_ but not the backfill against a live onboarding
+      request — the backfill runs as an `ApplicationRunner`, so this service is already serving while it works. Both
+      can see nothing and both can write. The result is silent, permanent and undetectable afterwards:
+      `GET /api/profile/{accountId}` starts answering nondeterministically about which patient somebody is, and that
+      is not a thing to carry across two more items. - **An index from a change unit, not `@Indexed`.** The earlier argument here — `auto-index-creation` is unset
+      and nothing in this repository declares an index, so the annotation would be decorative — was correct and is
+      an argument against the _annotation_. A change unit creates it in every environment the application starts in. - **Partial, on `{account_id: {$exists: true}}`, and the premise is asserted rather than assumed.** Neither
+      writer stores an explicit null — Spring Data omits a null property, and the backfill only `$set`s a value it
+      has — so a plain unique index would see every unlinked profile as sharing the key `null` and refuse the
+      second one ever written. `ProfileAccountIdUniqueIndexIT` checks the raw documents at the insert path and the
+      replace path before relying on it. - **Ordered `003.5`, before the writer it protects.** Mongock sorts by `String.compareTo` on `order` (verified
+      against `ChangeLogComparator`), so it runs after `003` and before `004`. Created _after_ the backfill it
+      would turn a first-run race into a refusal to start; created before, the race is a caught
+      `DuplicateKeyException` at whichever writer loses, the profile stays unlinked, and the next start reconsiders
+      it. Both writers handle it: onboarding answers **201** with no account id rather than letting a database
+      error reach a patient at the last of three writes, and the backfill counts it apart from "another profile
+      already holds this", because a timing condition and a data condition are different facts. - **Over a collection that already holds a duplicate it refuses to start, naming the account id.** A unit that
+      tries to create a unique index, hits the conflict and carries on leaves the collection unindexed while
+      reporting success — the guard-reports-success-without-having-been-applied shape this repository catalogues.
+      It throws instead, and the enumeration that names the offenders runs **only on the failure path**, so it is
+      diagnosis rather than a second copy of the rule: a pre-flight check would be the duplicate filter that made
+      item 40's real guard untestable. `runAlways` is what makes that survivable — fix the data, restart.
 - [x] **`AuthoritiesConstants.PATIENT`'s javadoc no longer cites a method that has never existed.** It
       claimed enforcement by a `patientId` token claim via `SecurityUtils.getCurrentPatientId()`; there is no
       such claim and no such method, and the only occurrence of the name in the repository was the javadoc

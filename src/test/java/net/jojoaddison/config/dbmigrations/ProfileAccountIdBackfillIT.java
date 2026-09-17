@@ -1,9 +1,14 @@
 package net.jojoaddison.config.dbmigrations;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,7 +25,10 @@ import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.UpdateDefinition;
 
 /**
  * Change unit {@code 004}, the {@code Profile.accountId} backfill — backlog item 44.
@@ -159,6 +167,28 @@ class ProfileAccountIdBackfillIT {
 
         assertThat(profileRepository.findAll().stream().filter(profile -> "u-1".equals(profile.getAccountId()))).hasSize(1);
         assertThat(backfill.selectUnlinked()).hasSize(1);
+    }
+
+    @Test
+    void losingTheRaceToTheUniqueIndexCostsTheLinkAndNotTheRun() {
+        // The hazard ProfileAccountIdUniqueIndex exists for, and the only way to reach it deterministically: a
+        // patient finishes onboarding for this same account between the exists() check and the write, so the index
+        // refuses a write the check had cleared. Simulated by making the write throw what the index makes it throw.
+        save("ama", "ama@example.test");
+        save("kofi", "kofi@example.test");
+        gatewayHolds(Map.of("ama@example.test", "u-1", "kofi@example.test", "u-2"));
+
+        MongoTemplate losesEveryRace = spy(mongoTemplate);
+        doThrow(new DuplicateKeyException("account_id is already taken"))
+            .when(losesEveryRace)
+            .updateFirst(any(Query.class), any(UpdateDefinition.class), eq(PROFILE));
+
+        ProfileAccountIdBackfill racing = new ProfileAccountIdBackfill(losesEveryRace, gateway, tokens);
+        assertThatCode(racing::migrate).as("a lost race must not fail the migration or the application start").doesNotThrowAnyException();
+
+        // Nothing linked, nothing lost: both are still outstanding and the next start will reconsider them.
+        assertThat(profileRepository.findAll()).allSatisfy(profile -> assertThat(profile.getAccountId()).isNull());
+        assertThat(racing.selectUnlinked()).hasSize(2);
     }
 
     @Test

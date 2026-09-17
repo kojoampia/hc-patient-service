@@ -38,6 +38,7 @@ import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -164,7 +165,7 @@ public class OnboardingService {
         // `patientId ?? id` fallback that PatientScope and the dashboard both apply from ever having to fire.
         saved.setPatientId(saved.getId());
         saved.setAccountId(resolveAccountId());
-        saved = profileRepository.save(saved);
+        saved = saveUnlinkingIfTheAccountWasTakenMeanwhile(saved);
         if (address != null) {
             address.setPatientId(saved.getPatientId());
             addressRepository.save(address);
@@ -415,6 +416,41 @@ public class OnboardingService {
             return null;
         }
         return accountId;
+    }
+
+    /**
+     * Saves the new profile, giving up the account link rather than the onboarding if the link has been taken.
+     *
+     * <p>{@link #resolveAccountId()} asks whether the account is already claimed and then this writes, and there is no
+     * transaction around the pair — Mongo runs standalone. The gap is real and it is narrow: the backfill runs as an
+     * {@code ApplicationRunner}, so change unit {@code 004} can be linking this very account while a patient is
+     * finishing step 1. {@code ProfileAccountIdUniqueIndex} turns that into a refused write instead of two profiles
+     * claiming one account, and this is the half that decides what the patient sees when it happens.</p>
+     *
+     * <p><strong>They see success.</strong> The profile is written unlinked, exactly as it is when the gateway cannot
+     * be reached at all, and change unit {@code 004} links it on the next start. Letting the exception out would fail
+     * the one request a new patient has to make, at the last of three writes, over a field nothing on that path
+     * reads — and it would fail it with a database error, which is neither actionable nor true of anything they did.</p>
+     *
+     * <p>A {@code DuplicateKeyException} on a profile that carries no account id is <em>not</em> this race — the
+     * partial index only covers documents that have the field — so it is left to propagate rather than swallowed
+     * under a message about an account link it has nothing to do with.</p>
+     */
+    private Profile saveUnlinkingIfTheAccountWasTakenMeanwhile(Profile profile) {
+        String requested = profile.getAccountId();
+        try {
+            return profileRepository.save(profile);
+        } catch (DuplicateKeyException conflict) {
+            if (requested == null) {
+                throw conflict;
+            }
+            log.warn(
+                "This gateway account was linked to another profile between the check and the write; the new profile " +
+                "is saved unlinked and change unit 004 will reconsider it on the next start"
+            );
+            profile.setAccountId(null);
+            return profileRepository.save(profile);
+        }
     }
 
     /**
