@@ -60,7 +60,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
  * would instead turn a first-run race into a refusal to start.</p>
  *
  * <p>Mongock orders change units by {@code String.compareTo} on the {@code order} field — verified against
- * {@code ChangeLogComparator} in mongock-runner-core 5.4.1 — so {@code "003.5"} sorts after {@code "003"} and before
+ * {@code ChangeLogComparator} in mongock-runner-core 5.5.1 — so {@code "003.5"} sorts after {@code "003"} and before
  * {@code "004"}. It is not numbered {@code 005} because that would put it after the writer it protects, and the
  * backfill is not renumbered to {@code 005} because three documents and two javadocs already name it {@code 004}.</p>
  *
