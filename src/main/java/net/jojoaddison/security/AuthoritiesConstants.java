@@ -14,8 +14,18 @@ public final class AuthoritiesConstants {
     public static final String ANONYMOUS = "ROLE_ANONYMOUS";
 
     /**
-     * A patient: may only ever reach their own records. Enforced by scoping every query to the
-     * {@code patientId} claim in the token — see {@link SecurityUtils#getCurrentPatientId()}.
+     * A patient: may only ever reach their own records.
+     *
+     * <p>Enforced by {@link PatientScope}, which resolves the token's {@code email} claim to a {@code Profile} and
+     * scopes every query to that profile's {@code patientId}. <strong>There is no {@code patientId} claim and no
+     * {@code SecurityUtils.getCurrentPatientId()}</strong>, which is what this comment said until 2026-09-17 —
+     * the method has never existed and the only occurrence of the name in this repository was the javadoc citing it.
+     * {@link SecurityUtils} has {@code getCurrentUserEmail}, and the email hop is the whole chain: this service runs
+     * with {@code skipUserManagement}, so email was until now the only identifier it shared with the gateway.</p>
+     *
+     * <p>Since backlog item 44 there is a second one — {@code Profile.accountId}, the gateway's {@code User.id} —
+     * but it is a read key for the other products, not an authorization key: nothing in this service scopes on it,
+     * and it does not travel in the token either. Moving the guards onto it is item 53.</p>
      */
     public static final String PATIENT = "ROLE_PATIENT";
 

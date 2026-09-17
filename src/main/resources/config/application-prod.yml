@@ -132,3 +132,10 @@ jhipster:
 # ===================================================================
 
 # application:
+application:
+  gateway:
+    # The compose service name, which is `gateway` in deploy/docker-compose.yml, deploy/prod-server/compose.yml and
+    # quality/compose.yml alike; api and gateway share hcpatientnet in all three. Overridable because this file is
+    # baked into the image and the network is not this repository's to promise — an environment that cannot reach a
+    # gateway sets it empty, and profiles are written unlinked until change unit 004 can ask.
+    base-url: ${PATIENT_GATEWAY_URL:http://gateway:5505}

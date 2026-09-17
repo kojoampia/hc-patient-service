@@ -12,6 +12,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 /**
  * Utility class for Spring Security.
@@ -86,6 +87,42 @@ public final class SecurityUtils {
             .ofNullable(securityContext.getAuthentication())
             .filter(authentication -> authentication.getCredentials() instanceof String)
             .map(authentication -> (String) authentication.getCredentials());
+    }
+
+    /**
+     * The raw bearer token this request arrived with, whatever shape the authentication is in.
+     *
+     * <h2>Why this exists beside {@link #getCurrentUserJWT()} rather than replacing it</h2>
+     *
+     * <p>Backlog item 44. {@link net.jojoaddison.service.GatewayAccountClient} relays the caller's own token to the
+     * patient gateway, and {@code getCurrentUserJWT()} cannot supply it: it filters credentials on
+     * {@code instanceof String}, and this service's resource-server chain produces a {@code JwtAuthenticationToken}
+     * whose credentials are the <em>decoded</em> {@link Jwt}. So that method returns empty on every real request
+     * here — silently, because "no token" is a legitimate state on an unauthenticated one and every caller has a
+     * branch for it. A relay that never relays looks exactly like a deployment that is not configured for one.</p>
+     *
+     * <p>Both readings are kept rather than one, so this is safe to adopt anywhere the older method is called: the
+     * {@code String} branch preserves whatever behaviour a caller has today, and the {@code JwtAuthenticationToken}
+     * branch is the one that fires in production. hc-admin's {@code SecurityUtils} carries the same pair under the
+     * same name, for the same reason.</p>
+     *
+     * @return the serialized token, or empty when there is no authentication or it carries no token.
+     */
+    public static Optional<String> getCurrentRequestJwt() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return Optional.empty();
+        }
+        if (authentication.getCredentials() instanceof String token && !token.isBlank()) {
+            return Optional.of(token);
+        }
+        if (authentication instanceof JwtAuthenticationToken jwtAuthentication) {
+            return Optional.ofNullable(jwtAuthentication.getToken()).map(Jwt::getTokenValue).filter(token -> !token.isBlank());
+        }
+        if (authentication.getPrincipal() instanceof Jwt jwt) {
+            return Optional.ofNullable(jwt.getTokenValue()).filter(token -> !token.isBlank());
+        }
+        return Optional.empty();
     }
 
     /**

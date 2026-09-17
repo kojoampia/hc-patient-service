@@ -172,7 +172,18 @@ jhipster:
 # https://www.jhipster.tech/common-application-properties/
 # ===================================================================
 
-# application:
+application:
+  gateway:
+    # DELIBERATELY BLANK, and stated rather than omitted so that the next reader knows it was a decision.
+    #
+    # Blank means "there is no gateway to ask", so GatewayAccountClient builds no RestClient and change unit 004
+    # reports that it has work outstanding instead of opening a socket. Without this, every integration test in the
+    # suite would attempt a connection at startup against whatever is listening on the developer's machine.
+    #
+    # THIS FILE REPLACES THE MAIN application.yml WHOLESALE rather than merging with it, so nothing configured only
+    # in application-dev.yml or application-prod.yml is exercised by any test here. The tests that need a gateway
+    # stand one up themselves and point this property at it (GatewayAccountClientTest, ProfileAccountIdBackfillIT).
+    base-url: ''
 management:
   health:
     mail:

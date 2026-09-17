@@ -123,6 +123,17 @@ class OnboardingResourceIT {
     }
 
     @Test
+    void withNoGatewayConfiguredTheProfileIsWrittenUnlinkedRatherThanRefused() throws Exception {
+        // The suite's default: application.gateway.base-url is blank, so GatewayAccountClient opens no socket.
+        // Onboarding is the one path a new patient has into their own record and must not depend on a sibling
+        // service being up to populate a field nothing on this path reads. Change unit 004 links it later.
+        // OnboardingAccountLinkIT is the other half — a real gateway, on a real port, answering.
+        startOnboarding().andExpect(status().isCreated()).andExpect(jsonPath("$.accountId").doesNotExist());
+
+        assertThat(profileRepository.findOneByEmailIgnoreCase(EMAIL).orElseThrow().getAccountId()).isNull();
+    }
+
+    @Test
     void everythingWrittenIsMarkedPatientReported() throws Exception {
         startOnboarding();
         restMockMvc.perform(step("/baseline", baselineJson())).andExpect(status().isOk());

@@ -30,6 +30,15 @@ public interface ProfileRepository extends MongoRepository<Profile, String> {
     Optional<Profile> findOneByEmailIgnoreCase(String email);
 
     /**
+     * The profile belonging to a gateway account.
+     *
+     * <p>The cross-product read — {@code GET /api/profile/{accountId}} — and nothing else. Matched exactly rather
+     * than case-insensitively: {@code User.id} is an opaque identifier the gateway generates, not something anybody
+     * types, so a case-folding match would only ever widen what an id can reach.</p>
+     */
+    Optional<Profile> findOneByAccountId(String accountId);
+
+    /**
      * Finds people by any of the things somebody would type looking for them.
      *
      * <p>Six fields, because a person is looked for by whichever of them the searcher happens to have: a name they

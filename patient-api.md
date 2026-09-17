@@ -10,6 +10,103 @@ Status legend: `[x]` done · `[~]` partial / diverges from plan · `[ ]` not sta
 
 ## What changed since the last baseline
 
+### `Profile.accountId` and `GET /api/profile/{accountId}` (2026-09-17, backlog item 44)
+
+**The cross-product contract, in the architect's words:** _"Account is accessed over
+`[repo]-gateway/api/admin/users`, profile is accessed over `[repo]-service/api/profile/:accountId`. No need
+for any extra specific api shapes."_ Two plain reads, the same in every product, and no composed endpoint per
+consumer — hc-professional had built one and it was cancelled unmerged.
+
+**This is the first of three slices and it is deliberately the smallest.** Item 44 adds the field and the
+read; **item 53** translates the eighteen `patient_id`-keyed collections and moves the guards; **item 54**
+removes `patientId`. The split exists because an erasure guard in this repository discovers its own scope by
+scanning for a `patient_id` field — the predicate it discovers by _is_ the property it guards — and has
+already been shown to go blind to that rename with eight tests still green. Nothing in this slice touches a
+child collection, `PatientScope`, `PatientErasureService`, or any guard keyed on the literal `"patient_id"`.
+
+- [x] **`Profile.accountId` (`@Field("account_id")`), beside `patientId` rather than instead of it.** It is
+      the patient gateway's `User.id` — the only identifier all four products can agree on, because the
+      gateway is the only thing in the estate that mints account identity. `patientId` is an identifier this
+      subsystem invented for itself: it is the profile's own id on every record onboarding has written, and
+      it means nothing to hc-admin, hc-professional or the gateway.
+- [x] **`READ_ONLY` over HTTP, which is a security control and not a modelling preference.** `PUT`/`PATCH
+/api/profiles/{id}` let a patient edit their own record; a writable `accountId` would let them point
+      their profile at a colleague's account and be served in their place. hc-professional shipped it
+      writable and had to close exactly that (their item 54). `PUT` carries the stored value over from the
+      existing record — without that, an ordinary profile edit would unlink the patient from the estate
+      silently, because the payload can never carry the field. `ProfileByAccountResourceIT` asserts both.
+- [x] **`GET /api/profile/{accountId}` — singular, `ROLE_ADMIN`, the plain profile.** Singular because
+      `/api/profiles/{id}` already means the profile's own id and the two would collide on one pattern; it
+      lives in its own `ProfileByAccountResource` only because a class-level `@RequestMapping` is a prefix
+      there is no way to escape. `ROLE_ADMIN` because **an endpoint that names a subject in its path is
+      administrative**, and identity is not a boundary when the path is. **There is deliberately no
+      self-carve-out**: a patient reading their own record has `/api/profiles/email/{email}`, which resolves
+      the subject from the token and can name nobody else — comparing caller against path is the shape that
+      gets it wrong. The authority matters more here than its name suggests, because the three gateways share
+      one signing key: "authenticated" is every account in three products.
+- [x] **`/api/profiles/email/{email}` is untouched.** Both `web/` and `mobile/` bootstrap on it (5 hits
+      each). It becomes a convenience read rather than an integration contract.
+- [x] **New profiles are linked at creation, by asking the gateway.** `OnboardingService` relays the
+      caller's own token to `GET /api/account` — an endpoint that takes no subject and can therefore name
+      nobody but the caller, so **the live path needs no privilege at all**. `GatewayAccountClient` holds no
+      credential and mints none; every method takes the token to use.
+- [x] **Existing profiles are linked by Mongock change unit `004`, which runs on every start.**
+      `runAlways = true`, unlike 001–003, because it is the first change unit here whose work depends on
+      something outside the database being up. A once-only unit either throws — acquiring a hard startup
+      dependency on the gateway — or returns quietly and is recorded as executed, leaving every profile that
+      existed at that moment permanently unlinked. Running always removes the choice: an unreachable gateway
+      costs one warning and the work happens next start. It is affordable because the selection is empty once
+      the estate is linked, and **no service token is minted when there is nothing to do**.
+- [x] **Every path out of `004` logs at `INFO` or `WARN`, including the boring one.** Item 40's change unit
+      logged its clean no-op at `DEBUG`, so at production log level "found nothing" and "never ran" were
+      byte-identical. All five outcomes here carry the same grep-able prefix.
+- [x] **A partial run is a reachable state and repeating one is the recovery.** There is no transaction —
+      Mongo runs standalone. The selection is _profiles with no account id_, so a second pass sees only what
+      the first did not finish; and no two profiles are ever given one account id, which is checked before
+      each write rather than assumed.
+- [ ] **The gateway should mint an `accountId` claim, and then this client is dead weight.** That is
+      mechanism (b), it is a change in `gateway/`, and hc-professional already does it — their `uid` claim,
+      read by `SecurityUtils.getCurrentAccountId()`. It removes the outbound HTTP, the live-path latency and
+      the service token in one change. Filed rather than assumed, because a token claim is only useful once
+      every token in flight carries it, which is the same staged rollout `iss`/`aud` are waiting on.
+- [x] **`account_id` is unique in the database, by a partial unique index created in change unit `003.5`.** Filed as
+      a follow-up at first and **brought forward by the architect on review**, and the reason is the whole decision:
+      both writers do check-then-act, Mongo runs standalone with no transaction to make a check and its write atomic,
+      and Mongock's lock serialises concurrent application _starts_ but not the backfill against a live onboarding
+      request — the backfill runs as an `ApplicationRunner`, so this service is already serving while it works. Both
+      can see nothing and both can write. The result is silent, permanent and undetectable afterwards:
+      `GET /api/profile/{accountId}` starts answering nondeterministically about which patient somebody is, and that
+      is not a thing to carry across two more items.
+
+- **An index from a change unit, not `@Indexed`.** The earlier argument here — `auto-index-creation` is unset
+  and nothing in this repository declares an index, so the annotation would be decorative — was correct and is
+  an argument against the _annotation_. A change unit creates it in every environment the application starts in.
+
+- **Partial, on `{account_id: {$exists: true}}`, and the premise is asserted rather than assumed.** Neither
+  writer stores an explicit null — Spring Data omits a null property, and the backfill only `$set`s a value it
+  has — so a plain unique index would see every unlinked profile as sharing the key `null` and refuse the
+  second one ever written. `ProfileAccountIdUniqueIndexIT` checks the raw documents at the insert path and the
+  replace path before relying on it.
+
+- **Ordered `003.5`, before the writer it protects.** Mongock sorts by `String.compareTo` on `order` (verified
+  against `ChangeLogComparator`), so it runs after `003` and before `004`. Created _after_ the backfill it
+  would turn a first-run race into a refusal to start; created before, the race is a caught
+  `DuplicateKeyException` at whichever writer loses, the profile stays unlinked, and the next start reconsiders
+  it. Both writers handle it: onboarding answers **201** with no account id rather than letting a database
+  error reach a patient at the last of three writes, and the backfill counts it apart from "another profile
+  already holds this", because a timing condition and a data condition are different facts.
+
+- **Over a collection that already holds a duplicate it refuses to start, naming the account id.** A unit that
+  tries to create a unique index, hits the conflict and carries on leaves the collection unindexed while
+  reporting success — the guard-reports-success-without-having-been-applied shape this repository catalogues.
+  It throws instead, and the enumeration that names the offenders runs **only on the failure path**, so it is
+  diagnosis rather than a second copy of the rule: a pre-flight check would be the duplicate filter that made
+  item 40's real guard untestable. `runAlways` is what makes that survivable — fix the data, restart.
+- [x] **`AuthoritiesConstants.PATIENT`'s javadoc no longer cites a method that has never existed.** It
+      claimed enforcement by a `patientId` token claim via `SecurityUtils.getCurrentPatientId()`; there is no
+      such claim and no such method, and the only occurrence of the name in the repository was the javadoc
+      citing it.
+
 ### A patient holds at most one `PENDING` membership (2026-09-15, backlog item 40)
 
 **From a live incident on 2026-09-11.** An administrator verified a plan; the patient's app said
