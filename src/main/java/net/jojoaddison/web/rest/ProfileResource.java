@@ -123,6 +123,12 @@ public class ProfileResource {
         // An administrator or clinician still can, because refiling a misfiled record is legitimate work.
         profile.setPatientId(patientScope.patientIdForUpdate(existing.getPatientId(), profile.getPatientId()));
 
+        // accountId is READ_ONLY over HTTP, so the bound payload always carries null — and PUT replaces the document
+        // wholesale, which would silently unlink every profile anybody edited. Carried over from the stored record
+        // for the reason the archive fields are: a value the client cannot send is a value the client cannot be
+        // allowed to clear. PATCH needs no equivalent; it merges onto the stored document and never sees this field.
+        profile.setAccountId(existing.getAccountId());
+
         Profile result = profileService.update(profile);
         return ResponseEntity
             .ok()

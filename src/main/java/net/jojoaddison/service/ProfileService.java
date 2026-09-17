@@ -165,6 +165,21 @@ public class ProfileService {
     }
 
     /**
+     * Get one profile by the gateway account that owns it.
+     *
+     * <p>The cross-product read behind {@code GET /api/profile/{accountId}} — backlog item 44. Not the same question
+     * as {@link #findOne(String)}: that takes this service's own document id, this takes the patient gateway's
+     * {@code User.id}, and the two identifier spaces have nothing to do with each other.</p>
+     *
+     * @param accountId the gateway's {@code User.id}.
+     * @return the entity.
+     */
+    public Optional<Profile> findByAccountId(String accountId) {
+        log.debug("Request to get Profile by accountId : {}", accountId);
+        return profileRepository.findOneByAccountId(accountId);
+    }
+
+    /**
      * Delete the profile by id.
      *
      * @param id the id of the entity.

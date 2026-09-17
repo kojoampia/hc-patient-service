@@ -26,6 +26,7 @@ import net.jojoaddison.repository.ConditionRepository;
 import net.jojoaddison.repository.MedicationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.repository.StatRepository;
+import net.jojoaddison.security.SecurityUtils;
 import net.jojoaddison.service.dto.OnboardingAddressDTO;
 import net.jojoaddison.service.dto.OnboardingBaselineDTO;
 import net.jojoaddison.service.dto.OnboardingCareAngelDTO;
@@ -80,6 +81,7 @@ public class OnboardingService {
     private final MedicationRepository medicationRepository;
     private final CareDelegationService careDelegationService;
     private final PatientEventPublisher events;
+    private final GatewayAccountClient gatewayAccountClient;
 
     public OnboardingService(
         ProfileRepository profileRepository,
@@ -89,7 +91,8 @@ public class OnboardingService {
         AllergyRepository allergyRepository,
         MedicationRepository medicationRepository,
         CareDelegationService careDelegationService,
-        PatientEventPublisher events
+        PatientEventPublisher events,
+        GatewayAccountClient gatewayAccountClient
     ) {
         this.profileRepository = profileRepository;
         this.addressRepository = addressRepository;
@@ -99,6 +102,7 @@ public class OnboardingService {
         this.medicationRepository = medicationRepository;
         this.careDelegationService = careDelegationService;
         this.events = events;
+        this.gatewayAccountClient = gatewayAccountClient;
     }
 
     /**
@@ -159,6 +163,7 @@ public class OnboardingService {
         // patientId is the identifier every other collection is keyed by. Setting it to the profile's own id keeps the
         // `patientId ?? id` fallback that PatientScope and the dashboard both apply from ever having to fire.
         saved.setPatientId(saved.getId());
+        saved.setAccountId(resolveAccountId());
         saved = profileRepository.save(saved);
         if (address != null) {
             address.setPatientId(saved.getPatientId());
@@ -370,6 +375,47 @@ public class OnboardingService {
     }
 
     // --- internals ------------------------------------------------------------------------------------------------
+
+    /**
+     * The gateway account the caller signed in with, for {@link Profile#getAccountId()}.
+     *
+     * <h2>Resolved from the gateway, not from the token, and that is a sequencing decision</h2>
+     *
+     * <p>Backlog item 44. There are two ways for a {@code User.id} to reach this service: ask the gateway, or have
+     * the gateway put it in the token. <strong>The second is better and is a change in a different repository</strong>
+     * — hc-professional already does it, minting a {@code uid} claim — so it is filed rather than assumed here. This
+     * relays the caller's own token to {@code GET /api/account}, which takes no subject and can therefore name nobody
+     * but them.</p>
+     *
+     * <h2>What happens when the gateway is unreachable</h2>
+     *
+     * <p><strong>Onboarding succeeds and the profile is written with no account id.</strong> Nothing in this service
+     * authorises on the field, so an unlinked profile behaves in every way the profiles written before the field
+     * existed do; what is lost is that hc-admin cannot yet name that patient, which is precisely the state the whole
+     * estate is in today. Refusing instead would make the patient's one path into their own record depend on a
+     * sibling service being up, to populate a field nothing on that path reads.</p>
+     *
+     * <p>It is not left for somebody to notice: change unit {@code 004} runs on every application start and links
+     * exactly the profiles that have no account id, so the repair is the next restart rather than an intervention.</p>
+     *
+     * @return the account id, or null — never a throw.
+     */
+    private String resolveAccountId() {
+        String accountId = SecurityUtils.getCurrentRequestJwt().flatMap(gatewayAccountClient::accountIdOfCaller).orElse(null);
+        if (accountId == null) {
+            // No address and no id in the line: this is the one method here that runs while a patient is waiting, and
+            // a correlation key in a log is the breach hc-admin's item 43 forbids outright.
+            log.warn("Onboarding could not resolve a gateway account id; change unit 004 will link this profile on the next start");
+            return null;
+        }
+        if (profileRepository.findOneByAccountId(accountId).isPresent()) {
+            // Two profiles are never given one account id — it is what hc-admin will name a person by. Reaching here
+            // means an account already has a profile under a different address, which start() cannot have refused.
+            log.warn("A profile is already linked to this gateway account; leaving the new one unlinked for review");
+            return null;
+        }
+        return accountId;
+    }
 
     /**
      * Announces a completed step.

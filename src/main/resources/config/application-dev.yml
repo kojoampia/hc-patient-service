@@ -124,3 +124,14 @@ jhipster:
 # ===================================================================
 
 # application:
+application:
+  gateway:
+    # Where the patient gateway answers, so this service can resolve a sign-in to the gateway's User.id
+    # (Profile.accountId — backlog item 44). The gateway listens on 5505 in every profile since 2026-08-03.
+    #
+    # The default is right for the primary use of this profile — `./mvnw` against a gateway on this machine — and
+    # WRONG in a container, where localhost is the api itself. The quality stack runs `dev,test`, so it must set
+    # PATIENT_GATEWAY_URL=http://gateway:5505 or it will log one connection refused per start and link nothing.
+    # Set it empty to mean "do not ask" outright: profiles are then written with no account id and change unit 004
+    # reports that it has work outstanding, which is a correct state rather than a failure.
+    base-url: ${PATIENT_GATEWAY_URL:http://localhost:5505}

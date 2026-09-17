@@ -1,5 +1,6 @@
 package net.jojoaddison.domain;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.Serializable;
 import java.time.Instant;
@@ -26,6 +27,38 @@ public class Profile implements Serializable {
 
     @Field("patient_id")
     private String patientId;
+
+    /**
+     * The gateway account this record belongs to — the patient gateway's {@code User.id}.
+     *
+     * <p><strong>This is the estate's join key, and it is not {@link #patientId}.</strong> {@code patientId} is an
+     * identifier this subsystem invented for itself: it is the profile's own id on every record onboarding has ever
+     * written, it keys the eighteen collections hanging off a patient, and it means nothing to hc-admin,
+     * hc-professional or the gateway. {@code accountId} is the one identifier all four products can agree on, because
+     * the gateway is the only thing in the estate that mints account identity. Backlog item 44.</p>
+     *
+     * <p><strong>Why not the email the rest of this service resolves identity by.</strong> An address in a path is an
+     * address in every access log on both sides of the call; an email changes and an id does not, so a join on it
+     * breaks looking exactly like "this account has no profile"; and matching one needs case and whitespace rules two
+     * products have to agree on, which an id needs none of. {@code /api/profiles/email/{email}} stays — both clients
+     * bootstrap on it — but as a convenience read rather than an integration contract.</p>
+     *
+     * <p><strong>{@code READ_ONLY} over HTTP, and that is a security control rather than a modelling preference.</strong>
+     * {@code PUT}/{@code PATCH /api/profiles/{id}} let a patient edit their own record, and
+     * {@code GET /api/profile/{accountId}} is what an administrator in another product reads to find out who somebody
+     * is. A writable field would let a patient point their own profile at a colleague's account id and be served in
+     * their place. hc-professional shipped this field writable and had to close exactly that
+     * (their backlog item 54); there is no reason to rediscover it here. Nothing outside
+     * {@link net.jojoaddison.service.OnboardingService} and change unit {@code 004} sets it.</p>
+     *
+     * <p><strong>It coexists with {@code patientId} on purpose, and only for now.</strong> Item 44 adds the field and
+     * the read; item 53 moves the eighteen child collections and the scoping guards onto it; item 54 removes
+     * {@code patientId}. Nothing in this service authorises on {@code accountId} yet — {@code PatientScope} is
+     * unchanged — so do not start.</p>
+     */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Field("account_id")
+    private String accountId;
 
     @Field("first_name")
     private String firstName;
@@ -153,6 +186,19 @@ public class Profile implements Serializable {
 
     public void setPatientId(String patientId) {
         this.patientId = patientId;
+    }
+
+    public String getAccountId() {
+        return this.accountId;
+    }
+
+    public Profile accountId(String accountId) {
+        this.setAccountId(accountId);
+        return this;
+    }
+
+    public void setAccountId(String accountId) {
+        this.accountId = accountId;
     }
 
     public String getFirstName() {
@@ -505,6 +551,7 @@ public class Profile implements Serializable {
         return "Profile{" +
             "id=" + getId() +
             ", patientId='" + getPatientId() + "'" +
+            ", accountId='" + getAccountId() + "'" +
             ", firstName='" + getFirstName() + "'" +
             ", middleNames='" + getMiddleNames() + "'" +
             ", lastName='" + getLastName() + "'" +
