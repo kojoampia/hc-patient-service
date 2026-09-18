@@ -32,11 +32,25 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * {@link PatientScope#captureVisibility()} for why the decision is taken on this thread and carried rather than asked
  * again at delivery. The generated endpoint keyed emitters by login and then pushed every frame to all of them.</p>
  *
- * <p><strong>It says "do not buffer this" to the proxy in front of it.</strong> nginx buffers a proxied response by
- * default, which for a stream means the patient is told in batches or not at all; {@code X-Accel-Buffering: no} is the
- * one lever available from inside the application, and it matters because the nginx in question belongs to the
- * architect rather than to this repository. It survives the hop through Spring Cloud Gateway, which passes response
- * headers through untouched.</p>
+ * <p><strong>It says "do not buffer this" to the proxy in front of it — and that reaches the first proxy, not the
+ * last.</strong> nginx buffers a proxied response by default, which for a stream means the patient is told in batches
+ * or not at all, and {@code X-Accel-Buffering: no} is the only lever available from inside the application because
+ * every nginx in the path belongs to the architect rather than to this repository.</p>
+ *
+ * <p>Where it gets to, stated exactly, because the obvious reading is wrong. The deployed path is <b>two</b> nginx
+ * hops, not one: the host's {@code location /} proxies to the web container, and the web container's own nginx
+ * proxies {@code /services/} onward to the gateway. The header survives Spring Cloud Gateway, which passes response
+ * headers through untouched, and reaches the <em>web-container</em> nginx, which honours it. <b>It stops there.</b>
+ * All {@code X-Accel-*} headers are on nginx's built-in hidden list, so that hop consumes the header and does not
+ * forward it — the host nginx never sees it and buffers according to its own configuration. So this unbuffers the
+ * inner hop only, and <b>the heartbeat, not this header, is what keeps the connection alive through both.</b></p>
+ *
+ * <p>Not exercised: no response has been observed through either hop. This is read from
+ * {@code quality/host-site.conf}, {@code deploy/docker/web-nginx.conf} and nginx's documented behaviour — and the
+ * installed vhost is known to drift from the one in the repository. Note also that the two hops set different idle
+ * timeouts: {@code proxy_read_timeout} is 120s on the web container's {@code /services/} location and <b>60s</b> on
+ * the host's {@code location /}, so the host is the binding one and the 60s in
+ * {@link net.jojoaddison.service.event.MembershipStreamRegistry} is measured against the right number.</p>
  *
  * <h2>What a caller with no patient gets</h2>
  *

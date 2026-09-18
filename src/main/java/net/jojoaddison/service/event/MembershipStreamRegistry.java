@@ -1,7 +1,9 @@
 package net.jojoaddison.service.event;
 
 import jakarta.annotation.PreDestroy;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -10,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import net.jojoaddison.security.PatientScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -69,6 +72,34 @@ public class MembershipStreamRegistry {
      */
     public static final Duration IDLE_CUT = Duration.ofSeconds(60);
 
+    /**
+     * How long a stream may live before this instance closes it and makes the client come back.
+     *
+     * <h3>It is an authorization control, not housekeeping</h3>
+     *
+     * <p>{@link PatientScope#captureVisibility()} resolves who the caller may see <em>once</em>, on the request
+     * thread, because the Kafka consumer thread has no token and no {@code X-Acting-As} header to ask again with. That
+     * freeze is only defensible if it ends. Without a maximum age it does not: the emitter has no server timeout, the
+     * heartbeat never stops, and the stream lives until the browser goes away — which for an open tab is days.</p>
+     *
+     * <p>The concrete failure: a patient revokes their care angel on Monday, the angel's tab stays open, and
+     * Thursday's verification pushes that patient's membership id and status to somebody whose delegation ended three
+     * days earlier. {@code PatientScope} re-reads the delegation on every <em>request</em> precisely so a revocation
+     * takes effect on the next one — a stream with no end is that guarantee quietly suspended. The token's own expiry
+     * is never re-checked mid-stream either, for the same reason.</p>
+     *
+     * <p>Thirty minutes bounds both, and bounds a third case that is nobody's fault: a caller who connects before
+     * their {@code Profile} exists captures an empty scope and holds a permanently deaf stream that completing
+     * onboarding never heals. Reconnecting fixes all three, and the clients have to hand-write reconnect logic anyway
+     * — that is the cost of {@code fetch()} over {@code EventSource}, which backlog item 39 already accepted — so a
+     * server-initiated close costs them nothing they were not already building.</p>
+     *
+     * <p>Enforced on the heartbeat, so a stream is retired at the first beat past its age rather than to the second.
+     * That granularity is the heartbeat interval and is deliberate: a second timer to be exact about when a
+     * thirty-minute window ends would be precision nothing needs.</p>
+     */
+    public static final int DEFAULT_MAX_AGE_SECONDS = 1800;
+
     private final Logger log = LoggerFactory.getLogger(MembershipStreamRegistry.class);
 
     /**
@@ -79,6 +110,11 @@ public class MembershipStreamRegistry {
      * gone wrong. Zero means "no timeout" to the servlet spec. Liveness is then the heartbeat's job, which is the right
      * place for it: a failed write is evidence the client has gone, where a timeout is only a guess that it might
      * have.</p>
+     *
+     * <p><strong>"No timeout" is not "no end".</strong> A container timeout is the wrong instrument for liveness and
+     * is switched off; the stream's lifetime is bounded separately and for a different reason by
+     * {@link #DEFAULT_MAX_AGE_SECONDS}. Removing that bound puts this back to a stream that ends only when the browser
+     * does — read its javadoc before changing either.</p>
      */
     private static final long NO_SERVER_TIMEOUT = 0L;
 
@@ -87,10 +123,31 @@ public class MembershipStreamRegistry {
 
     private final Duration heartbeat;
 
+    private final Duration maxAge;
+
+    private final Clock clock;
+
     private final ScheduledExecutorService heartbeats;
 
-    public MembershipStreamRegistry(@Value("${hc.membership-stream.heartbeat-seconds:" + DEFAULT_HEARTBEAT_SECONDS + "}") long seconds) {
-        this.heartbeat = Duration.ofSeconds(seconds);
+    @Autowired
+    public MembershipStreamRegistry(
+        @Value("${hc.membership-stream.heartbeat-seconds:" + DEFAULT_HEARTBEAT_SECONDS + "}") long heartbeatSeconds,
+        @Value("${hc.membership-stream.max-age-seconds:" + DEFAULT_MAX_AGE_SECONDS + "}") long maxAgeSeconds
+    ) {
+        this(heartbeatSeconds, maxAgeSeconds, Clock.systemUTC());
+    }
+
+    /**
+     * For tests that need to move time rather than wait for it.
+     *
+     * <p>A clock rather than a tiny {@code max-age} so that both halves can be asserted — that a young stream
+     * <em>survives</em> a beat matters as much as that an old one does not, and a registry configured to expire
+     * everything immediately cannot show the first.</p>
+     */
+    MembershipStreamRegistry(long heartbeatSeconds, long maxAgeSeconds, Clock clock) {
+        this.heartbeat = Duration.ofSeconds(heartbeatSeconds);
+        this.maxAge = Duration.ofSeconds(maxAgeSeconds);
+        this.clock = clock;
         this.heartbeats =
             Executors.newSingleThreadScheduledExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "membership-stream-heartbeat");
@@ -98,7 +155,7 @@ public class MembershipStreamRegistry {
                 thread.setDaemon(true);
                 return thread;
             });
-        this.heartbeats.scheduleAtFixedRate(this::beat, seconds, seconds, TimeUnit.SECONDS);
+        this.heartbeats.scheduleAtFixedRate(this::beat, heartbeatSeconds, heartbeatSeconds, TimeUnit.SECONDS);
     }
 
     /**
@@ -110,7 +167,7 @@ public class MembershipStreamRegistry {
      */
     public SseEmitter subscribe(PatientScope.Visibility visibility) {
         SseEmitter emitter = new SseEmitter(NO_SERVER_TIMEOUT);
-        Subscription subscription = new Subscription(visibility, emitter);
+        Subscription subscription = new Subscription(visibility, emitter, clock.instant());
         // Registered before the three callbacks are attached would be a race with an immediate completion; attached
         // first would leak a subscription that completes before it is in the set. Adding first and removing on every
         // terminal callback is the order that cannot leave a dead emitter in the set.
@@ -157,10 +214,44 @@ public class MembershipStreamRegistry {
         return heartbeat;
     }
 
-    /** Sends the keep-alive comment to every open stream, dropping the ones that have gone away. */
+    /** The maximum age actually in force, so a test can assert it rather than assume the default. */
+    public Duration maxAge() {
+        return maxAge;
+    }
+
+    /**
+     * Keeps the live streams alive and closes the ones that have run their course.
+     *
+     * <p>Retiring comes first: a stream past its age is closed rather than beaten at, so it is never kept alive for
+     * one interval longer than it should be. See {@link #DEFAULT_MAX_AGE_SECONDS} for why a stream has an age at
+     * all — it is what bounds the visibility decision {@code PatientScope} froze when the stream was opened.</p>
+     */
     void beat() {
+        Instant expiredBefore = clock.instant().minus(maxAge);
         for (Subscription subscription : subscriptions) {
+            if (subscription.openedAt().isBefore(expiredBefore)) {
+                retire(subscription);
+                continue;
+            }
             send(subscription, SseEmitter.event().comment("keep-alive"));
+        }
+    }
+
+    /**
+     * Closes a stream that has reached its maximum age, leaving the client to reconnect.
+     *
+     * <p>{@code complete()} rather than {@code completeWithError()}: nothing went wrong, and an error would have the
+     * client's reconnect logic back off as though the server were unhealthy. Removed from the set before completing,
+     * so a beat running concurrently cannot write to it afterwards.</p>
+     */
+    private void retire(Subscription subscription) {
+        subscriptions.remove(subscription);
+        log.debug("Retiring a membership stream at {}; the client reconnects and its scope is resolved again", maxAge);
+        try {
+            subscription.emitter().complete();
+        } catch (Exception e) {
+            // The client had already gone. The subscription is out of the set either way, which is all this wanted.
+            log.debug("A membership stream being retired had already ended", e);
         }
     }
 
@@ -216,9 +307,13 @@ public class MembershipStreamRegistry {
         private final PatientScope.Visibility visibility;
         private final SseEmitter emitter;
 
-        private Subscription(PatientScope.Visibility visibility, SseEmitter emitter) {
+        /** When the scope above was resolved, which is what {@link #maxAge} bounds rather than any idea of activity. */
+        private final Instant openedAt;
+
+        private Subscription(PatientScope.Visibility visibility, SseEmitter emitter, Instant openedAt) {
             this.visibility = visibility;
             this.emitter = emitter;
+            this.openedAt = openedAt;
         }
 
         private PatientScope.Visibility visibility() {
@@ -227,6 +322,10 @@ public class MembershipStreamRegistry {
 
         private SseEmitter emitter() {
             return emitter;
+        }
+
+        private Instant openedAt() {
+            return openedAt;
         }
 
         private synchronized void send(SseEmitter.SseEventBuilder payload) throws Exception {

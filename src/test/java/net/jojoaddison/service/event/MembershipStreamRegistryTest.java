@@ -2,6 +2,11 @@ package net.jojoaddison.service.event;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import net.jojoaddison.security.PatientScope;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -19,6 +24,10 @@ class MembershipStreamRegistryTest {
 
     /** Whoever the caller is does not matter to the bookkeeping; the filter is asserted where it can be seen. */
     private static final PatientScope.Visibility AMA = new PatientScope.Visibility("patient-ama", false);
+
+    /** Small, distinct values for the age tests, so a passing assertion cannot be reading the production default. */
+    private static final long HEARTBEAT = 5;
+    private static final long MAX_AGE = 60;
 
     /**
      * <b>The heartbeat is a number chosen against another file, and this is the assertion that keeps it honest.</b>
@@ -44,13 +53,12 @@ class MembershipStreamRegistryTest {
 
     @Test
     void theIntervalInForceIsTheConfiguredOne() {
-        assertThat(new MembershipStreamRegistry(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS).heartbeatInterval().toSeconds())
-            .isEqualTo(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS);
+        assertThat(registry().heartbeatInterval().toSeconds()).isEqualTo(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS);
     }
 
     @Test
     void eachSubscriberIsItsOwnStream() {
-        MembershipStreamRegistry registry = new MembershipStreamRegistry(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS);
+        MembershipStreamRegistry registry = registry();
 
         SseEmitter first = registry.subscribe(AMA);
         SseEmitter second = registry.subscribe(AMA);
@@ -76,7 +84,7 @@ class MembershipStreamRegistryTest {
      */
     @Test
     void aStreamThatCannotBeWrittenToIsDroppedOnTheNextBeat() {
-        MembershipStreamRegistry registry = new MembershipStreamRegistry(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS);
+        MembershipStreamRegistry registry = registry();
         SseEmitter gone = registry.subscribe(AMA);
         registry.subscribe(new PatientScope.Visibility("patient-kofi", false));
         gone.complete();
@@ -90,7 +98,7 @@ class MembershipStreamRegistryTest {
 
     @Test
     void shutdownClosesEveryStreamItIsHolding() {
-        MembershipStreamRegistry registry = new MembershipStreamRegistry(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS);
+        MembershipStreamRegistry registry = registry();
         registry.subscribe(AMA);
         registry.subscribe(new PatientScope.Visibility("patient-kofi", false));
 
@@ -102,8 +110,103 @@ class MembershipStreamRegistryTest {
     /** Beating with nothing connected is the ordinary state of this loop, and it must not throw on the shared thread. */
     @Test
     void beatingWithNoSubscribersIsHarmless() {
-        MembershipStreamRegistry registry = new MembershipStreamRegistry(MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS);
+        MembershipStreamRegistry registry = registry();
 
         org.assertj.core.api.Assertions.assertThatCode(registry::beat).doesNotThrowAnyException();
+    }
+
+    /**
+     * <b>The visibility decision is frozen at connect, so the stream has to end for the freeze to end.</b>
+     *
+     * <p>{@code PatientScope.captureVisibility()} resolves who the caller may see once, because the Kafka consumer
+     * thread has no token to ask again with. Without a maximum age nothing ever forces a reconnect and that freeze is
+     * permanent: a patient revokes their care angel on Monday, the angel's tab stays open, and Thursday's
+     * verification is still pushed to them. This is the assertion that the window closes.</p>
+     */
+    @Test
+    void aStreamPastItsMaximumAgeIsClosed() {
+        MovableClock clock = new MovableClock(Instant.parse("2026-09-18T09:00:00Z"));
+        MembershipStreamRegistry registry = new MembershipStreamRegistry(HEARTBEAT, MAX_AGE, clock);
+        registry.subscribe(AMA);
+
+        clock.advance(Duration.ofSeconds(MAX_AGE + 1));
+        registry.beat();
+
+        assertThat(registry.openStreams()).as("the stream outlived its maximum age and is still being fed").isZero();
+    }
+
+    /**
+     * The other half, and it is not decoration: a registry that simply closed everything on the first beat would pass
+     * the test above and be useless. Written with a clock rather than a tiny max age so both can be asserted.
+     */
+    @Test
+    void aStreamInsideItsMaximumAgeSurvivesTheBeat() {
+        MovableClock clock = new MovableClock(Instant.parse("2026-09-18T09:00:00Z"));
+        MembershipStreamRegistry registry = new MembershipStreamRegistry(HEARTBEAT, MAX_AGE, clock);
+        registry.subscribe(AMA);
+
+        clock.advance(Duration.ofSeconds(MAX_AGE - 1));
+        registry.beat();
+
+        assertThat(registry.openStreams()).isEqualTo(1);
+    }
+
+    /**
+     * Thirty minutes is a judgement, but it is not free to change: it has to be long enough that the stream is a push
+     * rather than a poll, and short enough to bound a revoked delegation. Asserted as a relationship to the heartbeat
+     * so that a value which made every stream close before its first keep-alive cannot pass.
+     */
+    @Test
+    void theMaximumAgeIsManyHeartbeatsLongAndStillBounded() {
+        long maxAge = MembershipStreamRegistry.DEFAULT_MAX_AGE_SECONDS;
+        long beat = MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS;
+
+        assertThat(maxAge)
+            .as("a stream must outlive several heartbeats or it is a poll wearing a stream's clothes")
+            .isGreaterThan(beat * 10);
+        assertThat(Duration.ofSeconds(maxAge))
+            .as("the frozen visibility decision has to end within something a person would call soon")
+            .isLessThanOrEqualTo(Duration.ofHours(1));
+    }
+
+    @Test
+    void theMaximumAgeInForceIsTheConfiguredOne() {
+        assertThat(registry().maxAge().toSeconds()).isEqualTo(MembershipStreamRegistry.DEFAULT_MAX_AGE_SECONDS);
+    }
+
+    private static MembershipStreamRegistry registry() {
+        return new MembershipStreamRegistry(
+            MembershipStreamRegistry.DEFAULT_HEARTBEAT_SECONDS,
+            MembershipStreamRegistry.DEFAULT_MAX_AGE_SECONDS
+        );
+    }
+
+    /** A clock a test can move, so an age can be asserted without waiting out one. */
+    private static final class MovableClock extends Clock {
+
+        private Instant now;
+
+        private MovableClock(Instant now) {
+            this.now = now;
+        }
+
+        private void advance(Duration by) {
+            now = now.plus(by);
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
     }
 }

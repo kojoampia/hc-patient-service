@@ -131,10 +131,18 @@ Directory map (`src/main/java/net/jojoaddison/`):
   **never sent a response line at all** until a Kafka message arrived (measured on quality, eight seconds, through the
   gateway and direct to the api port), which is the defect `MembershipStreamOnTheWireIT` now exists to prevent
   recurring; and it kept one emitter per **login** and pushed every frame to all of them with no per-patient filter, so
-  pointing membership events at it would have broadcast one patient's activation to every connected session. `/publish`
-  let any authenticated caller — on any of the three stacks, since they share a signing key — put an arbitrary string on
-  that fan-out. `KafkaProducer` was a `Supplier<String>` returning the literal `"kakfa_producer"`, which Spring Cloud
-  Stream polls once a second, so this service published that string to a topic nothing consumed for as long as it ran.
+  pointing membership events at it would have broadcast one patient's activation to every connected session.
+  **`/publish` did NOT reach that fan-out, and the first version of this entry said it did.** It sent through binding
+  `binding-out-0`, which declared no `destination`, so the topic defaulted to the binding name; the fan-out consumer
+  read `sse-topic`. Two different topics, nothing bridging them, and no environment override in `deploy/` or
+  `quality/` either — checked at `5d2b861` rather than reasoned. What `/publish` actually allowed was any
+  authenticated caller — on any of the three stacks, since they share a signing key — writing arbitrary strings to an
+  **unconsumed** topic on the shared broker: broker abuse, not a broadcast. **The hole was latent rather than absent**,
+  which is the part worth keeping: `/register` really was an unfiltered per-login fan-out, so the moment anything had
+  published to `sse-topic` every string would have reached every connected session. Replacing rather than extending was
+  the right call either way. `KafkaProducer` was a `Supplier<String>` returning the literal `"kakfa_producer"`, which
+  Spring Cloud Stream polls once a second, so this service published that string to a topic nothing consumed for as
+  long as it ran.
   Server-sent events now live in `service/event` (`MembershipStreamRegistry`, `MembershipStreamPublisher`,
   `MembershipStreamConsumer`) behind `web/rest/MembershipStreamResource`.
 - `management` — metrics/health support.

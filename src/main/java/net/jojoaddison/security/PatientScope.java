@@ -525,11 +525,19 @@ public class PatientScope {
      * does not grow a private copy of the answer.</p>
      *
      * <p><strong>The decision is frozen at connect, and that is the one real difference from a request-scoped
-     * check.</strong> A delegation revoked while a stream is open keeps feeding that stream until the client
-     * reconnects — the opposite of the per-request re-read {@link #resolve} exists for. It is accepted here because the
-     * payload is a membership id and a status, never a record, and because the alternative is re-resolving a scope
-     * against a database on every frame for every connected browser. A stream that will ever carry more than an
-     * identifier has to revisit this.</p>
+     * check.</strong> A delegation revoked while a stream is open keeps feeding that stream — the opposite of the
+     * per-request re-read {@link #resolve} exists for, and the token's own expiry is not re-checked either. It is
+     * accepted because the payload is a membership id and a status, never a record, and because the alternative is
+     * re-resolving a scope against a database on every frame for every connected browser.</p>
+     *
+     * <p><strong>What makes it acceptable is that the freeze ENDS, and that is a property of the stream rather than of
+     * this method.</strong> {@code MembershipStreamRegistry.DEFAULT_MAX_AGE_SECONDS} closes every stream after thirty
+     * minutes and the client reconnects, which comes back through here and resolves the scope again — so a revocation
+     * takes effect within that window instead of when the browser tab is eventually closed. This javadoc said "until
+     * the client reconnects" before anything made a client reconnect, which was a reason that did not hold: an open
+     * tab is days, and the review that caught it was right that a written reason which is not the reason doing the
+     * work is itself the defect. <b>Shorten or lengthen that window deliberately; do not remove it.</b> A stream that
+     * will ever carry more than an identifier has to revisit the freeze altogether.</p>
      *
      * @return the caller's visibility rule; never null.
      */
