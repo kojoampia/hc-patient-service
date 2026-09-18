@@ -16,6 +16,7 @@ import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
+import net.jojoaddison.service.event.MembershipStreamPublisher;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,7 @@ class MembershipStatusAnnouncementTest {
     private MembershipRepository memberships;
     private ProfileRepository profiles;
     private PatientEventPublisher events;
+    private MembershipStreamPublisher stream;
     private MongoTemplate mongoTemplate;
     private MembershipService service;
 
@@ -62,8 +64,9 @@ class MembershipStatusAnnouncementTest {
         memberships = mock(MembershipRepository.class);
         profiles = mock(ProfileRepository.class);
         events = mock(PatientEventPublisher.class);
+        stream = mock(MembershipStreamPublisher.class);
         mongoTemplate = mock(MongoTemplate.class);
-        service = new MembershipService(memberships, profiles, events, mongoTemplate);
+        service = new MembershipService(memberships, profiles, events, stream, mongoTemplate);
 
         when(memberships.save(any(Membership.class))).thenAnswer(call -> call.getArgument(0));
         when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL)));
@@ -99,6 +102,33 @@ class MembershipStatusAnnouncementTest {
             // wholesale, and their panel filters planStatus=PENDING server-side — so this value is what drops the
             // row off their queue.
             .containsEntry("status", "ACTIVE");
+    }
+
+    /**
+     * <b>The patient is told at the same moment hc-admin is, and by the same rule.</b>
+     *
+     * <p>Backlog item 39: an administrator verified a plan, hc-admin was told, and the patient's screen went on saying
+     * "Awaiting confirmation" until they restarted the app. The second publish lives inside
+     * {@code announceChosenPlan} rather than beside its callers precisely so that the two audiences cannot drift —
+     * this test and the one below it are what say so, because "both lines are in one method" is a claim about today's
+     * code and not about tomorrow's.</p>
+     */
+    @Test
+    void anApprovalAlsoReachesThePatientsOwnStream() {
+        Membership approved = membership(MembershipStatus.ACTIVE);
+
+        service.update(approved, MembershipStatus.PENDING);
+
+        verify(stream).publish(approved);
+    }
+
+    @Test
+    void aPatientRenamingTheirMembershipTellsTheirStreamNothingEither() {
+        // The silence is shared too. A stream that fired on every write would have the patient's client re-fetching
+        // every time they edited their own membership name, which is the poll item 39 declined dressed as a push.
+        service.update(membership(MembershipStatus.PENDING).name("Our family plan"), MembershipStatus.PENDING);
+
+        verifyNoInteractions(stream);
     }
 
     @Test

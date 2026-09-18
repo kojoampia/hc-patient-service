@@ -115,7 +115,16 @@ spring:
       # rename the method and Spring Cloud Stream has no function to bind, the context still starts,
       # every request is still served, and hc-admin's acknowledgements are silently never applied.
       # PlanVerificationConsumerBindingIT is what stops that being discovered in production.
-      definition: kafkaConsumer;kafkaProducer;patientPlanEventsConsumer
+      #
+      # `membershipStreamEvents` is the same trap with a different victim: rename it and every
+      # connected browser goes on holding an open stream that nothing will ever write to. Backlog
+      # item 39; MembershipStreamRoundTripIT is what can see it.
+      #
+      # `kafkaConsumer` and `kafkaProducer` were here until 2026-09-18 and were the JHipster scaffold,
+      # deleted with it. `kafkaProducer` was a Supplier<String> returning the literal "kakfa_producer",
+      # which Spring Cloud Stream polls once a second — so this service published that string to a
+      # topic nothing consumed, for ever. See the bindings block below.
+      definition: patientPlanEventsConsumer;membershipStreamEvents
     stream:
       kafka:
         binder:
@@ -176,17 +185,46 @@ spring:
               # direction (`patient-events.hc-admin-dlq`). The binder's default name is `error.<destination>.<group>`
               # and would be the only topic in the estate not following that convention.
               dlqName: patient-events-plan.hc-patient-dlq
+          # The patient-facing fan-out. Keyed on patientId rather than on the email every other topic
+          # here uses: both ends of this one are in this repository and both already hold the id, so
+          # keying on it costs no profile lookup inside a Kafka handler and cannot file an event under
+          # an administrator who acted for somebody. The header name is the same so the YAML has one
+          # spelling; the value differs. See MembershipStreamPublisher.
+          membershipEvents-out-0:
+            producer:
+              # messageKeyExpression yields a String, and the binder's default key serializer is
+              # ByteArraySerializer — which fails at send time with a ClassCastException, not at
+              # startup, in a publisher that swallows its failures by design.
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+              messageKeyExpression: headers['patientKey']
+          membershipStreamEvents-in-0:
+            consumer:
+              # DELIBERATE, AND THE OPPOSITE OF EVERY OTHER CONSUMER HERE. `latest` because this
+              # stream does not replay: a client that was disconnected re-fetches on reconnect
+              # (backlog item 39), so an instance starting up must not push a backlog of historic
+              # status changes at whoever connects to it first. Stated explicitly because the binding
+              # has no group and would inherit `latest` anyway — that is a binder detail, and this
+              # depends on it.
+              startOffset: latest
+              # NO DLQ, unlike the binding above. A frame here is a notice, not a decision; the worst
+              # a lost one costs is a browser that refreshes when the patient next opens it. A queue
+              # of missed notices is not something anybody would read.
       bindings:
-        binding-out-0:
-          content-type: text/plain
-          group: hc-patient-service
-        kafkaConsumer-in-0:
-          destination: sse-topic
-          content-type: text/plain
-          group: hc-patient-service
-        kafkaProducer-out-0:
-          content-type: text/plain
-          group: hc-patient-service
+        # ⚠ NO GROUP ON membershipStreamEvents-in-0, AND IT IS THE WHOLE DESIGN. Every other binding
+        # in this file names `hc-patient-service` so that one deployment consumes each topic once.
+        # This one must not: the work is "tell the browsers attached to YOU", and a browser is
+        # attached to exactly one instance. With a group, a frame goes to one instance and the
+        # patients connected to the others are never told — intermittently, in proportion to the
+        # replica count, with nothing failing. Left without one, Spring Cloud Stream assigns an
+        # anonymous group unique per instance and per start, which is the pub/sub semantics this
+        # needs. Backlog item 39; MembershipStreamConsumer's javadoc carries the argument.
+        membershipEvents-out-0:
+          destination: patient-membership-events
+          content-type: application/json
+        membershipStreamEvents-in-0:
+          destination: patient-membership-events
+          content-type: application/json
         # The patient journey — account lifecycle, onboarding progress and care delegation, all on one topic.
         # One topic rather than several because per-patient ordering is the property that makes the stream useful,
         # and Kafka only guarantees it within a partition. The gateway publishes its half to the same destination.

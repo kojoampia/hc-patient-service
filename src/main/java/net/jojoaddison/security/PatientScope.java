@@ -506,16 +506,72 @@ public class PatientScope {
      * @return true if the caller may see it.
      */
     public boolean isVisible(String patientId) {
-        Optional<String> scope = currentPatientId();
-        if (scope.isEmpty()) {
-            return isUnrestricted();
+        return captureVisibility().allows(patientId);
+    }
+
+    /**
+     * The caller's answer to {@link #isVisible}, resolved now and usable later.
+     *
+     * <p><strong>For the one thing in this service that outlives its own request: the membership event stream.</strong>
+     * An {@code SseEmitter} is registered on the request thread and written to minutes afterwards from a Kafka consumer
+     * thread, where there is no {@code RequestContextHolder}, no token and no {@code X-Acting-As} header — so
+     * {@link #isVisible} cannot be asked at the moment a frame has to be filtered. Everything it needs is decided
+     * here, while the request is still on the stack, and carried to the delivery point.</p>
+     *
+     * <p><strong>This is not a second per-patient rule and must not become one.</strong> {@link #isVisible} is
+     * implemented by calling this, so the two cannot drift: change {@link Visibility#allows} and every single-record
+     * read in this service changes with it. The stream deliberately has no filter of its own — backlog item 39, which
+     * names {@code PatientScope} as the authority on who may see whose record precisely so that a long-lived stream
+     * does not grow a private copy of the answer.</p>
+     *
+     * <p><strong>The decision is frozen at connect, and that is the one real difference from a request-scoped
+     * check.</strong> A delegation revoked while a stream is open keeps feeding that stream — the opposite of the
+     * per-request re-read {@link #resolve} exists for, and the token's own expiry is not re-checked either. It is
+     * accepted because the payload is a membership id and a status, never a record, and because the alternative is
+     * re-resolving a scope against a database on every frame for every connected browser.</p>
+     *
+     * <p><strong>What makes it acceptable is that the freeze ENDS, and that is a property of the stream rather than of
+     * this method.</strong> {@code MembershipStreamRegistry.DEFAULT_MAX_AGE_SECONDS} closes every stream after thirty
+     * minutes and the client reconnects, which comes back through here and resolves the scope again — so a revocation
+     * takes effect within that window instead of when the browser tab is eventually closed. This javadoc said "until
+     * the client reconnects" before anything made a client reconnect, which was a reason that did not hold: an open
+     * tab is days, and the review that caught it was right that a written reason which is not the reason doing the
+     * work is itself the defect. <b>Shorten or lengthen that window deliberately; do not remove it.</b> A stream that
+     * will ever carry more than an identifier has to revisit the freeze altogether.</p>
+     *
+     * @return the caller's visibility rule; never null.
+     */
+    public Visibility captureVisibility() {
+        return new Visibility(currentPatientId().orElse(null), isUnrestricted());
+    }
+
+    /**
+     * One caller's "whose records may I see", detached from the request that answered it.
+     *
+     * @param patientId the patient the caller is confined to, or null for a caller with no resolvable scope — which,
+     *     exactly as in {@link #currentPatientId}, means either "unrestricted" or "could not be resolved".
+     * @param unrestricted what {@link #isUnrestricted} said, which is the only thing that tells those two apart.
+     */
+    public record Visibility(String patientId, boolean unrestricted) {
+        /**
+         * Whether a record belonging to {@code recordPatientId} may be seen.
+         *
+         * @param recordPatientId the record's owning patient, possibly null on legacy documents.
+         * @return true if the caller may see it.
+         */
+        public boolean allows(String recordPatientId) {
+            if (patientId == null) {
+                return unrestricted;
+            }
+            // A record with no owner is visible to no patient. Such documents exist (the field was added after some
+            // data was written); making them universally readable would be a hole exactly the shape of the one being
+            // closed.
+            //
+            // This is what stops the single-record reads leaking past the chosen patient: without it an administrator
+            // acting as one patient could still GET another patient's record by id, and the list endpoints would be
+            // the only thing the choice narrowed. On the event stream it is what stops one patient's activation
+            // reaching every connected session — the defect the generated /register endpoint shipped with.
+            return recordPatientId != null && patientId.equals(recordPatientId);
         }
-        // A record with no owner is visible to no patient. Such documents exist (the field was added after some data
-        // was written); making them universally readable would be a hole exactly the shape of the one being closed.
-        //
-        // This is what stops the single-record reads leaking past the chosen patient: without it an administrator
-        // acting as one patient could still GET another patient's record by id, and the list endpoints would be the
-        // only thing the choice narrowed.
-        return patientId != null && scope.filter(patientId::equals).isPresent();
     }
 }

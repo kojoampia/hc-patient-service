@@ -11,6 +11,7 @@ import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.MembershipStatus;
 import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
+import net.jojoaddison.service.event.MembershipStreamPublisher;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
@@ -79,6 +80,13 @@ import org.springframework.stereotype.Service;
  * leave their row naming a cancelled membership instead of the choice the patient just made. The whole argument is on
  * {@link #supersedeOtherPendingChoices}, where the write is.</p>
  *
+ * <p><strong>Two audiences, one rule.</strong> Since backlog item 39 every announcement goes to hc-admin on
+ * {@code patient-events} <em>and</em> to the patient's own open streams on {@code patient-membership-events}. Both
+ * lines are in {@link #announceChosenPlan}, so nothing can tell one and not the other, and the rule above decides for
+ * both — which is the point: the defect item 39 records is precisely that a verified plan reached the back office and
+ * did not reach the person it was about. The second audience is a browser rather than a product, so the frame carries
+ * identifiers only; see {@link net.jojoaddison.service.event.MembershipStreamPublisher}.</p>
+ *
  * <h2>Three things this deliberately does not do</h2>
  *
  * <p><strong>{@code DELETE} announces nothing.</strong> There is no event type for a deleted membership and no
@@ -113,17 +121,21 @@ public class MembershipService {
 
     private final PatientEventPublisher events;
 
+    private final MembershipStreamPublisher stream;
+
     private final MongoTemplate mongoTemplate;
 
     public MembershipService(
         MembershipRepository membershipRepository,
         ProfileRepository profileRepository,
         PatientEventPublisher events,
+        MembershipStreamPublisher stream,
         MongoTemplate mongoTemplate
     ) {
         this.membershipRepository = membershipRepository;
         this.profileRepository = profileRepository;
         this.events = events;
+        this.stream = stream;
         this.mongoTemplate = mongoTemplate;
     }
 
@@ -602,6 +614,19 @@ public class MembershipService {
         // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
         putIfPresent(data, "status", membership.getStatus() == null ? null : membership.getStatus().name());
         events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
+        // And the patient, on the same rule and at the same moment. Backlog item 39: every write that was worth
+        // telling hc-admin about is worth telling the person it happened to, and the absence of this second line is
+        // the whole defect — an administrator verified a plan, hc-admin was told, and the patient's screen went on
+        // saying "Awaiting confirmation" until they restarted the app. It sits inside announceChosenPlan rather than
+        // beside its two callers so that the two announcements cannot drift apart: a fourth write path that reaches
+        // this method tells both, and one that does not tells neither.
+        //
+        // Note what it therefore inherits and what it does not. It inherits announceIfDecided's rule, so a patient
+        // renaming their own membership pushes nothing. It does NOT inherit supersedeOtherPendingChoices' silence,
+        // because that method announces nothing to anybody — and nothing is lost by that here: the supersession
+        // happens before the creation frame, so the one push that follows lands after both writes and the client's
+        // re-fetch sees the finished state.
+        stream.publish(membership);
     }
 
     /**
