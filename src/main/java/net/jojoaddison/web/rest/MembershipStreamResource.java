@@ -21,12 +21,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  *
  * <h2>Three things this endpoint does that a generated one does not</h2>
  *
- * <p><strong>It answers before there is anything to say.</strong> The emitter is returned from the handler
- * immediately, so the status line and headers are written on connect rather than when the first event happens — and
- * for a membership waiting on the back office, the first event may be hours away. The endpoint this replaces,
- * {@code GET /api/hc-patient-service-kafka/register}, did not: probed on the quality stack with a real token, no
- * response line arrived at all within eight seconds, direct to the api port as well as through the gateway. A client
- * cannot tell that from a network failure, so its retry loop is driven by the wrong signal.</p>
+ * <p><strong>It answers before there is anything to say.</strong> The endpoint this replaces, {@code GET
+ * /api/hc-patient-service-kafka/register}, did not: probed on the quality stack with a real token, no response line
+ * arrived at all within eight seconds, direct to the api port as well as through the gateway. A client cannot tell
+ * that from a network failure, so its retry loop is driven by the wrong signal.</p>
+ *
+ * <p>⚠ <strong>This paragraph used to say that returning the emitter immediately was what achieved that, and it was
+ * wrong from the moment cycle 1 shipped.</strong> Returning it fills the response buffer; nothing empties it, so the
+ * status line sat in Tomcat until the heartbeat happened to write — 10.2s, 2.2s and 19.2s on three samples measured on
+ * quality the same day, which is the heartbeat interval rather than any property of this handler. What makes the claim true is
+ * {@link MembershipStreamRegistry#subscribe} queueing a comment on the emitter, flushed with the headers as Spring
+ * initialises it. Backlog item 63, and the reason it survived cycle 1's tests is worth keeping: the socket test that
+ * pinned "headers on connect" had shortened the heartbeat to a second, so it measured this very delay and called one
+ * second of it immediate. {@code MembershipStreamFirstByteIT} is the one that runs at the production value.</p>
  *
  * <p><strong>It is scoped to one patient.</strong> {@link PatientScope} decides, here as everywhere else — see
  * {@link PatientScope#captureVisibility()} for why the decision is taken on this thread and carried rather than asked
