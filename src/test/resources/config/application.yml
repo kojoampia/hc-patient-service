@@ -49,6 +49,14 @@ spring:
               configuration:
                 key.serializer: org.apache.kafka.common.serialization.StringSerializer
               messageKeyExpression: headers['patientKey']
+          # Mirrors the main config. Same ByteArraySerializer trap as the binding above, and the same silence: this
+          # publisher swallows its failures AND sends on a thread of its own, so a key-serializer mismatch would lose
+          # every entity change with nothing failing anywhere. EntityEventRoundTripIT is what would notice.
+          entityEvents-out-0:
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+              messageKeyExpression: headers['entityKey']
           # Mirrors the main config. Without it the tests would run with no DLQ at all and the one property this
           # binding exists to prove — that a poison frame does not stall the partition — would be untested while
           # reading as configured. PlanVerificationConsumerBindingIT asserts the name, not just the flag.
@@ -73,6 +81,12 @@ spring:
         # events would go somewhere nobody is looking. PatientEventBindingIT is what noticed.
         patientEvents-out-0:
           destination: patient-events
+          content-type: application/json
+        # Mirrors the main config — backlog item 45, the entity-change channel. The replace-don't-merge note above
+        # applies with full force: omit this and StreamBridge invents a `entityEvents-out-0` destination of its own,
+        # every test still passes, and EntityEventBindingIT is the only thing that would ever say so.
+        entityEvents-out-0:
+          destination: patient.event
           content-type: application/json
         # Mirrors the main config, for the reason the comment above gives. This one is the inbound half — backlog
         # item 19 — and it is the first binding in this repo where the mirror does more than keep a destination
