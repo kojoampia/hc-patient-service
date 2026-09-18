@@ -22,6 +22,7 @@ import net.jojoaddison.repository.MembershipRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.PatientScope;
 import net.jojoaddison.service.MembershipService;
+import net.jojoaddison.service.event.MembershipStreamPublisher;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +57,7 @@ class MembershipPlanEventTest {
     private PatientScope patientScope;
     private ProfileRepository profiles;
     private PatientEventPublisher events;
+    private MembershipStreamPublisher stream;
     private MembershipResource resource;
 
     @BeforeEach
@@ -64,11 +66,12 @@ class MembershipPlanEventTest {
         patientScope = mock(PatientScope.class);
         profiles = mock(ProfileRepository.class);
         events = mock(PatientEventPublisher.class);
+        stream = mock(MembershipStreamPublisher.class);
         // The MongoTemplate is item 19's, not this test's: MembershipService reaches for it only in
         // activateIfPending, which is the inbound consumer's conditional update and no part of any HTTP path.
         resource =
             new MembershipResource(
-                new MembershipService(memberships, profiles, events, mock(MongoTemplate.class)),
+                new MembershipService(memberships, profiles, events, stream, mock(MongoTemplate.class)),
                 memberships,
                 patientScope
             );
@@ -179,7 +182,16 @@ class MembershipPlanEventTest {
         StreamBridge brokenBroker = mock(StreamBridge.class);
         when(brokenBroker.send(anyString(), any())).thenThrow(new IllegalStateException("broker down"));
         MembershipResource withRealPublisher = new MembershipResource(
-            new MembershipService(memberships, profiles, new PatientEventPublisher(brokenBroker), mock(MongoTemplate.class)),
+            new MembershipService(
+                memberships,
+                profiles,
+                new PatientEventPublisher(brokenBroker),
+                // The real stream publisher too, on the same broken bridge: item 39 added a SECOND publish to this
+                // path, and a catch that covers one and not the other still turns a successful subscription into a
+                // 500. Mocking it here would have left that untested while the test went on reading as proof.
+                new MembershipStreamPublisher(brokenBroker),
+                mock(MongoTemplate.class)
+            ),
             memberships,
             patientScope
         );

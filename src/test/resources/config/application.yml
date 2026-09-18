@@ -34,7 +34,7 @@ spring:
         enabled: false
       enabled: false
     function:
-      definition: kafkaConsumer;kafkaProducer;patientPlanEventsConsumer
+      definition: patientPlanEventsConsumer;membershipStreamEvents
     stream:
       kafka:
         binder:
@@ -57,17 +57,36 @@ spring:
               startOffset: earliest
               enableDlq: true
               dlqName: patient-events-plan.hc-patient-dlq
+          # Mirrors the main config. Without the key serializer the send fails with a ClassCastException at send time
+          # rather than at startup, in a publisher that swallows its failures by design — the exact shape that has
+          # already cost this repo a green suite over a lost event.
+          membershipEvents-out-0:
+            producer:
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+              messageKeyExpression: headers['patientKey']
+          membershipStreamEvents-in-0:
+            consumer:
+              # THE ONE PROPERTY ON THIS BINDING THAT DELIBERATELY DIFFERS FROM MAIN, which says `latest`.
+              #
+              # The binding has no group, so Spring Cloud Stream gives it an anonymous one that is unique per run —
+              # and with `latest` a test that publishes immediately after the context comes up races the consumer's
+              # first partition assignment. That race is not a property of production, where nothing publishes in the
+              # second after startup, so reproducing it here would buy an intermittently red suite and nothing else.
+              # `earliest` against a group nobody else has used makes the round trip deterministic.
+              #
+              # WHAT IS THEREFORE NOT EXERCISED is main's `latest`, which is the property that stops a restarting
+              # instance pushing historic status changes at whoever connects first. That is asserted from the YAML by
+              # MembershipStreamBindingIT rather than from behaviour.
+              startOffset: earliest
       bindings:
-        binding-out-0:
-          content-type: text/plain
-          group: hc-patient-service
-        kafkaConsumer-in-0:
-          destination: sse-topic
-          content-type: text/plain
-          group: hc-patient-service
-        kafkaProducer-out-0:
-          content-type: text/plain
-          group: hc-patient-service
+        # NO GROUP, mirroring main — see the main file for why this binding is the one that must not have one.
+        membershipEvents-out-0:
+          destination: patient-membership-events
+          content-type: application/json
+        membershipStreamEvents-in-0:
+          destination: patient-membership-events
+          content-type: application/json
         # Mirrors the main config. This block replaces rather than merges with it, so a binding that exists only there
         # is a binding the tests never exercise — StreamBridge would quietly invent a destination instead, and the
         # events would go somewhere nobody is looking. PatientEventBindingIT is what noticed.

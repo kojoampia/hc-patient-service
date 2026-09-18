@@ -125,7 +125,18 @@ Directory map (`src/main/java/net/jojoaddison/`):
 - `security` — JWT auth utilities (`SecurityUtils`, `AuthoritiesConstants`), `PatientScope` (whose records), and
   `ScopeOfPractice` + `ClinicalDomain` (what kind of data a discipline may touch).
 - `config` — Spring configuration classes (`SecurityConfiguration`, `SecurityJwtConfiguration`, `DatabaseConfiguration`, `AsyncConfiguration`, `WebConfigurer`, etc.), plus `config/dbmigrations/` — the package Mongock scans (`mongock.migration-scan-package`). It holds one change unit — `AddressAsDocumentMigration` (2026-08-19), which reshapes free-text `Profile.address` values into `Address` documents — and two `ApplicationRunner`s, both gated to `dev`/`test`. `DemoDataInitializer` seeds the professional-dashboard demo dataset from `src/main/resources/config/demo-data/`. `DevelopmentDataInitializer` (added 2026-08-15, shaped after hc-admin's class of the same name) seeds a record from a document supplied **from outside the image**, named by `hc.seed.location` — a Spring resource string, unset here, set by `hc-patient-quality` to the file it mounts. That document is keyed by profile at the root and holds plain arrays of domain objects per collection, so Jackson deserializes straight into the domain and a field this service does not have is a field the document cannot set. Setting `hc.seed.location` **stands `DemoDataInitializer` down**, because the two datasets describe the same subsystem with different people in it. Two departures from the hc-admin original, both because this service already promised otherwise: every active profile's block is applied rather than only the most specific (the quality stack runs `dev,test`, and "test wins" would seed nothing at all), and seeding is additive rather than overwriting. Seeding belongs in a runner rather than a change unit because a change unit has no notion of a Spring profile and runs exactly once — the gateway shipped publicly known credentials to production by making that mistake.
-- `broker` — `KafkaConsumer`/`KafkaProducer`.
+- **`broker` is gone (2026-09-18, backlog item 39).** It held the JHipster scaffold — `KafkaConsumer`, `KafkaProducer`
+  and the `HcPatientServiceKafkaResource` that exposed them at `/api/hc-patient-service-kafka/{register,unregister,publish}`
+  — and item 39 replaced rather than extended it, so all four went. Two things about it are worth carrying. `/register`
+  **never sent a response line at all** until a Kafka message arrived (measured on quality, eight seconds, through the
+  gateway and direct to the api port), which is the defect `MembershipStreamOnTheWireIT` now exists to prevent
+  recurring; and it kept one emitter per **login** and pushed every frame to all of them with no per-patient filter, so
+  pointing membership events at it would have broadcast one patient's activation to every connected session. `/publish`
+  let any authenticated caller — on any of the three stacks, since they share a signing key — put an arbitrary string on
+  that fan-out. `KafkaProducer` was a `Supplier<String>` returning the literal `"kakfa_producer"`, which Spring Cloud
+  Stream polls once a second, so this service published that string to a topic nothing consumed for as long as it ran.
+  Server-sent events now live in `service/event` (`MembershipStreamRegistry`, `MembershipStreamPublisher`,
+  `MembershipStreamConsumer`) behind `web/rest/MembershipStreamResource`.
 - `management` — metrics/health support.
 - `aop/logging` — logging aspect.
 
