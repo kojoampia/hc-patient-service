@@ -21,6 +21,7 @@ import net.jojoaddison.domain.Profile;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.AuthoritiesConstants;
 import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.event.MembershipStreamRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +65,15 @@ import org.springframework.test.context.TestPropertySource;
  * overrides no stream property, measures time to first byte at the production heartbeat, and refuses to run if
  * anything has shortened it. What this class keeps is the rest: that the headers and the keep-alive reach a real
  * socket, and that the server closes the stream by itself.</p>
+ *
+ * <p><b>And keeping the keep-alive half took a change here, because item 63's fix would otherwise have hollowed it
+ * out.</b> The loop below took the <em>first</em> {@code :}-prefixed line and asserted only that it existed. Once the
+ * stream flushes {@code :}{@value net.jojoaddison.service.event.MembershipStreamRegistry#CONNECTED_COMMENT} on
+ * connect, that line is the connect flush and arrives immediately — so the test would have passed <b>with the
+ * heartbeat scheduler never started at all</b>, which is the entire property it is here to hold. It now waits for
+ * {@code :}{@value net.jojoaddison.service.event.MembershipStreamRegistry#KEEP_ALIVE_COMMENT} by name and checks the
+ * connect comment came first on the way past. A fix that quietly satisfies the test guarding it is the same failure
+ * as the one this item was filed for, one turn further on.</p>
  *
  * <p>Raw sockets rather than an HTTP client on purpose: every client worth using buffers, follows and re-frames, and
  * the question here is what arrives and when. A reader on a socket with a read timeout answers it directly.</p>
@@ -144,13 +154,26 @@ class MembershipStreamOnTheWireIT {
             assertThat(headers).anyMatch(header -> header.startsWith("x-accel-buffering: no"));
 
             Instant connectedAt = Instant.now();
+            // Comments are now two different things and the loop has to tell them apart. The first is the connect
+            // flush, which arrives at once; taking it as the keep-alive — which is what this loop did the moment
+            // item 63 landed — would leave the test green with no scheduler running at all.
+            String firstComment = null;
             String keepAlive = null;
             for (String line = reader.readLine(); line != null && keepAlive == null; line = reader.readLine()) {
-                if (line.startsWith(":")) {
+                if (!line.startsWith(":")) {
+                    continue;
+                }
+                if (firstComment == null) {
+                    firstComment = line;
+                }
+                if (line.equals(":" + MembershipStreamRegistry.KEEP_ALIVE_COMMENT)) {
                     keepAlive = line;
                 }
             }
 
+            assertThat(firstComment)
+                .as("the first comment on the wire is not the connect flush — see item 63")
+                .isEqualTo(":" + MembershipStreamRegistry.CONNECTED_COMMENT);
             assertThat(keepAlive).as("an idle stream sends nothing, so nginx cuts it at proxy_read_timeout").isNotNull();
             assertThat(ChronoUnit.MILLIS.between(connectedAt, Instant.now()))
                 .as("the keep-alive has to come round faster than the proxy gives up")

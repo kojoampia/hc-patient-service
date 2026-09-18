@@ -126,6 +126,15 @@ public class MembershipStreamRegistry {
      */
     public static final String CONNECTED_COMMENT = "connected";
 
+    /**
+     * The comment the heartbeat writes, named here because two tests now assert its exact text.
+     *
+     * <p>A literal in {@link #beat} and a literal in a test are two places one string lives, and the failure mode of
+     * that is a test that waits for a line the server stopped sending. {@code MembershipStreamOnTheWireIT} loops until
+     * it sees this specific line rather than any comment, which is what makes it evidence that the scheduler ran.</p>
+     */
+    public static final String KEEP_ALIVE_COMMENT = "keep-alive";
+
     private final Logger log = LoggerFactory.getLogger(MembershipStreamRegistry.class);
 
     /**
@@ -188,8 +197,15 @@ public class MembershipStreamRegistry {
      * Opens a stream for one caller, and writes to it before handing it back.
      *
      * <p>The write is the point and is not decoration — see the class javadoc for what returning an unwritten emitter
-     * actually did. It goes through {@link #send} like every other write, so a caller who has already gone is retired
-     * here by the same rule that retires one who goes later.</p>
+     * actually did.</p>
+     *
+     * <p><strong>It goes through {@link #send} for uniformity, not because it can fail here.</strong> With no handler
+     * attached the emitter only queues, and the one thing {@code ResponseBodyEmitter.send} throws — a state check on
+     * an already-completed emitter — a freshly built one cannot trip, so the catch in {@code send} is unreachable on
+     * this path. A client that has gone before the flush surfaces the failure out of Spring's {@code initialize}
+     * instead, which this class never sees; the subscription lingers until the next write fails and retires it, so
+     * the worst case is one dead entry for less than a heartbeat. That is bounded and self-healing, and is written
+     * down here because the code reads as though the {@code try} were doing the work.</p>
      *
      * @param visibility the caller's scope, captured by {@code PatientScope} while the request was still on the stack.
      * @return the emitter to return from the endpoint, carrying one queued comment. Spring flushes it — with the
@@ -209,6 +225,11 @@ public class MembershipStreamRegistry {
         // Queued rather than written, because no handler is attached to the emitter until the endpoint returns it.
         // That is exactly the timing wanted: Spring performs it during initialisation, which is the first moment a
         // flush can reach the socket at all.
+        //
+        // The subscription is in the set before this line, so a beat landing in the window between the two would
+        // queue ":keep-alive" ahead of ":connected" and a test asserting the first comment would go red once and
+        // never again. Sub-microsecond against a 25-second interval, and not worth a second collection to close —
+        // but named here so it is recognised as this race rather than as a regression.
         send(subscription, SseEmitter.event().comment(CONNECTED_COMMENT));
         log.debug("Opened a membership stream; {} now open on this instance", subscriptions.size());
         return emitter;
@@ -268,7 +289,7 @@ public class MembershipStreamRegistry {
                 retire(subscription);
                 continue;
             }
-            send(subscription, SseEmitter.event().comment("keep-alive"));
+            send(subscription, SseEmitter.event().comment(KEEP_ALIVE_COMMENT));
         }
     }
 
