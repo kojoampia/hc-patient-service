@@ -57,6 +57,14 @@ import org.springframework.test.context.TestPropertySource;
  * {@code MembershipStreamRegistryTest} — a relationship, not a literal, because a literal 25 would go on passing if
  * the proxy's {@code proxy_read_timeout} were ever lowered.</p>
  *
+ * <p>⚠ <b>And the shortening cost something, which is backlog item 63.</b> The assertion below that the status line
+ * arrives "on connect" was satisfied, for as long as cycle 1 was deployed, by a stream that flushed nothing until its
+ * first heartbeat: with the beat at one second the wait was a second, and a second reads as immediate. <b>The instrument set the property it
+ * was meant to check.</b> The claim about timing therefore no longer lives here — {@code MembershipStreamFirstByteIT}
+ * overrides no stream property, measures time to first byte at the production heartbeat, and refuses to run if
+ * anything has shortened it. What this class keeps is the rest: that the headers and the keep-alive reach a real
+ * socket, and that the server closes the stream by itself.</p>
+ *
  * <p>Raw sockets rather than an HTTP client on purpose: every client worth using buffers, follows and re-frames, and
  * the question here is what arrives and when. A reader on a socket with a read timeout answers it directly.</p>
  */
