@@ -158,6 +158,20 @@ spring:
               # Every event about one person lands on one partition. Without this they scatter and "what happened to
               # this patient, in what order" stops being answerable, which is the only question the stream is for.
               messageKeyExpression: headers['patientKey']
+          entityEvents-out-0:
+            producer:
+              # The same ByteArraySerializer trap as the binding above, which cost this repo every event on
+              # `patient-events` while every test passed: messageKeyExpression yields a String, the binder's default
+              # key serializer is ByteArraySerializer, and the mismatch fails at SEND time rather than at startup —
+              # inside a publisher that swallows its failures by design, on a thread of its own. Silent twice over.
+              configuration:
+                key.serializer: org.apache.kafka.common.serialization.StringSerializer
+              # KEYED ON THE ENTITY, NOT THE PATIENT — the opposite choice from the binding above, deliberately.
+              # Two changes to one document must stay in order or the audit trail reports a create and a delete in
+              # whichever order two partitions happened to drain, which is a trail asserting the document still
+              # exists. Keying on the actor instead would order one person's actions and scatter each document's
+              # history, which is the wrong half of the guarantee for this stream. See EntityEventPublisher.
+              messageKeyExpression: headers['entityKey']
           # THIS REPO'S FIRST DEAD-LETTER QUEUE, and it is here because of what the alternatives do.
           #
           # A frame this consumer cannot apply — unreadable bytes, no subject, a plan that disagrees with the
@@ -230,6 +244,24 @@ spring:
         # and Kafka only guarantees it within a partition. The gateway publishes its half to the same destination.
         patientEvents-out-0:
           destination: patient-events
+          content-type: application/json
+        # EVERY ENTITY CHANGE IN THIS SUBSYSTEM — hc-admin turns each frame into one audit row. Backlog item 45,
+        # under the estate decision of 2026-09-17: one channel per product carrying all entity CRUD, so a new
+        # consumer subscribes rather than negotiating a topic with its producer.
+        #
+        # A NEW TOPIC, NOT `patient-events` WIDENED, and the name is dotted-singular rather than this repo's
+        # hyphenated-plural convention. `patient-events` is a LIFECYCLE stream: seven curated moments that matter to
+        # a subscriber's model, with a live hc-admin consumer and this subsystem's own gateway mail router on it.
+        # An audit trail needs every write, which is a different stream. The four channels are patient.event,
+        # professional.event, vendor.event and admin.event — hc-professional already publishes dotted-singular, and
+        # two products cannot each keep their own convention and also be consumed uniformly. Retiring the old topic
+        # is item 46 and is deliberately NOT this change: add first, remove nothing.
+        #
+        # DECLARED HERE RATHER THAN LEFT TO StreamBridge, which creates a destination on the fly for a binding name
+        # it does not recognise — a working publisher writing to a topic declared in no config and read by nothing.
+        # hc-admin shipped exactly that with `roster-events` and nobody noticed for months.
+        entityEvents-out-0:
+          destination: patient.event
           content-type: application/json
         # The return leg, and the only topic this service consumes that it does not own: hc-admin publishes an
         # administrator's decision on a plan here and this service applies it. Backlog item 19.
