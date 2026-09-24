@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -202,7 +203,12 @@ class MembershipPlanEventTest {
 
         assertThatCode(() -> withRealPublisher.createMembership(chosenPlan())).doesNotThrowAnyException();
 
-        verify(brokenBroker).send(eq(PatientEventPublisher.BINDING), any());
+        // With a timeout since item 71: both real publishers now send on their own threads, so the request cannot
+        // see the throw AT ALL — which is the item's whole point — and a bare verify would race the sender. The
+        // verify still matters: it proves the throwing send ran, so "no exception reached the caller" is a
+        // statement about a swallow that happened rather than about a send that never did.
+        verify(brokenBroker, timeout(5_000)).send(eq(PatientEventPublisher.BINDING), any());
+        verify(brokenBroker, timeout(5_000)).send(eq(MembershipStreamPublisher.BINDING), any());
     }
 
     @Test

@@ -1,7 +1,10 @@
 package net.jojoaddison.service.event;
 
+import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.ThreadPoolExecutor;
 import net.jojoaddison.domain.Membership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +50,21 @@ import org.springframework.stereotype.Component;
  * who acted for somebody. The header name is the same — {@code patientKey} — because
  * {@code messageKeyExpression} is configured per binding and reusing the name keeps one spelling in the YAML; the
  * <em>value</em> differs, and a reader comparing the two bindings should expect that.</p>
+ *
+ * <h2>The send is asynchronous; the no-owner refusal is not</h2>
+ *
+ * <p>Backlog item 71, the architect's decision of 2026-09-24: a <em>hung</em> broker — accepting the connection and
+ * not answering — blocks a send for {@code max.block.ms}, unset in this estate and so Kafka's sixty-second default.
+ * This publisher runs inside {@code MembershipResource}'s request as well as inside Kafka handlers, so that minute
+ * would land on the patient choosing a plan, past nginx's timeout, after their membership was written. The send
+ * therefore runs on {@link AsyncEventSender}'s thread; capping {@code max.block.ms} instead was considered and
+ * explicitly declined. The no-owner refusal above stays on the calling thread — it decides whether there is anything
+ * to queue at all.</p>
+ *
+ * <p><strong>Its executor is its own</strong> — not {@link EntityEventPublisher}'s, whose stream fires on every
+ * write in the service, and not {@link PatientEventPublisher}'s either, though both are quiet: this is the one stream
+ * a patient is actively watching a screen for, and its loss budget should not be a function of anybody else's burst.
+ * One daemon thread is the whole cost. {@link AsyncEventSender}'s javadoc carries the full argument.</p>
  */
 @Component
 public class MembershipStreamPublisher {
@@ -57,9 +75,15 @@ public class MembershipStreamPublisher {
     /** The header the Kafka binder reads to choose a partition key, via {@code messageKeyExpression}. */
     public static final String KEY_HEADER = "patientKey";
 
+    /** A membership change is one frame; 128 absorbs a burst of them and bounds staleness. See {@link AsyncEventSender}. */
+    private static final int QUEUE_CAPACITY = 128;
+
     private final Logger log = LoggerFactory.getLogger(MembershipStreamPublisher.class);
 
     private final StreamBridge streamBridge;
+
+    /** Own instance, own queue — see the class javadoc for why it is not shared. */
+    private final AsyncEventSender sender = new AsyncEventSender("membership-stream-publisher", QUEUE_CAPACITY);
 
     public MembershipStreamPublisher(StreamBridge streamBridge) {
         this.streamBridge = streamBridge;
@@ -89,16 +113,40 @@ public class MembershipStreamPublisher {
             membership.getStatus() == null ? null : membership.getStatus().name()
         );
 
+        // Built on the calling thread and sent on the other one. Only the send is deferred.
+        if (!sender.offer(() -> send(event, membership.getId(), patientId))) {
+            // The queue is full, which means the broker is not draining it. Dropping is the design: a browser that
+            // misses a frame re-fetches on its next connect, where a stalled request is a patient told their
+            // choice failed.
+            log.warn("Dropped a membership push for {} — the publishing queue is full", membership.getId());
+        }
+    }
+
+    private void send(MembershipChangedEvent event, String membershipId, String patientId) {
         try {
             // The boolean is worth reading: StreamBridge answers false for a binding it could not resolve rather than
             // throwing, which is a mis-wired producer failing quietly.
             boolean sent = streamBridge.send(BINDING, MessageBuilder.withPayload(event).setHeader(KEY_HEADER, patientId).build());
             if (!sent) {
-                log.warn("Pushing membership {} was refused by the binder — check the {} binding", membership.getId(), BINDING);
+                log.warn("Pushing membership {} was refused by the binder — check the {} binding", membershipId, BINDING);
             }
         } catch (Exception e) {
-            // Deliberately swallowed. The membership is written; this is a notification, never the mechanism.
-            log.warn("Could not push membership {} — the record is unaffected", membership.getId(), e);
+            // Deliberately swallowed, and on a thread of its own since item 71 — it cannot reach the caller, and the
+            // catch keeps the sender thread alive for the next frame. The membership is written either way.
+            log.warn("Could not push membership {} — the record is unaffected", membershipId, e);
         }
+    }
+
+    /** Gives queued frames a bounded chance to go out on shutdown; see {@link AsyncEventSender#drain}. */
+    @PreDestroy
+    void drain() {
+        if (!sender.drain(Duration.ofSeconds(2))) {
+            log.warn("Shutting down with membership pushes still queued — they are lost, and the records are unaffected");
+        }
+    }
+
+    /** For the test that pins the rejection policy. The defect it guards against is a one-word edit. */
+    ThreadPoolExecutor senderForTest() {
+        return sender.executorForTest();
     }
 }
