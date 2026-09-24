@@ -1,11 +1,14 @@
 package net.jojoaddison.service.event;
 
+import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.stream.function.StreamBridge;
@@ -48,6 +51,22 @@ import org.springframework.stereotype.Component;
  * The record itself is protected by {@code PatientScope}, which fails closed and refuses cross-patient reads; a stream
  * carrying the same facts would be that protection routed around. {@link #assertNothingClinical} enforces it at
  * runtime, and there is a test that fails if a clinical key is ever added.</p>
+ *
+ * <h2>The send is asynchronous; the refusals are not</h2>
+ *
+ * <p>Backlog item 71, the architect's decision of 2026-09-24: a <em>hung</em> broker — accepting the connection and
+ * not answering — blocks a send for {@code max.block.ms}, unset in this estate and so Kafka's sixty-second default,
+ * on the thread of a request whose write already succeeded. So the send runs on {@link AsyncEventSender}'s thread and
+ * no caller waits; capping {@code max.block.ms} instead was considered and explicitly declined. The two guards above
+ * stay on the <em>calling</em> thread on purpose: the clinical-content refusal is a programming error that must
+ * surface in the test that introduces it, and the no-key refusal decides whether there is anything to queue at
+ * all. Only a frame that passed both is deferred.</p>
+ *
+ * <p><strong>Its executor is its own, not shared with {@link EntityEventPublisher}'s.</strong> That one fires on
+ * every write in the service; this stream is seven curated moments feeding hc-admin's watermark, where a gap is
+ * meaningful. One shared queue would let a burst of entity changes evict a {@code PlanChosen} — a different
+ * publisher's load silencing the stream a consumer builds state from. The cost of separation is one daemon thread.
+ * {@link AsyncEventSender}'s javadoc carries the full argument.</p>
  */
 @Component
 public class PatientEventPublisher {
@@ -97,9 +116,19 @@ public class PatientEventPublisher {
         "notes"
     );
 
+    /**
+     * A burst on this stream is a handful of frames per request — onboarding's five steps are five requests — so 128
+     * absorbs hundreds of concurrent writers while bounding how much stale traffic a recovering broker replays.
+     * Sized for burst, not outage: see {@link AsyncEventSender}.
+     */
+    private static final int QUEUE_CAPACITY = 128;
+
     private final Logger log = LoggerFactory.getLogger(PatientEventPublisher.class);
 
     private final StreamBridge streamBridge;
+
+    /** Own instance, own queue — see the class javadoc for why it is not shared. */
+    private final AsyncEventSender sender = new AsyncEventSender("patient-event-publisher", QUEUE_CAPACITY);
 
     public PatientEventPublisher(StreamBridge streamBridge) {
         this.streamBridge = streamBridge;
@@ -137,12 +166,22 @@ public class PatientEventPublisher {
             payload
         );
 
+        // Built on the calling thread — where the guards just ran and the caller's context exists — and sent on the
+        // other one. Only the send is deferred.
+        if (!sender.offer(() -> send(type, event, key))) {
+            // The queue is full, which means the broker is not draining it. Dropping is the design: a gap in this
+            // stream is visible to hc-admin's watermark, where a stalled request would be visible to a patient.
+            log.warn("Dropped {} — the patient-events publishing queue is full", type);
+        }
+    }
+
+    private void send(String type, PatientEvent event, String key) {
         try {
             // The boolean is worth reading: StreamBridge answers false for a binding it could not resolve rather
             // than throwing, which is a mis-wired producer failing quietly.
             boolean sent = streamBridge.send(
                 BINDING,
-                // No null branch: the guard above returned, so the key is non-blank by here. It used to be
+                // No null branch: the guard in publish() returned, so the key is non-blank by here. It used to be
                 // `key == null ? "" : key`, and the empty string was the trap — StringSerializer turns "" into a
                 // zero-length array rather than a null key, so Kafka's partitioner takes the keyed branch and every
                 // unkeyed frame in the estate hashed to one partition instead of being spread.
@@ -152,10 +191,23 @@ public class PatientEventPublisher {
                 log.warn("Publishing {} was refused by the binder — check the {} binding", type, BINDING);
             }
         } catch (Exception e) {
-            // Deliberately swallowed. See the class javadoc: the write already happened, and the event is a
-            // notification rather than the mechanism.
+            // Deliberately swallowed, and on a thread of its own since item 71 — it can no longer reach the caller
+            // at all, and the catch is what keeps the sender thread alive for the next frame.
             log.warn("Could not publish {} — the record is unaffected", type, e);
         }
+    }
+
+    /** Gives queued frames a bounded chance to go out on shutdown; see {@link AsyncEventSender#drain}. */
+    @PreDestroy
+    void drain() {
+        if (!sender.drain(Duration.ofSeconds(2))) {
+            log.warn("Shutting down with patient events still queued — they are lost, and the records are unaffected");
+        }
+    }
+
+    /** For the test that pins the rejection policy. The defect it guards against is a one-word edit. */
+    ThreadPoolExecutor senderForTest() {
+        return sender.executorForTest();
     }
 
     /**

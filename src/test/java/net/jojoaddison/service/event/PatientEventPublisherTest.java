@@ -7,10 +7,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.cloud.stream.function.StreamBridge;
@@ -21,8 +23,18 @@ import org.springframework.messaging.Message;
  *
  * <p>Both are the kind that hold right up until somebody adds one more field or tightens one more error path, which is
  * why they are pinned here rather than left to the class comment.</p>
+ *
+ * <p>Sends are asynchronous since backlog item 71, so every verification of the bridge carries a timeout — the same
+ * rule {@link EntityEventPublisherTest} states: a bare {@code verify} races the sender thread and fails
+ * intermittently, which is worse than not testing it, because the flake would eventually be "fixed" by deleting the
+ * assertion. The timeout is a poll, not a sleep: it returns the moment the send lands and fails reliably when it
+ * never does. The two REFUSALS stay verified without one, deliberately — they are synchronous by design
+ * ({@code verifyNoInteractions} after a refusal is only meaningful because nothing was ever queued), and a timeout
+ * on them would paper over that property going missing.</p>
  */
 class PatientEventPublisherTest {
+
+    private static final long SEND_TIMEOUT_MS = 5_000;
 
     @Test
     void theEnvelopeCarriesWhatAConsumerNeedsToCorrelateAndDeduplicate() {
@@ -37,7 +49,7 @@ class PatientEventPublisherTest {
             );
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
-        verify(bridge).send(eq(PatientEventPublisher.BINDING), captor.capture());
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(PatientEventPublisher.BINDING), captor.capture());
         PatientEvent event = (PatientEvent) captor.getValue().getPayload();
 
         assertThat(event.eventId()).as("the idempotency key; delivery is at least once").isNotBlank();
@@ -78,11 +90,29 @@ class PatientEventPublisherTest {
         doThrow(new IllegalStateException("broker down")).when(bridge).send(any(String.class), any(Message.class));
 
         // The write has already happened by this point. Losing the event costs observability; propagating the failure
-        // would cost the patient their onboarding.
+        // would cost the patient their onboarding. Since item 71 the send runs on the sender thread, so this
+        // assertion alone would pass vacuously — the timeout-verify below is what keeps it honest, proving the
+        // throwing send actually RAN and its throw reached nobody.
         assertThatCode(() ->
                 new PatientEventPublisher(bridge).publish(PatientEventType.ONBOARDING_COMPLETED, "ama@example.test", null, "p1", Map.of())
             )
             .doesNotThrowAnyException();
+
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(any(String.class), any(Message.class));
+    }
+
+    /**
+     * ⛔ The one-word edit that would silently restore the sixty-second block.
+     *
+     * <p>{@code CallerRunsPolicy} is the conventional choice for a bounded queue and it hands the blocking send back
+     * to the request thread exactly when the broker is slowest — the same pin {@link EntityEventPublisherTest}
+     * carries, per instance because each publisher owns its own {@link AsyncEventSender}.</p>
+     */
+    @Test
+    void aFullQueueDropsTheFrameRatherThanRunningItOnTheCallersThread() {
+        PatientEventPublisher publisher = new PatientEventPublisher(mock(StreamBridge.class));
+
+        assertThat(publisher.senderForTest().getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
     }
 
     /**
@@ -120,7 +150,7 @@ class PatientEventPublisherTest {
             );
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
-        verify(bridge).send(eq(PatientEventPublisher.BINDING), captor.capture());
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(PatientEventPublisher.BINDING), captor.capture());
         PatientEvent event = (PatientEvent) captor.getValue().getPayload();
 
         assertThat(event.data()).containsOnlyKeys("step", "stepName", "completedAt");
