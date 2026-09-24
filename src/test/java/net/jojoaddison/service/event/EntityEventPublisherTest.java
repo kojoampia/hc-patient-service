@@ -9,10 +9,13 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.reflect.RecordComponent;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.cloud.stream.function.StreamBridge;
@@ -43,7 +46,7 @@ class EntityEventPublisherTest {
     void anEntityChangeProducesOneFrameCarryingTheFiveFieldsAnAuditRowNeeds() {
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new EntityEventPublisher(bridge).publish("Medication", "med-1", EntityChangeAction.CREATED, "account-7");
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry()).publish("Medication", "med-1", EntityChangeAction.CREATED, "account-7");
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
@@ -75,7 +78,8 @@ class EntityEventPublisherTest {
         // that everything ever created still exists.
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new EntityEventPublisher(bridge).publish("Allergy", "allergy-3", EntityChangeAction.DELETED, "account-7");
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry())
+            .publish("Allergy", "allergy-3", EntityChangeAction.DELETED, "account-7");
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
@@ -102,7 +106,7 @@ class EntityEventPublisherTest {
     void theSubjectIsTheRecordAndNeverTheActor() {
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new EntityEventPublisher(bridge).publish("Medication", "med-1", EntityChangeAction.CREATED, "account-7");
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry()).publish("Medication", "med-1", EntityChangeAction.CREATED, "account-7");
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
@@ -136,7 +140,8 @@ class EntityEventPublisherTest {
     void theFrameCarriesNoFieldValues() {
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new EntityEventPublisher(bridge).publish("Profile", "profile-1", EntityChangeAction.UPDATED, "account-7");
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry())
+            .publish("Profile", "profile-1", EntityChangeAction.UPDATED, "account-7");
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
@@ -171,7 +176,8 @@ class EntityEventPublisherTest {
         // unenriched. The refusal of logins lives where they are resolved: ActorAccountId never returns one.
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new EntityEventPublisher(bridge).publish("Profile", "profile-1", EntityChangeAction.UPDATED, "account-7");
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry())
+            .publish("Profile", "profile-1", EntityChangeAction.UPDATED, "account-7");
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
@@ -200,8 +206,55 @@ class EntityEventPublisherTest {
 
         // And the whole path, not only the guard: an accountId-carrying frame reaches the bridge.
         StreamBridge bridge = mock(StreamBridge.class);
-        new EntityEventPublisher(bridge).publish("Medication", "med-1", EntityChangeAction.CREATED, "account-7");
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry()).publish("Medication", "med-1", EntityChangeAction.CREATED, "account-7");
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
+     * Item 73's gate for the one HAND-COUNTED site.
+     *
+     * <p>This class keeps its inline executor (item 71 deliberately left it untouched), so its drop count is not
+     * constructor-enforced the way {@code AsyncEventSender}'s is — it lives in the
+     * {@code catch (RejectedExecutionException)} and could be forgotten by an edit that keeps every other test
+     * green. This test is the compensation: it drives a real drop through the 512-slot queue and watches the
+     * counter move under {@code topic=patient.event}.</p>
+     */
+    @Test
+    void aDroppedEntityChangeMovesTheCounter() throws Exception {
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        CountDownLatch wedge = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+        StreamBridge bridge = mock(StreamBridge.class);
+        org.mockito.Mockito
+            .when(
+                bridge.send(
+                    org.mockito.ArgumentMatchers.any(String.class),
+                    org.mockito.ArgumentMatchers.any(org.springframework.messaging.Message.class)
+                )
+            )
+            .thenAnswer(call -> {
+                occupied.countDown();
+                wedge.await();
+                return true;
+            });
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, registry);
+
+        try {
+            publisher.publish("Medication", "med-0", EntityChangeAction.CREATED, null);
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+
+            for (int i = 0; i < 513; i++) {
+                publisher.publish("Medication", "med-" + i, EntityChangeAction.UPDATED, null);
+            }
+
+            assertThat(
+                registry.get(DroppedEventCounter.METER_NAME).tag(DroppedEventCounter.TOPIC_DIMENSION, "patient.event").counter().count()
+            )
+                .as("the one overflow publish is the one counted drop")
+                .isEqualTo(1.0);
+        } finally {
+            wedge.countDown();
+        }
     }
 
     /**
@@ -212,7 +265,7 @@ class EntityEventPublisherTest {
      */
     @Test
     void afullQueueDropsTheFrameRatherThanRunningItOnTheCallersThread() {
-        EntityEventPublisher publisher = new EntityEventPublisher(mock(StreamBridge.class));
+        EntityEventPublisher publisher = new EntityEventPublisher(mock(StreamBridge.class), new SimpleMeterRegistry());
 
         assertThat(publisher.senderForTest().getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
     }
@@ -220,7 +273,7 @@ class EntityEventPublisherTest {
     @Test
     void aFrameThatNamesNothingIsRefusedRatherThanSent() {
         StreamBridge bridge = mock(StreamBridge.class);
-        EntityEventPublisher publisher = new EntityEventPublisher(bridge);
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, new SimpleMeterRegistry());
 
         publisher.publish("Medication", null, EntityChangeAction.CREATED, "account-7");
         publisher.publish(null, "med-1", EntityChangeAction.CREATED, "account-7");
@@ -235,7 +288,7 @@ class EntityEventPublisherTest {
         // must produce a frame with no actor — never a login standing in for one.
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new EntityEventPublisher(bridge).publish("Task", "task-1", EntityChangeAction.CREATED, null);
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry()).publish("Task", "task-1", EntityChangeAction.CREATED, null);
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());

@@ -11,7 +11,9 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -39,7 +41,7 @@ class PatientEventPublisherTest {
     @Test
     void theEnvelopeCarriesWhatAConsumerNeedsToCorrelateAndDeduplicate() {
         StreamBridge bridge = mock(StreamBridge.class);
-        new PatientEventPublisher(bridge)
+        new PatientEventPublisher(bridge, new SimpleMeterRegistry())
             .publish(
                 PatientEventType.ONBOARDING_STARTED,
                 "  Ama@Example.Test ",
@@ -75,7 +77,7 @@ class PatientEventPublisherTest {
         // reach the wire as a zero-length Kafka key, which is a key, so every such frame in the estate hashed to one
         // partition rather than being spread.
         StreamBridge bridge = mock(StreamBridge.class);
-        PatientEventPublisher publisher = new PatientEventPublisher(bridge);
+        PatientEventPublisher publisher = new PatientEventPublisher(bridge, new SimpleMeterRegistry());
 
         publisher.publish(PatientEventType.PLAN_CHOSEN, null, null, "account-1", Map.of());
         publisher.publish(PatientEventType.PLAN_CHOSEN, "", null, "account-1", Map.of());
@@ -94,7 +96,8 @@ class PatientEventPublisherTest {
         // assertion alone would pass vacuously — the timeout-verify below is what keeps it honest, proving the
         // throwing send actually RAN and its throw reached nobody.
         assertThatCode(() ->
-                new PatientEventPublisher(bridge).publish(PatientEventType.ONBOARDING_COMPLETED, "ama@example.test", null, "p1", Map.of())
+                new PatientEventPublisher(bridge, new SimpleMeterRegistry())
+                    .publish(PatientEventType.ONBOARDING_COMPLETED, "ama@example.test", null, "p1", Map.of())
             )
             .doesNotThrowAnyException();
 
@@ -110,9 +113,60 @@ class PatientEventPublisherTest {
      */
     @Test
     void aFullQueueDropsTheFrameRatherThanRunningItOnTheCallersThread() {
-        PatientEventPublisher publisher = new PatientEventPublisher(mock(StreamBridge.class));
+        PatientEventPublisher publisher = new PatientEventPublisher(mock(StreamBridge.class), new SimpleMeterRegistry());
 
         assertThat(publisher.senderForTest().getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
+    }
+
+    /**
+     * Item 73's gate: the counter is watched moving, on a real drop, driven through this publisher's own queue.
+     *
+     * <p>The bridge is wedged on a latch (a stand-in for a hung broker), the single sender thread blocks inside the
+     * first send, the queue fills, and the next publish drops — counter 0 before, exactly 1 after, under this
+     * stream's own {@code topic} tag. A counter that is registered but never incremented is precisely the kind of
+     * check this backlog keeps cataloguing, which is why this does not settle for asserting registration.</p>
+     */
+    @Test
+    void aDroppedFrameMovesTheCounterUnderThisStreamsTag() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        CountDownLatch wedge = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+        StreamBridge bridge = mock(StreamBridge.class);
+        org.mockito.Mockito
+            .when(bridge.send(any(String.class), any(Message.class)))
+            .thenAnswer(call -> {
+                occupied.countDown();
+                wedge.await();
+                return true;
+            });
+        PatientEventPublisher publisher = new PatientEventPublisher(bridge, registry);
+
+        try {
+            // First publish occupies the sender thread inside the wedged send; wait until it provably has.
+            publisher.publish(PatientEventType.ONBOARDING_STARTED, "ama@example.test", null, "account-1", Map.of());
+            assertThat(occupied.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            double before = registry
+                .get(DroppedEventCounter.METER_NAME)
+                .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient-events")
+                .counter()
+                .count();
+            assertThat(before).as("nothing has dropped yet").isZero();
+
+            // Fill the queue, then one more: the overflow is the drop.
+            for (int i = 0; i < 129; i++) {
+                publisher.publish(PatientEventType.ONBOARDING_STEP_COMPLETED, "ama@example.test", null, "account-1", Map.of());
+            }
+
+            double after = registry
+                .get(DroppedEventCounter.METER_NAME)
+                .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient-events")
+                .counter()
+                .count();
+            assertThat(after).as("the one overflow publish is the one counted drop").isEqualTo(1.0);
+        } finally {
+            wedge.countDown();
+        }
     }
 
     /**
@@ -125,7 +179,7 @@ class PatientEventPublisherTest {
     @Test
     void anEventCannotCarryClinicalContent() {
         StreamBridge bridge = mock(StreamBridge.class);
-        PatientEventPublisher publisher = new PatientEventPublisher(bridge);
+        PatientEventPublisher publisher = new PatientEventPublisher(bridge, new SimpleMeterRegistry());
 
         for (String key : new String[] { "bloodGroup", "allergies", "medications", "conditions", "cardNumber", "address", "diagnosis" }) {
             assertThatThrownBy(() ->
@@ -140,7 +194,7 @@ class PatientEventPublisherTest {
     @Test
     void aStepEventSaysThatAStepHappenedAndNotWhatItSaid() {
         StreamBridge bridge = mock(StreamBridge.class);
-        new PatientEventPublisher(bridge)
+        new PatientEventPublisher(bridge, new SimpleMeterRegistry())
             .publish(
                 PatientEventType.ONBOARDING_STEP_COMPLETED,
                 "ama@example.test",

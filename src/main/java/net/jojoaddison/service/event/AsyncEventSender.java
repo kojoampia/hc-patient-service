@@ -45,12 +45,22 @@ final class AsyncEventSender {
 
     private final ThreadPoolExecutor executor;
 
+    private final Runnable onDrop;
+
     /**
      * @param threadName names the daemon thread, so a thread dump attributes a stuck send to its publisher.
      * @param queueCapacity bounded, and sized to absorb a burst rather than buffer an outage — against a hung broker
      *     every send blocks for a minute, so a big queue is minutes of stale frames and no signal.
+     * @param onDrop runs once per refused offer, before {@code offer} answers {@code false} — in practice a
+     *     {@code Counter::increment} (backlog item 73; {@link DroppedEventCounter} is the one definition). A
+     *     <b>required</b> argument on purpose: counting at the call sites instead was the alternative, and its
+     *     failure mode is a fourth publisher that wires a sender, drops, and forgets the counter with every test
+     *     green — the shape this estate keeps finding. Making the constructor refuse to compile without an answer
+     *     for drops moves that from a review catch to a type error. The WARN stays with the caller (each publisher
+     *     names what it lost in its own words); this is the half that must not depend on remembering.
      */
-    AsyncEventSender(String threadName, int queueCapacity) {
+    AsyncEventSender(String threadName, int queueCapacity, Runnable onDrop) {
+        this.onDrop = onDrop;
         this.executor =
             new ThreadPoolExecutor(
                 1,
@@ -82,7 +92,9 @@ final class AsyncEventSender {
             return true;
         } catch (RejectedExecutionException e) {
             // The queue is full, which means the broker is not draining it. Dropping is the design; see the class
-            // javadoc on why this must never become CallerRunsPolicy.
+            // javadoc on why this must never become CallerRunsPolicy. The count happens HERE, where the drop does,
+            // so no caller can forget it; the caller's false-branch WARN says what was lost.
+            onDrop.run();
             return false;
         }
     }

@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +27,7 @@ class AsyncEventSenderTest {
 
     @Test
     void sendsRunOffTheCallingThreadInSubmissionOrder() throws Exception {
-        AsyncEventSender sender = new AsyncEventSender("async-sender-test-order", 8);
+        AsyncEventSender sender = new AsyncEventSender("async-sender-test-order", 8, () -> {});
         List<String> order = new CopyOnWriteArrayList<>();
         AtomicReference<String> senderThread = new AtomicReference<>();
         CountDownLatch done = new CountDownLatch(3);
@@ -53,7 +54,8 @@ class AsyncEventSenderTest {
 
     @Test
     void aFullQueueRefusesTheOfferAndTheCallerNeverRunsTheSend() throws Exception {
-        AsyncEventSender sender = new AsyncEventSender("async-sender-test-drop", 1);
+        AtomicInteger drops = new AtomicInteger();
+        AsyncEventSender sender = new AsyncEventSender("async-sender-test-drop", 1, drops::incrementAndGet);
         CountDownLatch wedge = new CountDownLatch(1);
         CountDownLatch occupied = new CountDownLatch(1);
         List<String> ranOn = new CopyOnWriteArrayList<>();
@@ -74,14 +76,18 @@ class AsyncEventSenderTest {
                 .isTrue();
             assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
 
-            // One slot in the queue: accepted.
+            // One slot in the queue: accepted — and no drop has been counted yet (item 73).
             assertThat(sender.offer(() -> ranOn.add(Thread.currentThread().getName()))).isTrue();
+            assertThat(drops.get()).as("accepted offers must not count as drops").isZero();
 
             // Queue full. The offer must come back false — and the send must NOT have run here, which is the
             // CallerRunsPolicy defect this class exists to rule out. Watched, not read off the handler.
             boolean accepted = sender.offer(() -> ranOn.add(Thread.currentThread().getName()));
             assertThat(accepted).as("a full queue drops; it never blocks and never borrows the caller").isFalse();
             assertThat(ranOn).as("nothing may have run on the calling thread while the queue was full").isEmpty();
+            // Item 73: the refused offer is COUNTED, exactly once, before offer() answers — a drop must be a graph,
+            // not a grep, and a counter registered but never incremented is the defect this assertion exists for.
+            assertThat(drops.get()).as("the one refused offer is the one counted drop").isEqualTo(1);
 
             // And the policy object agrees with the observed behaviour — belt to the braces above.
             assertThat(sender.executorForTest().getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
@@ -92,12 +98,13 @@ class AsyncEventSenderTest {
         // Once unwedged, the accepted frame still goes out — dropped means the third offer only.
         assertThat(sender.drain(Duration.ofSeconds(5))).isTrue();
         assertThat(ranOn).containsExactly("async-sender-test-drop");
+        assertThat(drops.get()).as("draining the accepted work counts no further drops").isEqualTo(1);
     }
 
     @Test
     void drainGivesQueuedWorkItsChanceAndReportsAbandonmentHonestly() throws Exception {
         // The @PreDestroy path: a frame queued as a pod stops gets a bounded chance to go out.
-        AsyncEventSender drains = new AsyncEventSender("async-sender-test-drain", 8);
+        AsyncEventSender drains = new AsyncEventSender("async-sender-test-drain", 8, () -> {});
         CountDownLatch ran = new CountDownLatch(1);
         assertThat(drains.offer(ran::countDown)).isTrue();
 
@@ -105,7 +112,7 @@ class AsyncEventSenderTest {
         assertThat(ran.await(0, TimeUnit.SECONDS)).as("drain returning true means the work actually ran").isTrue();
 
         // And the other honest answer: a wedged send cannot hold a shutdown open past its patience.
-        AsyncEventSender wedged = new AsyncEventSender("async-sender-test-wedged", 8);
+        AsyncEventSender wedged = new AsyncEventSender("async-sender-test-wedged", 8, () -> {});
         CountDownLatch forever = new CountDownLatch(1);
         CountDownLatch inside = new CountDownLatch(1);
         wedged.offer(() -> {

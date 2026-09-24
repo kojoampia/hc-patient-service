@@ -10,7 +10,10 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import net.jojoaddison.domain.Membership;
 import net.jojoaddison.domain.enumeration.MembershipStatus;
 import org.junit.jupiter.api.Test;
@@ -40,7 +43,7 @@ class MembershipStreamPublisherTest {
     void aMembershipChangeReachesTheBridgeKeyedOnThePatient() {
         StreamBridge bridge = mock(StreamBridge.class);
 
-        new MembershipStreamPublisher(bridge).publish(membership("patient-1"));
+        new MembershipStreamPublisher(bridge, new SimpleMeterRegistry()).publish(membership("patient-1"));
 
         ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(MembershipStreamPublisher.BINDING), captor.capture());
@@ -61,7 +64,7 @@ class MembershipStreamPublisherTest {
         // onto the sender thread, this test starts passing for the wrong reason, and the assertion on the executor's
         // queue below is what would catch that.
         StreamBridge bridge = mock(StreamBridge.class);
-        MembershipStreamPublisher publisher = new MembershipStreamPublisher(bridge);
+        MembershipStreamPublisher publisher = new MembershipStreamPublisher(bridge, new SimpleMeterRegistry());
 
         publisher.publish(membership(null));
         publisher.publish(membership("   "));
@@ -75,11 +78,64 @@ class MembershipStreamPublisherTest {
         StreamBridge bridge = mock(StreamBridge.class);
         doThrow(new IllegalStateException("broker hung")).when(bridge).send(any(String.class), any(Message.class));
 
-        assertThatCode(() -> new MembershipStreamPublisher(bridge).publish(membership("patient-1"))).doesNotThrowAnyException();
+        assertThatCode(() -> new MembershipStreamPublisher(bridge, new SimpleMeterRegistry()).publish(membership("patient-1")))
+            .doesNotThrowAnyException();
 
         // The timeout-verify keeps the assertion above honest: the throwing send RAN, on the sender thread, and its
         // throw reached nobody — including the sender thread's own next frame, which the catch in send() protects.
         verify(bridge, timeout(SEND_TIMEOUT_MS)).send(any(String.class), any(Message.class));
+    }
+
+    /**
+     * Item 73's gate, and the pin that the tag answers "WHICH stream lost frames".
+     *
+     * <p>One registry serves two publishers; a drop driven through this one moves the counter under
+     * {@code topic=patient-membership-events} to exactly 1 while {@code topic=patient-events} stays at 0. A single
+     * undifferentiated counter would pass a moved-once assertion and be unable to answer the only question the
+     * meter exists for.</p>
+     */
+    @Test
+    void aDropCountsUnderThisStreamsTagAndNotItsNeighbours() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        CountDownLatch wedge = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+        StreamBridge bridge = mock(StreamBridge.class);
+        org.mockito.Mockito
+            .when(bridge.send(org.mockito.ArgumentMatchers.any(String.class), org.mockito.ArgumentMatchers.any(Message.class)))
+            .thenAnswer(call -> {
+                occupied.countDown();
+                wedge.await();
+                return true;
+            });
+        MembershipStreamPublisher publisher = new MembershipStreamPublisher(bridge, registry);
+        // The neighbour registers its counter against the same registry and never drops.
+        new PatientEventPublisher(mock(StreamBridge.class), registry);
+
+        try {
+            publisher.publish(membership("patient-1"));
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+
+            for (int i = 0; i < 129; i++) {
+                publisher.publish(membership("patient-1"));
+            }
+
+            assertThat(
+                registry
+                    .get(DroppedEventCounter.METER_NAME)
+                    .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient-membership-events")
+                    .counter()
+                    .count()
+            )
+                .as("the one overflow publish is the one counted drop")
+                .isEqualTo(1.0);
+            assertThat(
+                registry.get(DroppedEventCounter.METER_NAME).tag(DroppedEventCounter.TOPIC_DIMENSION, "patient-events").counter().count()
+            )
+                .as("the neighbour stream lost nothing and must read so")
+                .isZero();
+        } finally {
+            wedge.countDown();
+        }
     }
 
     /**
@@ -91,7 +147,7 @@ class MembershipStreamPublisherTest {
      */
     @Test
     void aFullQueueDropsTheFrameRatherThanRunningItOnTheCallersThread() {
-        MembershipStreamPublisher publisher = new MembershipStreamPublisher(mock(StreamBridge.class));
+        MembershipStreamPublisher publisher = new MembershipStreamPublisher(mock(StreamBridge.class), new SimpleMeterRegistry());
 
         assertThat(publisher.senderForTest().getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
     }
