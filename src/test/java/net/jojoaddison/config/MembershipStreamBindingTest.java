@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
@@ -114,19 +116,38 @@ class MembershipStreamBindingTest {
      *
      * <p>{@code application.yml} is several documents separated by {@code ---}, so a single {@code load} sees only the
      * first and would report every key missing.
+     *
+     * <p><b>It fails when two documents carry the same path rather than taking either.</b> Spring merges
+     * multi-document YAML with the <em>later</em> document winning; a walk that returns the first match has the
+     * opposite precedence, so a second occurrence defeats every assertion in this class in both directions at once —
+     * it can pin a value the runtime does not use, and miss a value the runtime does. The edit that matters most here
+     * is a second document handing {@code membershipStreamEvents-in-0} a {@code group}: that is the exact change the
+     * no-group test above exists to catch, and with a first-match walk it is exactly the change it cannot see.
+     * Measured in this module, not inherited from the gateway's fix: a planted document reading
+     * {@code spring.cloud.stream.bindings.membershipStreamEvents-in-0.group: planted-group} left all six tests
+     * green. A legitimate second occurrence — a profile-gated binding, say — is precisely when a human should
+     * re-derive what this test reads, so it is a red test naming the file and path, not a silent choice of either.
      */
     private static Map<String, Object> path(Path file, String... keys) {
         assertThat(file).as("run from the module directory: %s", file.toAbsolutePath()).isRegularFile();
+        List<Map<String, Object>> carried = new ArrayList<>();
         for (Object document : documents(file)) {
             Map<String, Object> node = asMap(document);
             for (String key : keys) {
                 node = child(node, key);
             }
             if (!node.isEmpty()) {
-                return node;
+                carried.add(node);
             }
         }
-        return Map.of();
+        assertThat(carried)
+            .as(
+                "%s: more than one YAML document carries %s; the later one wins at runtime and this test reads the first",
+                file,
+                String.join(".", keys)
+            )
+            .hasSizeLessThan(2);
+        return carried.isEmpty() ? Map.of() : carried.get(0);
     }
 
     private static Iterable<Object> documents(Path file) {
