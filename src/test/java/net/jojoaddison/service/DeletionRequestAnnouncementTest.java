@@ -128,11 +128,34 @@ class DeletionRequestAnnouncementTest {
     }
 
     @Test
-    void completingCarriesANullAccountId_becauseTheProfileThatHeldTheLinkIsGone() {
-        // The account id has no stored copy on the request, deliberately: a copy would outlive the record it names,
-        // on the one event whose whole meaning is that the record is gone. Null honestly says the link no longer
-        // resolves. If a consumer ever needs the id on this frame, the fix is a stored-at-raise field on
-        // DeletionRequest — a domain change, decided on its own, not a lookup that cannot succeed.
+    void completingCarriesTheAccountId_becauseItIsResolvedBeforeTheErasureRatherThanAfter() {
+        // This test pinned `isNull()` until 2026-09-24, on the reasoning that the profile holding the link is gone
+        // by the time COMPLETED is announced. The observation was right and the conclusion was not: the profile is
+        // gone because `erase` ran first, so the null was a lookup SEQUENCED to fail, not a fact about deleted data.
+        // `complete` now resolves the id before the erasure and threads it through.
+        //
+        // The old justification did not survive its own frame: the same event carries `requestedByEmail`, a
+        // stored-at-raise copy that outlives the record and is more identifying than an opaque User.id. "Do not name
+        // an erased subject" cannot be the principle while the email rides along, and it must — the mail is the point.
+        //
+        // It matters most on precisely this transition. COMPLETED is the one frame a consumer must ACT on rather than
+        // record, and a consumer that cannot name the subject cannot act — which leaves data a patient asked to have
+        // erased sitting in another product.
+        when(profiles.findByPatientId("patient-1")).thenReturn(List.of(new Profile().patientId("patient-1").accountId("account-kojo")));
+
+        service.complete(pending(), "admin");
+
+        ArgumentCaptor<String> accountId = ArgumentCaptor.forClass(String.class);
+        verify(events).publish(eq(PatientEventType.DELETION_REQUEST_CHANGED), anyString(), any(), accountId.capture(), any());
+        assertThat(accountId.getValue()).isEqualTo("account-kojo");
+    }
+
+    @Test
+    void completingDegradesToANullAccountId_whenThereIsGenuinelyNoProfileToResolve() {
+        // The re-run case, and the reason resolving early is safe rather than merely better: a completion replayed
+        // after a partial erasure finds nothing and publishes null — exactly the old behaviour, reached honestly.
+        // Null here says "the link does not resolve", which is true; null on a profile that still existed said only
+        // "we looked too late".
         when(profiles.findByPatientId("patient-1")).thenReturn(List.of());
 
         service.complete(pending(), "admin");

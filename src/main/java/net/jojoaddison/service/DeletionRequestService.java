@@ -144,6 +144,22 @@ public class DeletionRequestService {
     public DeletionRequest complete(DeletionRequest request, String adminLogin) {
         requirePending(request, "completed");
 
+        // RESOLVED BEFORE THE ERASURE, DELIBERATELY, AND THE ORDER IS THE WHOLE POINT. The profile that carries the
+        // account id is one of the documents `erase` destroys, so resolving inside `announce` — after it — finds
+        // nothing and publishes a COMPLETED frame with no join key on it. That is not honesty about a deleted record,
+        // it is a lookup sequenced to fail: the same frame carries `requestedByEmail`, a stored-at-raise copy that
+        // outlives the record and is more identifying than an opaque User.id, so "do not name an erased subject"
+        // cannot be the principle here.
+        //
+        // It matters on this transition more than any other. COMPLETED is the one frame a consumer must ACT on rather
+        // than record — hc-admin deactivates the account and drops its own copy — and a consumer that cannot name the
+        // subject cannot act, which leaves data a patient asked to have erased sitting in another product. Resolving
+        // here costs one read that was happening anyway, three lines earlier.
+        //
+        // Publishing still happens after the erasure. The order javadoc on `announce` is about the PUBLISH — a frame
+        // announcing a completion that could still fail — and that reasoning is untouched.
+        String subjectAccountId = subjectAccountId(request);
+
         Map<String, Long> erased = patientErasureService.erase(request.getPatientId(), request.getRequestedByEmail());
 
         request.setStatus(DeletionRequestStatus.COMPLETED);
@@ -152,7 +168,7 @@ public class DeletionRequestService {
         request.setErasedCounts(erased);
         LOG.info("Deletion request {} completed by {} for patient {}", request.getId(), adminLogin, request.getPatientId());
         DeletionRequest saved = deletionRequestRepository.save(request);
-        announce(saved, "COMPLETED");
+        announce(saved, "COMPLETED", subjectAccountId);
         return saved;
     }
 
@@ -207,6 +223,17 @@ public class DeletionRequestService {
      * never the mechanism.</b> A mail failure must not resurrect it.</p>
      */
     private void announce(DeletionRequest request, String change) {
+        // Every transition but COMPLETED still has its profile, so resolving here is correct for them.
+        announce(request, change, subjectAccountId(request));
+    }
+
+    /**
+     * As above, for the one transition that must resolve its subject before the work rather than after it.
+     *
+     * @param subjectAccountId resolved by the caller. {@link #complete} reads it before {@code erase} destroys the
+     *     profile that holds it; see the comment there for why the order is load-bearing rather than incidental.
+     */
+    private void announce(DeletionRequest request, String change, String subjectAccountId) {
         Map<String, Object> data = new HashMap<>();
         data.put("requestId", request.getId());
         data.put("change", change);
@@ -217,7 +244,7 @@ public class DeletionRequestService {
             PatientEventType.DELETION_REQUEST_CHANGED,
             request.getRequestedByEmail(),
             request.getRequestedByLogin(),
-            subjectAccountId(request),
+            subjectAccountId,
             data
         );
     }
