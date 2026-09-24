@@ -171,13 +171,16 @@ public class OnboardingService {
             addressRepository.save(address);
         }
 
-        // The only place the email -> patientId mapping is published. A consumer that has been watching this person
-        // since registration learns here which patient they became.
+        // The subject carries the gateway account id this profile was just linked to (or null when resolveAccountId
+        // could not name one, or the link was just lost to the duplicate-account race — pass what the profile holds,
+        // never invent). A consumer that has been watching this account since registration learns here that it
+        // became a patient. The internal patientId stopped travelling on this stream on 2026-09-24; it never left
+        // this subsystem's vocabulary.
         events.publish(
             PatientEventType.ONBOARDING_STARTED,
             saved.getEmail(),
             null,
-            saved.getPatientId(),
+            saved.getAccountId(),
             Map.of("startedAt", Instant.now().toString())
         );
         publishStep(saved, STEP_IDENTITY, "identity");
@@ -364,7 +367,7 @@ public class OnboardingService {
             PatientEventType.ONBOARDING_COMPLETED,
             done.getEmail(),
             null,
-            done.getPatientId(),
+            done.getAccountId(),
             Map.of("completedAt", done.getOnboardingCompletedAt().toString())
         );
         return done;
@@ -464,7 +467,7 @@ public class OnboardingService {
             PatientEventType.ONBOARDING_STEP_COMPLETED,
             profile.getEmail(),
             null,
-            profile.getPatientId(),
+            profile.getAccountId(),
             Map.of("step", step, "stepName", stepName, "completedAt", Instant.now().toString())
         );
     }

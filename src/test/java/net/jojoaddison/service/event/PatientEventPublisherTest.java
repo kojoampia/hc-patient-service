@@ -32,7 +32,7 @@ class PatientEventPublisherTest {
                 PatientEventType.ONBOARDING_STARTED,
                 "  Ama@Example.Test ",
                 "ama",
-                "patient-1",
+                "account-1",
                 Map.of("startedAt", "2026-08-19T09:00:00Z")
             );
 
@@ -46,7 +46,9 @@ class PatientEventPublisherTest {
         assertThat(event.version()).isEqualTo(PatientEvent.VERSION);
         // Lowercased and trimmed here, so every producer agrees on the correlation key without having to remember to.
         assertThat(event.subject().email()).isEqualTo("ama@example.test");
-        assertThat(event.subject().patientId()).isEqualTo("patient-1");
+        // The gateway User.id, carried through untouched — the same field the gateway's own publisher sends, so a
+        // consumer joins either producer's frames on one key. The internal patientId no longer travels here.
+        assertThat(event.subject().accountId()).isEqualTo("account-1");
         assertThat(captor.getValue().getHeaders().get(PatientEventPublisher.KEY_HEADER))
             .as("the partition key, so one patient's events stay in order")
             .isEqualTo("ama@example.test");
@@ -63,9 +65,9 @@ class PatientEventPublisherTest {
         StreamBridge bridge = mock(StreamBridge.class);
         PatientEventPublisher publisher = new PatientEventPublisher(bridge);
 
-        publisher.publish(PatientEventType.PLAN_CHOSEN, null, null, "patient-1", Map.of());
-        publisher.publish(PatientEventType.PLAN_CHOSEN, "", null, "patient-1", Map.of());
-        publisher.publish(PatientEventType.PLAN_CHOSEN, "   ", null, "patient-1", Map.of());
+        publisher.publish(PatientEventType.PLAN_CHOSEN, null, null, "account-1", Map.of());
+        publisher.publish(PatientEventType.PLAN_CHOSEN, "", null, "account-1", Map.of());
+        publisher.publish(PatientEventType.PLAN_CHOSEN, "   ", null, "account-1", Map.of());
 
         verifyNoInteractions(bridge);
     }

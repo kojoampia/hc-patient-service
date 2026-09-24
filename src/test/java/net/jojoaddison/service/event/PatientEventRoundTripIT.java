@@ -44,7 +44,7 @@ class PatientEventRoundTripIT {
             PatientEventType.ONBOARDING_STARTED,
             "Round.Trip@Example.Test",
             "roundtrip",
-            "patient-round-trip",
+            "account-round-trip",
             Map.of("startedAt", "2026-08-19T10:00:00Z")
         );
 
@@ -54,20 +54,20 @@ class PatientEventRoundTripIT {
         try (KafkaConsumer<String, String> consumer = consumer(brokers)) {
             consumer.subscribe(List.of("patient-events"));
 
-            ConsumerRecord<String, String> received = pollFor(consumer, "patient-round-trip");
+            ConsumerRecord<String, String> received = pollFor(consumer, "account-round-trip");
             assertThat(received).as("nothing arrived on patient-events within the timeout").isNotNull();
             assertThat(received.key()).as("the partition key is the lowercased email").isEqualTo("round.trip@example.test");
-            assertThat(received.value()).contains(PatientEventType.ONBOARDING_STARTED).contains("patient-round-trip");
+            assertThat(received.value()).contains(PatientEventType.ONBOARDING_STARTED).contains("account-round-trip");
         }
     }
 
     /** Reads until the event this test published shows up, ignoring anything another test left on the topic. */
-    private static ConsumerRecord<String, String> pollFor(KafkaConsumer<String, String> consumer, String patientId) {
+    private static ConsumerRecord<String, String> pollFor(KafkaConsumer<String, String> consumer, String accountId) {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline) {
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(2));
             for (ConsumerRecord<String, String> record : records) {
-                if (record.value() != null && record.value().contains(patientId)) {
+                if (record.value() != null && record.value().contains(accountId)) {
                     return record;
                 }
             }

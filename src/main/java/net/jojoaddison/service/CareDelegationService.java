@@ -279,11 +279,15 @@ public class CareDelegationService {
         data.put("delegationId", delegation.getId());
         data.put("change", change);
         data.put("angelEmail", delegation.getAngelEmail());
+        // One profile read serves both subject fields. The subject's third component is the gateway account id
+        // since 2026-09-24 — read off the same profile as the email, null when unset or unfound, never the
+        // delegation's internal patientId, which no longer travels on this stream.
+        Optional<Profile> patient = profileForPatient(delegation.getPatientId());
         events.publish(
             PatientEventType.CARE_DELEGATION_CHANGED,
-            profileForPatient(delegation.getPatientId()).map(Profile::getEmail).orElse(null),
+            patient.map(Profile::getEmail).orElse(null),
             null,
-            delegation.getPatientId(),
+            patient.map(Profile::getAccountId).orElse(null),
             data
         );
     }

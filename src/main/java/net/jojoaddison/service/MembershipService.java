@@ -613,7 +613,17 @@ public class MembershipService {
         putIfPresent(data, "planName", membership.getName());
         // The name, not the enum: the wire shape should not move if the enum's serialization ever does.
         putIfPresent(data, "status", membership.getStatus() == null ? null : membership.getStatus().name());
-        events.publish(PatientEventType.PLAN_CHOSEN, patientEmail(membership.getPatientId()), null, membership.getPatientId(), data);
+        // One profile read serves both subject fields. The internal patientId no longer travels on this stream
+        // (2026-09-24); the subject's third component is the gateway account id, read off the same profile as the
+        // email — and null when the profile has none or does not exist, which the publisher tolerates.
+        Optional<Profile> owner = ownerProfile(membership.getPatientId());
+        events.publish(
+            PatientEventType.PLAN_CHOSEN,
+            owner.map(Profile::getEmail).orElse(null),
+            null,
+            owner.map(Profile::getAccountId).orElse(null),
+            data
+        );
         // And the patient, on the same rule and at the same moment. Backlog item 39: every write that was worth
         // telling hc-admin about is worth telling the person it happened to, and the absence of this second line is
         // the whole defect — an administrator verified a plan, hc-admin was told, and the patient's screen went on
@@ -652,9 +662,10 @@ public class MembershipService {
     }
 
     /**
-     * The email of the patient a membership belongs to, or null when there is no profile to read it from.
+     * The profile a membership belongs to — the subject's email and account id both read off it — or empty when
+     * there is none.
      *
-     * <p>Null rather than the caller's own address: an event filed under the wrong person is worse than one filed
+     * <p>Empty rather than the caller's own identity: an event filed under the wrong person is worse than one filed
      * under nobody. Note that "under nobody" means <em>not filed at all</em> — {@link PatientEventPublisher} refuses a
      * frame it cannot key rather than sending one every consumer discards.</p>
      *
@@ -664,29 +675,27 @@ public class MembershipService {
      * goes profile → id and this goes id → profile, so they are duals rather than the same call, and a reader who
      * looks for this exact expression there will not find it.</p>
      *
-     * <p><strong>Returns null rather than throwing on a failed lookup.</strong> This is a Mongo query running after
+     * <p><strong>Returns empty rather than throwing on a failed lookup.</strong> This is a Mongo query running after
      * the membership is already saved, so a database hiccup here must cost the announcement and not the
      * subscription.</p>
+     *
+     * <p>Widened from an email lookup on 2026-09-24: the subject now carries {@code Profile.accountId} as well, and
+     * two fields off one document should be one read, not two. The caller unwraps both; either may be null on a
+     * profile that has them unset, which the publisher and its consumers each already tolerate.</p>
      */
-    private String patientEmail(String patientId) {
+    private Optional<Profile> ownerProfile(String patientId) {
         if (patientId == null) {
-            return null;
+            return Optional.empty();
         }
         try {
-            return lookUpPatientEmail(patientId);
+            return lookUpOwnerProfile(patientId);
         } catch (Exception e) {
-            log.warn("Could not resolve an email for patient {} — the membership is unaffected", patientId, e);
-            return null;
+            log.warn("Could not resolve a profile for patient {} — the membership is unaffected", patientId, e);
+            return Optional.empty();
         }
     }
 
-    private String lookUpPatientEmail(String patientId) {
-        return profileRepository
-            .findByPatientId(patientId)
-            .stream()
-            .findFirst()
-            .or(() -> profileRepository.findById(patientId))
-            .map(Profile::getEmail)
-            .orElse(null);
+    private Optional<Profile> lookUpOwnerProfile(String patientId) {
+        return profileRepository.findByPatientId(patientId).stream().findFirst().or(() -> profileRepository.findById(patientId));
     }
 }
