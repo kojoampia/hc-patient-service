@@ -1,5 +1,7 @@
 package net.jojoaddison.service.event;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -108,8 +110,17 @@ public class EntityEventPublisher {
 
     private final ThreadPoolExecutor sender;
 
-    public EntityEventPublisher(StreamBridge streamBridge) {
+    /**
+     * Incremented in the {@code RejectedExecutionException} catch below. This class keeps its inline executor (item
+     * 71 deliberately left it untouched), so unlike the two {@code AsyncEventSender} publishers the count here is
+     * NOT constructor-enforced — this is the one hand-remembered site, and {@code EntityEventPublisherTest} watches
+     * it move so forgetting it cannot stay green.
+     */
+    private final Counter droppedFrames;
+
+    public EntityEventPublisher(StreamBridge streamBridge, MeterRegistry meterRegistry) {
         this.streamBridge = streamBridge;
+        this.droppedFrames = DroppedEventCounter.register(meterRegistry, "patient.event");
         this.sender =
             new ThreadPoolExecutor(
                 1,
@@ -178,7 +189,9 @@ public class EntityEventPublisher {
             sender.execute(() -> send(event, entityId));
         } catch (RejectedExecutionException e) {
             // The queue is full, which means the broker is not draining it. Dropping is the design: see the class
-            // javadoc on why this must never become CallerRunsPolicy.
+            // javadoc on why this must never become CallerRunsPolicy. Counted as well as logged (item 73) — a run
+            // of drops must be a graph, not a grep.
+            droppedFrames.increment();
             log.warn("Dropped an entity change for {} — the publishing queue is full", entityType);
         }
     }

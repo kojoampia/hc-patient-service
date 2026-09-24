@@ -1,5 +1,7 @@
 package net.jojoaddison.service.event;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
@@ -83,10 +85,14 @@ public class MembershipStreamPublisher {
     private final StreamBridge streamBridge;
 
     /** Own instance, own queue — see the class javadoc for why it is not shared. */
-    private final AsyncEventSender sender = new AsyncEventSender("membership-stream-publisher", QUEUE_CAPACITY);
+    private final AsyncEventSender sender;
 
-    public MembershipStreamPublisher(StreamBridge streamBridge) {
+    public MembershipStreamPublisher(StreamBridge streamBridge, MeterRegistry meterRegistry) {
         this.streamBridge = streamBridge;
+        // The drop counter is the sender's constructor-enforced obligation (item 73): counted where the drop
+        // happens, tagged by the topic that lost the frame, WARNed below in this class's own words.
+        Counter dropped = DroppedEventCounter.register(meterRegistry, "patient-membership-events");
+        this.sender = new AsyncEventSender("membership-stream-publisher", QUEUE_CAPACITY, dropped::increment);
     }
 
     /**

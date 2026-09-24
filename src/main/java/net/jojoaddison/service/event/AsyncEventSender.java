@@ -5,6 +5,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A single-threaded, bounded, drop-on-full executor for handing a Kafka send off the request thread.
@@ -46,11 +48,31 @@ final class AsyncEventSender {
     private final ThreadPoolExecutor executor;
 
     /**
+     * The one thing this class logs, and the exception proves the rule rather than breaking it.
+     *
+     * <p>It deliberately does not log <em>drops</em> — {@code offer} returns a boolean so each publisher can say
+     * "dropped a membership push" or "dropped a patient event" in its own words, which are different pages to be
+     * woken up to. A drop callback that <em>throws</em> is not a drop, though: it is a bug in the callback, and no
+     * caller is in a position to notice it, because the whole point of catching it is that it never reaches one.</p>
+     */
+    private static final Logger log = LoggerFactory.getLogger(AsyncEventSender.class);
+
+    private final Runnable onDrop;
+
+    /**
      * @param threadName names the daemon thread, so a thread dump attributes a stuck send to its publisher.
      * @param queueCapacity bounded, and sized to absorb a burst rather than buffer an outage — against a hung broker
      *     every send blocks for a minute, so a big queue is minutes of stale frames and no signal.
+     * @param onDrop runs once per refused offer, before {@code offer} answers {@code false} — in practice a
+     *     {@code Counter::increment} (backlog item 73; {@link DroppedEventCounter} is the one definition). A
+     *     <b>required</b> argument on purpose: counting at the call sites instead was the alternative, and its
+     *     failure mode is a fourth publisher that wires a sender, drops, and forgets the counter with every test
+     *     green — the shape this estate keeps finding. Making the constructor refuse to compile without an answer
+     *     for drops moves that from a review catch to a type error. The WARN stays with the caller (each publisher
+     *     names what it lost in its own words); this is the half that must not depend on remembering.
      */
-    AsyncEventSender(String threadName, int queueCapacity) {
+    AsyncEventSender(String threadName, int queueCapacity, Runnable onDrop) {
+        this.onDrop = onDrop;
         this.executor =
             new ThreadPoolExecutor(
                 1,
@@ -82,7 +104,20 @@ final class AsyncEventSender {
             return true;
         } catch (RejectedExecutionException e) {
             // The queue is full, which means the broker is not draining it. Dropping is the design; see the class
-            // javadoc on why this must never become CallerRunsPolicy.
+            // javadoc on why this must never become CallerRunsPolicy. The count happens HERE, where the drop does,
+            // so no caller can forget it; the caller's false-branch WARN says what was lost.
+            //
+            // GUARDED, and the guard is the whole point of this class rather than defensive habit. `onDrop` runs on
+            // the CALLING thread — the request thread this machinery exists to keep clear. Today it is
+            // `Counter::increment`, which cannot throw; a future callback that does would escape `offer` into
+            // `publish` and surface on the request path, undoing item 71 by way of item 73's own instrumentation.
+            // A frame is already being dropped here; losing its count too is strictly better than failing a
+            // patient's write because the bookkeeping threw.
+            try {
+                onDrop.run();
+            } catch (RuntimeException dropCallbackFailed) {
+                log.warn("A drop callback threw; the frame was dropped and its count may be short", dropCallbackFailed);
+            }
             return false;
         }
     }

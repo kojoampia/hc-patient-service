@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -190,11 +191,11 @@ class MembershipPlanEventTest {
             new MembershipService(
                 memberships,
                 profiles,
-                new PatientEventPublisher(brokenBroker),
+                new PatientEventPublisher(brokenBroker, new SimpleMeterRegistry()),
                 // The real stream publisher too, on the same broken bridge: item 39 added a SECOND publish to this
                 // path, and a catch that covers one and not the other still turns a successful subscription into a
                 // 500. Mocking it here would have left that untested while the test went on reading as proof.
-                new MembershipStreamPublisher(brokenBroker),
+                new MembershipStreamPublisher(brokenBroker, new SimpleMeterRegistry()),
                 mock(MongoTemplate.class)
             ),
             memberships,
