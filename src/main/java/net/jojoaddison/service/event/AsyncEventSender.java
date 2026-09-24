@@ -5,6 +5,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A single-threaded, bounded, drop-on-full executor for handing a Kafka send off the request thread.
@@ -44,6 +46,16 @@ import java.util.concurrent.TimeUnit;
 final class AsyncEventSender {
 
     private final ThreadPoolExecutor executor;
+
+    /**
+     * The one thing this class logs, and the exception proves the rule rather than breaking it.
+     *
+     * <p>It deliberately does not log <em>drops</em> — {@code offer} returns a boolean so each publisher can say
+     * "dropped a membership push" or "dropped a patient event" in its own words, which are different pages to be
+     * woken up to. A drop callback that <em>throws</em> is not a drop, though: it is a bug in the callback, and no
+     * caller is in a position to notice it, because the whole point of catching it is that it never reaches one.</p>
+     */
+    private static final Logger log = LoggerFactory.getLogger(AsyncEventSender.class);
 
     private final Runnable onDrop;
 
@@ -94,7 +106,18 @@ final class AsyncEventSender {
             // The queue is full, which means the broker is not draining it. Dropping is the design; see the class
             // javadoc on why this must never become CallerRunsPolicy. The count happens HERE, where the drop does,
             // so no caller can forget it; the caller's false-branch WARN says what was lost.
-            onDrop.run();
+            //
+            // GUARDED, and the guard is the whole point of this class rather than defensive habit. `onDrop` runs on
+            // the CALLING thread — the request thread this machinery exists to keep clear. Today it is
+            // `Counter::increment`, which cannot throw; a future callback that does would escape `offer` into
+            // `publish` and surface on the request path, undoing item 71 by way of item 73's own instrumentation.
+            // A frame is already being dropped here; losing its count too is strictly better than failing a
+            // patient's write because the bookkeeping threw.
+            try {
+                onDrop.run();
+            } catch (RuntimeException dropCallbackFailed) {
+                log.warn("A drop callback threw; the frame was dropped and its count may be short", dropCallbackFailed);
+            }
             return false;
         }
     }

@@ -1,6 +1,7 @@
 package net.jojoaddison.service.event;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.time.Duration;
 import java.util.List;
@@ -50,6 +51,46 @@ class AsyncEventSenderTest {
         assertThat(senderThread.get())
             .as("the configured thread name, so a dump attributes a stuck send")
             .isEqualTo("async-sender-test-order");
+    }
+
+    @Test
+    void aThrowingDropCallbackNeverEscapesOntoTheCallingThread() throws Exception {
+        // The calling thread here is the request thread, which is the one item 71 exists to keep clear. Today
+        // `onDrop` is Counter::increment and cannot throw; this pins the property so a future callback that does
+        // cannot undo item 71 by way of item 73's own instrumentation. A frame is already being dropped at this
+        // point — losing its count too is strictly better than failing a patient's write because bookkeeping threw.
+        AsyncEventSender sender = new AsyncEventSender(
+            "async-sender-test-throwing-drop",
+            1,
+            () -> {
+                throw new IllegalStateException("the drop callback is broken");
+            }
+        );
+        CountDownLatch wedge = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+
+        try {
+            assertThat(
+                sender.offer(() -> {
+                    occupied.countDown();
+                    try {
+                        wedge.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                })
+            )
+                .isTrue();
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(sender.offer(() -> {})).isTrue();
+
+            // Queue full, so onDrop runs — and throws. The caller must still get its ordinary false.
+            assertThatCode(() -> assertThat(sender.offer(() -> {})).isFalse())
+                .as("a throwing drop callback must not reach the caller — this is the request thread")
+                .doesNotThrowAnyException();
+        } finally {
+            wedge.countDown();
+        }
     }
 
     @Test
