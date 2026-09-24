@@ -63,6 +63,7 @@ class MembershipPlanEventIT {
 
     private static final String PATIENT_EMAIL = "Ama.Plan@Example.Test";
     private static final String PATIENT_ID = "patient-ama-plan";
+    private static final String ACCOUNT_ID = "account-ama-plan";
 
     /** Unique per run, so the poll below cannot pick up a frame another test left on the topic. */
     private static final String PLAN_CODE = "PAWPAW-" + UUID.randomUUID();
@@ -93,7 +94,7 @@ class MembershipPlanEventIT {
     void setUp() {
         profileRepository.deleteAll();
         membershipRepository.deleteAll();
-        profileRepository.save(new Profile().email(PATIENT_EMAIL).patientId(PATIENT_ID));
+        profileRepository.save(new Profile().email(PATIENT_EMAIL).patientId(PATIENT_ID).accountId(ACCOUNT_ID));
     }
 
     @Test
@@ -134,7 +135,10 @@ class MembershipPlanEventIT {
             assertThat(event.path("type").asText()).isEqualTo("PlanChosen");
             assertThat(event.path("type").asText()).isEqualTo(PatientEventType.PLAN_CHOSEN);
             assertThat(event.path("subject").path("email").asText()).isEqualTo("ama.plan@example.test");
-            assertThat(event.path("subject").path("patientId").asText()).isEqualTo(PATIENT_ID);
+            // The wire name is accountId since 2026-09-24 — the gateway User.id off the profile, the estate join
+            // key. Asserted on the parsed JSON so the WIRE field name is pinned, not just the record component.
+            assertThat(event.path("subject").path("accountId").asText()).isEqualTo(ACCOUNT_ID);
+            assertThat(event.path("subject").has("patientId")).as("the internal patientId no longer travels").isFalse();
 
             JsonNode data = event.path("data");
             assertThat(data.properties().stream().map(java.util.Map.Entry::getKey))

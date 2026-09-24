@@ -111,10 +111,12 @@ public class PatientEventPublisher {
      * @param type see {@link PatientEventType}.
      * @param email the correlation key. Lowercased here so every producer agrees without having to remember to.
      * @param login the gateway login, when known.
-     * @param patientId null before onboarding step 1.
+     * @param accountId the gateway {@code User.id} from {@code Profile.accountId}, or null when this service cannot
+     *     name it — see {@link PatientEvent.Subject}. Pass what the profile holds; never substitute the internal
+     *     {@code patientId}, which stopped travelling on this stream on 2026-09-24.
      * @param data the payload; must contain nothing clinical.
      */
-    public void publish(String type, String email, String login, String patientId, Map<String, Object> data) {
+    public void publish(String type, String email, String login, String accountId, Map<String, Object> data) {
         Map<String, Object> payload = data == null ? Map.of() : new HashMap<>(data);
         assertNothingClinical(type, payload);
 
@@ -122,7 +124,7 @@ public class PatientEventPublisher {
         if (key == null) {
             // Refused rather than sent. See the class javadoc: an unkeyed frame is not a partial event, it is one
             // every consumer drops, and it is the one shape this stream cannot carry.
-            log.warn("Not publishing {} — no subject key, so no consumer can attribute it (patientId {})", type, patientId);
+            log.warn("Not publishing {} — no subject key, so no consumer can attribute it (accountId {})", type, accountId);
             return;
         }
         PatientEvent event = new PatientEvent(
@@ -131,7 +133,7 @@ public class PatientEventPublisher {
             PatientEvent.VERSION,
             Instant.now(),
             SOURCE,
-            new PatientEvent.Subject(key, login, patientId),
+            new PatientEvent.Subject(key, login, accountId),
             payload
         );
 

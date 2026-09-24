@@ -6,8 +6,10 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import net.jojoaddison.domain.DeletionRequest;
+import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.DeletionRequestStatus;
 import net.jojoaddison.repository.DeletionRequestRepository;
+import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
@@ -63,15 +65,18 @@ public class DeletionRequestService {
     private final DeletionRequestRepository deletionRequestRepository;
     private final PatientErasureService patientErasureService;
     private final PatientEventPublisher events;
+    private final ProfileRepository profileRepository;
 
     public DeletionRequestService(
         DeletionRequestRepository deletionRequestRepository,
         PatientErasureService patientErasureService,
-        PatientEventPublisher events
+        PatientEventPublisher events,
+        ProfileRepository profileRepository
     ) {
         this.deletionRequestRepository = deletionRequestRepository;
         this.patientErasureService = patientErasureService;
         this.events = events;
+        this.profileRepository = profileRepository;
     }
 
     /**
@@ -212,9 +217,38 @@ public class DeletionRequestService {
             PatientEventType.DELETION_REQUEST_CHANGED,
             request.getRequestedByEmail(),
             request.getRequestedByLogin(),
-            request.getPatientId(),
+            subjectAccountId(request),
             data
         );
+    }
+
+    /**
+     * The gateway account id for the subject's frames, or null when this service cannot name one.
+     *
+     * <p>Resolved at announce time because the request does not store it — {@code requestedByEmail} is stored at
+     * raise precisely because the erasure takes the {@code Profile}, and the account id has no such copy. So the
+     * {@code COMPLETED} frame, published after the erasure, carries {@code null} here by construction: the profile
+     * that held the link is gone, and null honestly says so where a stored copy would outlive the record it names.
+     * The other three transitions resolve normally. Guarded like {@code MembershipService}'s lookup, and for the
+     * same reason — this Mongo query runs after the state change is saved, so a database hiccup must cost the
+     * subject field and never the operation.</p>
+     */
+    private String subjectAccountId(DeletionRequest request) {
+        if (request.getPatientId() == null) {
+            return null;
+        }
+        try {
+            return profileRepository
+                .findByPatientId(request.getPatientId())
+                .stream()
+                .findFirst()
+                .or(() -> profileRepository.findById(request.getPatientId()))
+                .map(Profile::getAccountId)
+                .orElse(null);
+        } catch (Exception e) {
+            LOG.warn("Could not resolve an account id for patient {} — the request is unaffected", request.getPatientId(), e);
+            return null;
+        }
     }
 
     /** This patient's open request, if they have one. What the clients ask on sign-in. */

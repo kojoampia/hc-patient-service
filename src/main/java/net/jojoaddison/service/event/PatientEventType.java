@@ -15,7 +15,7 @@ public final class PatientEventType {
     /** Emitted by the gateway on activation — and at creation for care-angel accounts, which start activated. */
     public static final String ACCOUNT_ACTIVATED = "AccountActivated";
 
-    /** The patient's record now exists. The one event that binds an email to a patientId. */
+    /** The patient's record now exists — the account a consumer has been watching since registration became a patient. */
     public static final String ONBOARDING_STARTED = "OnboardingStarted";
 
     /** One step answered. Says that it was answered, never what it said. */
@@ -60,7 +60,8 @@ public final class PatientEventType {
      * {@code Membership.plan} and {@code planName} is {@code Membership.name}</b> — the document has no {@code code}
      * field, and both clients' {@code choosePlan} write {@code plan.code} into {@code plan} and {@code plan.name}
      * into {@code name}. The patient themselves travels in {@code subject}, as on every other event here: the
-     * lowercased email is the key, and {@code patientId} rides beside it.</p>
+     * lowercased email is the key, and the gateway {@code accountId} rides beside it (since 2026-09-24; it was the
+     * internal {@code patientId} before that).</p>
      *
      * <p>A plan is commercial rather than clinical — a code, a name and a status — so it passes
      * {@link PatientEventPublisher#assertNothingClinical}. The membership's {@code description} is deliberately not

@@ -51,6 +51,7 @@ import org.springframework.security.access.AccessDeniedException;
 class MembershipPlanEventTest {
 
     private static final String PATIENT_ID = "patient-ama";
+    private static final String ACCOUNT_ID = "account-ama";
     private static final String PATIENT_EMAIL = "Ama@Example.Test";
 
     private MembershipRepository memberships;
@@ -78,7 +79,8 @@ class MembershipPlanEventTest {
 
         when(patientScope.requirePatientIdForWrite(any())).thenReturn(PATIENT_ID);
         when(memberships.save(any(Membership.class))).thenAnswer(call -> ((Membership) call.getArgument(0)).id("membership-1"));
-        when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL)));
+        when(profiles.findByPatientId(PATIENT_ID))
+            .thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL).accountId(ACCOUNT_ID)));
     }
 
     /** What both clients' {@code choosePlan} posts: the plan's code into {@code plan}, its display name into {@code name}. */
@@ -98,9 +100,9 @@ class MembershipPlanEventTest {
 
         ArgumentCaptor<String> type = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> email = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> patientId = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> accountId = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Map<String, Object>> data = ArgumentCaptor.forClass(Map.class);
-        verify(events).publish(type.capture(), email.capture(), any(), patientId.capture(), data.capture());
+        verify(events).publish(type.capture(), email.capture(), any(), accountId.capture(), data.capture());
 
         // The type string hc-admin switches on. Renaming it is a two-repository change.
         assertThat(type.getValue()).isEqualTo("PlanChosen");
@@ -108,7 +110,9 @@ class MembershipPlanEventTest {
 
         // Keyed on the patient, like every other event here — the publisher lowercases it.
         assertThat(email.getValue()).isEqualTo(PATIENT_EMAIL);
-        assertThat(patientId.getValue()).isEqualTo(PATIENT_ID);
+        // The gateway account id off the same profile as the email — one read serves both subject fields. The
+        // internal patientId stopped travelling on this stream on 2026-09-24.
+        assertThat(accountId.getValue()).isEqualTo(ACCOUNT_ID);
 
         // The payload shape, in full. containsOnlyKeys rather than containsEntry: a key quietly added here is a key
         // hc-admin has not agreed to, and one quietly dropped is one they are still reading.
@@ -222,7 +226,9 @@ class MembershipPlanEventTest {
 
         assertThatCode(() -> resource.createMembership(chosenPlan())).doesNotThrowAnyException();
 
-        verify(events).publish(eq("PlanChosen"), eq(null), any(), eq(PATIENT_ID), any());
+        // Both subject fields come off the profile now, so no profile means neither resolves — null account id
+        // beside the null email, never the internal patientId standing in for it.
+        verify(events).publish(eq("PlanChosen"), eq(null), any(), eq(null), any());
     }
 
     @Test

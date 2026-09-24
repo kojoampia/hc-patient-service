@@ -46,6 +46,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 class MembershipStatusAnnouncementTest {
 
     private static final String PATIENT_ID = "patient-ama";
+    private static final String ACCOUNT_ID = "account-ama";
     private static final String PATIENT_EMAIL = "Ama@Example.Test";
     private static final String MEMBERSHIP_ID = "membership-1";
 
@@ -69,7 +70,8 @@ class MembershipStatusAnnouncementTest {
         service = new MembershipService(memberships, profiles, events, stream, mongoTemplate);
 
         when(memberships.save(any(Membership.class))).thenAnswer(call -> call.getArgument(0));
-        when(profiles.findByPatientId(PATIENT_ID)).thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL)));
+        when(profiles.findByPatientId(PATIENT_ID))
+            .thenReturn(List.of(new Profile().patientId(PATIENT_ID).email(PATIENT_EMAIL).accountId(ACCOUNT_ID)));
     }
 
     /**
@@ -207,7 +209,7 @@ class MembershipStatusAnnouncementTest {
 
         service.update(stored, held);
 
-        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(PATIENT_ID), any());
+        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(ACCOUNT_ID), any());
         assertThat(published()).containsEntry("status", "ACTIVE");
     }
 
@@ -227,7 +229,7 @@ class MembershipStatusAnnouncementTest {
 
         assertThat(service.activateIfPending(MEMBERSHIP_ID)).isPresent();
 
-        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(PATIENT_ID), any());
+        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(ACCOUNT_ID), any());
         assertThat(published()).containsEntry("status", "ACTIVE");
     }
 
@@ -274,7 +276,7 @@ class MembershipStatusAnnouncementTest {
         // a mocked MongoTemplate can see that this service asked, never what it asked for.
         verify(mongoTemplate).findAndModify(any(), any(), any(FindAndModifyOptions.class), eq(Membership.class));
         // Exactly one frame, and it names the membership just written rather than the one just cancelled.
-        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(PATIENT_ID), any());
+        verify(events).publish(eq("PlanChosen"), eq(PATIENT_EMAIL), any(), eq(ACCOUNT_ID), any());
         assertThat(published())
             .containsEntry("membershipId", MEMBERSHIP_ID)
             .containsEntry("planCode", "MELON")
