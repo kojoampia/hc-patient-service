@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.reflect.RecordComponent;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -218,6 +219,10 @@ class EntityEventPublisherTest {
      * {@code catch (RejectedExecutionException)} and could be forgotten by an edit that keeps every other test
      * green. This test is the compensation: it drives a real drop through the 512-slot queue and watches the
      * counter move under {@code topic=patient.event}.</p>
+     *
+     * <p>⚠ <strong>Filtered on {@code family=notification} since item 46</strong>, not only on the topic: two counters
+     * now share that topic tag, and a search by topic alone would resolve to whichever of the two Micrometer happened
+     * to hand back — a test that reads the wrong meter and passes.</p>
      */
     @Test
     void aDroppedEntityChangeMovesTheCounter() throws Exception {
@@ -248,10 +253,82 @@ class EntityEventPublisherTest {
             }
 
             assertThat(
-                registry.get(DroppedEventCounter.METER_NAME).tag(DroppedEventCounter.TOPIC_DIMENSION, "patient.event").counter().count()
+                registry
+                    .get(DroppedEventCounter.METER_NAME)
+                    .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient.event")
+                    .tag(DroppedEventCounter.FAMILY_DIMENSION, DroppedEventCounter.NOTIFICATION)
+                    .counter()
+                    .count()
             )
                 .as("the one overflow publish is the one counted drop")
                 .isEqualTo(1.0);
+            assertThat(
+                registry
+                    .get(DroppedEventCounter.METER_NAME)
+                    .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient.event")
+                    .tag(DroppedEventCounter.FAMILY_DIMENSION, DroppedEventCounter.COMMAND)
+                    .counter()
+                    .count()
+            )
+                .as("and the command family lost nothing — which is the whole point of the second queue")
+                .isZero();
+        } finally {
+            wedge.countDown();
+        }
+    }
+
+    /**
+     * A dropped command is countable <em>as a command</em>, not merely as a loss on this topic.
+     *
+     * <p>Item 46's review found the gap this closes: the two families shared one counter under one {@code topic} tag,
+     * so after a loss nothing but a substring of a WARN said which had been lost — and the two are not comparable. A
+     * dropped notification is a row missing from hc-admin's audit trail; a dropped command is a letter a patient never
+     * receives. Wedge the command queue, overflow its 128 slots, and watch the count move under
+     * {@code family=command} while the notification family stays at zero.</p>
+     */
+    @Test
+    void aDroppedCommandIsCountedAsACommandAndNotAsAnEntityChange() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        CountDownLatch wedge = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+        StreamBridge bridge = mock(StreamBridge.class);
+        org.mockito.Mockito
+            .when(bridge.send(org.mockito.ArgumentMatchers.any(String.class), org.mockito.ArgumentMatchers.any(Message.class)))
+            .thenAnswer(call -> {
+                occupied.countDown();
+                wedge.await();
+                return true;
+            });
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, registry);
+
+        try {
+            publisher.publishCareDelegationChanged("delegation-0", "REVOKED_BY_ANGEL", "kojo@example.test", "angel@example.test");
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+
+            for (int i = 0; i < 129; i++) {
+                publisher.publishCareDelegationChanged("delegation-" + i, "REVOKED_BY_ANGEL", "kojo@example.test", "angel@example.test");
+            }
+
+            assertThat(
+                registry
+                    .get(DroppedEventCounter.METER_NAME)
+                    .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient.event")
+                    .tag(DroppedEventCounter.FAMILY_DIMENSION, DroppedEventCounter.COMMAND)
+                    .counter()
+                    .count()
+            )
+                .as("the one overflow command is the one counted drop, under its own family")
+                .isEqualTo(1.0);
+            assertThat(
+                registry
+                    .get(DroppedEventCounter.METER_NAME)
+                    .tag(DroppedEventCounter.TOPIC_DIMENSION, "patient.event")
+                    .tag(DroppedEventCounter.FAMILY_DIMENSION, DroppedEventCounter.NOTIFICATION)
+                    .counter()
+                    .count()
+            )
+                .as("a lost letter must not read as a lost audit row")
+                .isZero();
         } finally {
             wedge.countDown();
         }
@@ -280,6 +357,301 @@ class EntityEventPublisherTest {
         publisher.publish("Medication", "med-1", null, "account-7");
 
         verifyNoMoreInteractions(bridge);
+    }
+
+    // --- the command family, backlog item 46 -------------------------------------------------------------------------
+
+    /**
+     * A care-delegation change reaches the channel carrying the values it decides.
+     *
+     * <p>Backlog item 46. Asserted against the <strong>frame</strong> rather than against the call, because the claim
+     * being tested is what a consumer finds: the gateway's {@code CareDelegationMailer} reads {@code data.change}, the
+     * patient's address and {@code data.angelEmail}, and none of those exists on an {@code EntityChanged} frame. A test
+     * that verified "the publisher was called" would pass with the payload empty.</p>
+     */
+    @Test
+    void aCareDelegationChangeCarriesTheTransitionAndBothAddresses() {
+        StreamBridge bridge = mock(StreamBridge.class);
+
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry())
+            .publishCareDelegationChanged("delegation-1", "REVOKED_BY_ANGEL", "Kojo@Example.Test", "angel@example.test");
+
+        ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
+        verifyNoMoreInteractions(bridge);
+
+        EntityEvent event = (EntityEvent) captor.getValue().getPayload();
+
+        // The type the gateway's handler filters on — the same constant as on patient-events, never a second spelling.
+        assertThat(event.type()).isEqualTo(PatientEventType.CARE_DELEGATION_CHANGED);
+        assertThat(EntityEvent.COMMAND_TYPES).contains(event.type());
+        // The subject is the record, per hc-admin item 124 — the delegation, not the patient.
+        assertThat(event.subject().entityType()).isEqualTo("CareDelegation");
+        assertThat(event.subject().entityId()).isEqualTo("delegation-1");
+        // The values. `action` cannot stand in for `change`: a revocation and a ripened standby are both a save.
+        assertThat(event.data()).containsEntry(EntityEvent.CHANGE, "REVOKED_BY_ANGEL");
+        assertThat(event.data())
+            .as("the address the mailer reads, lowercased exactly as patient-events carries it")
+            .containsEntry(EntityEvent.PATIENT_EMAIL, "kojo@example.test");
+        assertThat(event.data()).containsEntry(EntityEvent.ANGEL_EMAIL, "angel@example.test");
+        assertThat(event.eventId()).isNotBlank();
+        assertThat(event.occurredAt()).isNotNull();
+        assertThat(event.source()).isEqualTo("hcPatientService");
+    }
+
+    /**
+     * A deletion-request change carries the date the erasure is owed by.
+     *
+     * <p>{@code DeletionRequestMailer} formats {@code data.dueAt} into the letter that tells a patient when their record
+     * goes. It is the one payload field on either command that is not an identifier or a transition name.</p>
+     */
+    @Test
+    void aDeletionRequestChangeCarriesTheDateTheErasureIsOwedBy() {
+        StreamBridge bridge = mock(StreamBridge.class);
+        Instant due = Instant.parse("2026-10-09T10:00:00Z");
+
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry())
+            .publishDeletionRequestChanged("request-1", "RAISED", "kojo@example.test", due);
+
+        ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
+        EntityEvent event = (EntityEvent) captor.getValue().getPayload();
+
+        assertThat(event.type()).isEqualTo(PatientEventType.DELETION_REQUEST_CHANGED);
+        assertThat(event.subject().entityType()).isEqualTo("DeletionRequest");
+        assertThat(event.subject().entityId()).isEqualTo("request-1");
+        assertThat(event.data()).containsEntry(EntityEvent.CHANGE, "RAISED");
+        assertThat(event.data()).containsEntry(EntityEvent.PATIENT_EMAIL, "kojo@example.test");
+        assertThat(event.data())
+            .as("the string form patient-events already sends, so the gateway's formatDue is unchanged")
+            .containsEntry(EntityEvent.DUE_AT, "2026-10-09T10:00:00Z");
+    }
+
+    @Test
+    void aDeletionRequestWithNoDueDateOmitsTheKeyRatherThanSendingNull() {
+        // The rule patient-events states and this must not diverge from: a field a consumer cannot tell from a
+        // forgotten one is worse than a missing field.
+        StreamBridge bridge = mock(StreamBridge.class);
+
+        new EntityEventPublisher(bridge, new SimpleMeterRegistry())
+            .publishDeletionRequestChanged("request-1", "COMPLETED", "kojo@example.test", null);
+
+        ArgumentCaptor<Message<?>> captor = ArgumentCaptor.captor();
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), captor.capture());
+        EntityEvent event = (EntityEvent) captor.getValue().getPayload();
+
+        assertThat(event.data()).doesNotContainKey(EntityEvent.DUE_AT);
+        assertThat(event.data().keySet()).containsExactly(EntityEvent.CHANGE, EntityEvent.PATIENT_EMAIL);
+    }
+
+    /**
+     * ⭐ The partition-key decision, pinned in the one place a reader can see both answers at once.
+     *
+     * <p>A command is keyed on the <strong>patient</strong> and a notification on the <strong>record</strong>. The
+     * failure that matters to a mailer is a later change overtaking an earlier one for the same person — an angel told
+     * their access ended before being told they were nominated — and {@code patient-events} gives that ordering by
+     * keying on the email. Keying a command on the delegation id instead would take it away, and the gateway half of
+     * item 46 would then be a rebind that quietly loses a guarantee with every test still green.</p>
+     */
+    @Test
+    void aCommandIsKeyedOnThePatientWhereANotificationIsKeyedOnTheRecord() {
+        StreamBridge bridge = mock(StreamBridge.class);
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, new SimpleMeterRegistry());
+
+        publisher.publishCareDelegationChanged("delegation-1", "REVOKED_BY_PATIENT", "Kojo@Example.Test", "angel@example.test");
+
+        ArgumentCaptor<Message<?>> command = ArgumentCaptor.captor();
+        verify(bridge, timeout(SEND_TIMEOUT_MS)).send(eq(EntityEventPublisher.BINDING), command.capture());
+        assertThat(command.getValue().getHeaders().get(EntityEventPublisher.KEY_HEADER))
+            .as("a command's partition key is the patient, lowercased — per-patient ordering is what the mailer needs")
+            .isEqualTo("kojo@example.test");
+
+        publisher.publish("CareDelegation", "delegation-1", EntityChangeAction.UPDATED, "account-7");
+
+        ArgumentCaptor<Message<?>> both = ArgumentCaptor.captor();
+        verify(bridge, timeout(SEND_TIMEOUT_MS).times(2)).send(eq(EntityEventPublisher.BINDING), both.capture());
+        assertThat(both.getAllValues().get(1).getHeaders().get(EntityEventPublisher.KEY_HEADER))
+            .as("and a notification's is still the record, so one document's own history stays ordered")
+            .isEqualTo("delegation-1");
+    }
+
+    /**
+     * ⛔ The command family's guard, on the axis its payload cannot be guarded on.
+     *
+     * <p>Mutate {@link EntityEvent#COMMAND_TYPES} — add an entry, or open the check — and this goes red on its own.
+     * Without it, "publish a command" is a general-purpose way round {@code ALLOWED_KEYS}: any value, under any type, on
+     * a channel whose default is identifiers-only.</p>
+     */
+    @Test
+    void aTypeThatIsNotARegisteredCommandIsRefused() {
+        assertThatThrownBy(() -> EntityEventPublisher.assertIsAKnownCommand("ProfileChanged"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("ProfileChanged");
+
+        // And through the publish path, not only the static: an unregistered type must not reach the bridge either.
+        StreamBridge bridge = mock(StreamBridge.class);
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, new SimpleMeterRegistry());
+        Map<String, Object> data = new HashMap<>();
+        data.put(EntityEvent.CHANGE, "SOMETHING");
+        data.put(EntityEvent.PATIENT_EMAIL, "kojo@example.test");
+
+        assertThatThrownBy(() -> publisher.publishCommand("ProfileChanged", "Profile", "profile-1", "kojo@example.test", data))
+            .isInstanceOf(IllegalArgumentException.class);
+        verifyNoMoreInteractions(bridge);
+    }
+
+    /**
+     * ⛔ The notification family's allowlist is untouched by item 46, and this is the assertion that says so.
+     *
+     * <p>The rejected alternative to two families was widening {@code ALLOWED_KEYS} to admit {@code change},
+     * {@code angelEmail} and {@code dueAt} and dispatching on {@code subject.entityType}. It was declined because the
+     * allowlist is what stops a mis-wired producer leaking a field, and that widening would give <em>every</em>
+     * {@code EntityChanged} frame on a three-product channel room for an address. Mutate {@code ALLOWED_KEYS} to add any
+     * of the three and this goes red.</p>
+     */
+    @Test
+    void theNotificationAllowlistStillRefusesEveryKeyACommandCarries() {
+        for (String commandKey : new String[] {
+            EntityEvent.CHANGE,
+            EntityEvent.PATIENT_EMAIL,
+            EntityEvent.ANGEL_EMAIL,
+            EntityEvent.DUE_AT,
+        }) {
+            Map<String, Object> smuggled = new HashMap<>();
+            smuggled.put(EntityEvent.ACTION, "UPDATED");
+            smuggled.put(EntityEvent.ACTOR_ACCOUNT_ID, "account-7");
+            smuggled.put(commandKey, "anything");
+
+            assertThatThrownBy(() -> EntityEventPublisher.assertIdentifiersOnly(smuggled))
+                .as("a command's key on a notification payload must still be refused: %s", commandKey)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(commandKey);
+        }
+    }
+
+    /**
+     * ⛔ The notification type must never be registered as a command.
+     *
+     * <p>That single edit would be the blanket bypass: {@code EntityChanged} frames carrying values, under the type
+     * whose entire guard is a two-key allowlist, with nothing else in the suite noticing.</p>
+     */
+    @Test
+    void theNotificationTypeIsNotACommandType() {
+        assertThat(EntityEvent.COMMAND_TYPES).doesNotContain(EntityEvent.TYPE);
+        assertThatThrownBy(() -> EntityEventPublisher.assertIsAKnownCommand(EntityEvent.TYPE)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * {@code assertNothingClinical} still runs over a command payload.
+     *
+     * <p>It and the allowlist fail differently and neither subsumes the other — {@code EntityEventPublisher}'s own
+     * javadoc says so, and a command is exempt from one of them and not the other. Mutate the
+     * {@code assertNothingClinical} call out of {@code publishCommand} and this goes red on its own.</p>
+     */
+    @Test
+    void aCommandCarryingClinicalContentIsRefused() {
+        StreamBridge bridge = mock(StreamBridge.class);
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, new SimpleMeterRegistry());
+        Map<String, Object> data = new HashMap<>();
+        data.put(EntityEvent.CHANGE, "RAISED");
+        data.put(EntityEvent.PATIENT_EMAIL, "kojo@example.test");
+        // The realistic mistake on this family: a command may carry values, so the temptation is to explain the
+        // transition — and an administrator's or clinician's note is exactly what must not travel.
+        data.put("notes", "patient reports chest pain");
+
+        assertThatThrownBy(() ->
+                publisher.publishCommand(
+                    PatientEventType.DELETION_REQUEST_CHANGED,
+                    "DeletionRequest",
+                    "request-1",
+                    "kojo@example.test",
+                    data
+                )
+            )
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("notes");
+        verifyNoMoreInteractions(bridge);
+    }
+
+    @Test
+    void aCommandThatNamesNoPatientOrNoRecordIsRefusedRatherThanSent() {
+        // The rule patient-events enforces on the envelope rather than at a call site, applied here for the same
+        // reason: blank counts as absent, and the mailer declines to write to a blank address — so an unkeyed frame is
+        // one nobody can act on. CareDelegationService's profile lookup can legitimately return nothing.
+        StreamBridge bridge = mock(StreamBridge.class);
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, new SimpleMeterRegistry());
+
+        publisher.publishCareDelegationChanged("delegation-1", "REVOKED_BY_ANGEL", null, "angel@example.test");
+        publisher.publishCareDelegationChanged("delegation-1", "REVOKED_BY_ANGEL", "  ", "angel@example.test");
+        publisher.publishCareDelegationChanged(null, "REVOKED_BY_ANGEL", "kojo@example.test", "angel@example.test");
+        publisher.publishDeletionRequestChanged("request-1", null, "kojo@example.test", null);
+        publisher.publishDeletionRequestChanged("request-1", "  ", "kojo@example.test", null);
+
+        verifyNoMoreInteractions(bridge);
+    }
+
+    /**
+     * ⛔ The same one-word edit as {@link #afullQueueDropsTheFrameRatherThanRunningItOnTheCallersThread}, in the second
+     * place it now exists.
+     */
+    @Test
+    void aFullCommandQueueDropsTheFrameRatherThanRunningItOnTheCallersThread() {
+        EntityEventPublisher publisher = new EntityEventPublisher(mock(StreamBridge.class), new SimpleMeterRegistry());
+
+        assertThat(publisher.commandSenderForTest().getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
+    }
+
+    /**
+     * The command family has its own queue, so a burst of ordinary saves cannot evict a letter.
+     *
+     * <p>{@link AsyncEventSender}'s javadoc states the rule: share one queue and the noisiest stream decides what the
+     * quietest loses. Here the noisy family fires on every write in the service and the quiet one obliges mail, so this
+     * wedges the notification queue full and asserts that a command still goes out.</p>
+     *
+     * <p>⚠ <strong>The type predicate is inside the timed {@code verify}, not in an assertion after it</strong>, and the
+     * difference is item 19's shape in miniature. With {@code atLeast(2)} followed by an {@code anyMatch}, a mutation
+     * that shares the queue reddens on the <em>count</em> and the line carrying the actual claim never executes — the
+     * test was right and its failure landed next to its reasoning rather than on it. {@code argThat} makes Mockito wait
+     * for a message of this type specifically, so the red says what was lost.</p>
+     */
+    @Test
+    void aFloodOfEntityChangesCannotDropACommand() throws Exception {
+        CountDownLatch wedge = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+        StreamBridge bridge = mock(StreamBridge.class);
+        org.mockito.Mockito
+            .when(bridge.send(org.mockito.ArgumentMatchers.any(String.class), org.mockito.ArgumentMatchers.any(Message.class)))
+            .thenAnswer(call -> {
+                EntityEvent sent = (EntityEvent) ((Message<?>) call.getArgument(1)).getPayload();
+                if (EntityEvent.TYPE.equals(sent.type())) {
+                    occupied.countDown();
+                    wedge.await();
+                }
+                return true;
+            });
+        EntityEventPublisher publisher = new EntityEventPublisher(bridge, new SimpleMeterRegistry());
+
+        try {
+            publisher.publish("Medication", "med-0", EntityChangeAction.CREATED, null);
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+            for (int i = 0; i < 600; i++) {
+                publisher.publish("Medication", "med-" + i, EntityChangeAction.UPDATED, null);
+            }
+
+            publisher.publishCareDelegationChanged("delegation-1", "REVOKED_BY_ANGEL", "kojo@example.test", "angel@example.test");
+
+            // The claim is "a command went out while the notification queue was wedged", so the type is part of what
+            // Mockito waits for rather than something checked afterwards on whatever it happened to capture.
+            verify(bridge, timeout(SEND_TIMEOUT_MS))
+                .send(
+                    eq(EntityEventPublisher.BINDING),
+                    org.mockito.ArgumentMatchers.<Message<?>>argThat(message ->
+                        message != null && PatientEventType.CARE_DELEGATION_CHANGED.equals(((EntityEvent) message.getPayload()).type())
+                    )
+                );
+        } finally {
+            wedge.countDown();
+        }
     }
 
     @Test

@@ -51,7 +51,13 @@ spring:
               messageKeyExpression: headers['patientKey']
           # Mirrors the main config. Same ByteArraySerializer trap as the binding above, and the same silence: this
           # publisher swallows its failures AND sends on a thread of its own, so a key-serializer mismatch would lose
-          # every entity change with nothing failing anywhere. EntityEventRoundTripIT is what would notice.
+          # every frame on this binding with nothing failing anywhere. EntityEventRoundTripIT and
+          # PatientCommandEventRoundTripIT are what would notice.
+          #
+          # "EVERY FRAME", NOT "EVERY ENTITY CHANGE", SINCE ITEM 46: this binding now carries two families, and the
+          # notification family's key is the entity while a command's is the patient — one expression, two meanings,
+          # argued in the main config and in EntityEventPublisher.KEY_HEADER. The sentence above was accurate when the
+          # binding carried one family and would have quietly understated the blast radius afterwards.
           entityEvents-out-0:
             producer:
               configuration:

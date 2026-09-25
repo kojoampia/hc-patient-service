@@ -166,11 +166,30 @@ spring:
               # inside a publisher that swallows its failures by design, on a thread of its own. Silent twice over.
               configuration:
                 key.serializer: org.apache.kafka.common.serialization.StringSerializer
-              # KEYED ON THE ENTITY, NOT THE PATIENT — the opposite choice from the binding above, deliberately.
-              # Two changes to one document must stay in order or the audit trail reports a create and a delete in
-              # whichever order two partitions happened to drain, which is a trail asserting the document still
-              # exists. Keying on the actor instead would order one person's actions and scatter each document's
-              # history, which is the wrong half of the guarantee for this stream. See EntityEventPublisher.
+              # ⚠ TWO FRAME FAMILIES SHARE THIS ONE EXPRESSION, AND THEY ARE KEYED DIFFERENTLY. This comment said
+              # "KEYED ON THE ENTITY, NOT THE PATIENT" until item 46, which was true of everything on the binding
+              # when it was written and stopped being true when the binding's traffic widened — the estate's recorded
+              # failure mode: a stated reason, correct on the day, quietly invalidated by a change that widened what
+              # the setting covers.
+              #
+              #   type=EntityChanged (notification)  -> entityKey = the ENTITY id
+              #   type=CareDelegationChanged  }
+              #   type=DeletionRequestChanged }      -> entityKey = the PATIENT's lowercased email
+              #
+              # ONE HEADER FOR BOTH, DELIBERATELY, so this expression never had to change: it governs the key of
+              # every frame on a live cross-product channel, its failure mode is a ClassCastException at SEND time
+              # inside a publisher that swallows on a thread of its own, and no test in this repo can protect it
+              # because src/test/resources/config/application.yml REPLACES this file rather than merging (item 32).
+              # The publisher decides the value; the header's name is therefore only half-honest, which is the price.
+              #
+              # WHY EACH FAMILY IS KEYED THE WAY IT IS. A notification: two changes to one document must stay in
+              # order or the audit trail reports a create and a delete in whichever order two partitions happened to
+              # drain, which is a trail asserting the document still exists. A command: its only consumer is a mail
+              # dispatcher, and what must not happen is a later change overtaking an earlier one FOR THE SAME PERSON
+              # — an angel told their access ended before being told they were nominated. Per-patient ordering is
+              # what `patient-events` gives that consumer today and what a command must keep. Keying either family
+              # on the actor would order one person's actions and scatter each document's history, which is the
+              # wrong half of the guarantee for both. See EntityEventPublisher.KEY_HEADER for the full argument.
               messageKeyExpression: headers['entityKey']
           # THIS REPO'S FIRST DEAD-LETTER QUEUE, and it is here because of what the alternatives do.
           #

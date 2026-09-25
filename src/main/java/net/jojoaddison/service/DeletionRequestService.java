@@ -10,6 +10,7 @@ import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.DeletionRequestStatus;
 import net.jojoaddison.repository.DeletionRequestRepository;
 import net.jojoaddison.repository.ProfileRepository;
+import net.jojoaddison.service.event.EntityEventPublisher;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
@@ -67,16 +68,27 @@ public class DeletionRequestService {
     private final PatientEventPublisher events;
     private final ProfileRepository profileRepository;
 
+    /**
+     * The second channel, since backlog item 46 — the same announcement, on {@code patient.event}.
+     *
+     * <p>Not a replacement for {@code events}: both are published on every transition, so the gateway's mail router and
+     * its account closer can be rebound to one channel per product without a window in which an erasure is announced to
+     * nobody. See {@link #announce(DeletionRequest, String, String)}.</p>
+     */
+    private final EntityEventPublisher entityEvents;
+
     public DeletionRequestService(
         DeletionRequestRepository deletionRequestRepository,
         PatientErasureService patientErasureService,
         PatientEventPublisher events,
-        ProfileRepository profileRepository
+        ProfileRepository profileRepository,
+        EntityEventPublisher entityEvents
     ) {
         this.deletionRequestRepository = deletionRequestRepository;
         this.patientErasureService = patientErasureService;
         this.events = events;
         this.profileRepository = profileRepository;
+        this.entityEvents = entityEvents;
     }
 
     /**
@@ -230,6 +242,26 @@ public class DeletionRequestService {
     /**
      * As above, for the one transition that must resolve its subject before the work rather than after it.
      *
+     * <h2>Announced on both channels since backlog item 46</h2>
+     *
+     * <p>The {@code patient-events} frame is <strong>unchanged</strong> — hc-admin's consumer and the gateway's mail
+     * router and account closer all still read it. The second call puts the same transition on {@code patient.event},
+     * the channel the estate is consolidating on. ⚠ The new frame does not carry {@code requestId}, because that
+     * <em>is</em> {@code subject.entityId} there.</p>
+     *
+     * <p>⛔ <strong>Every value the three gateway handlers read travels on both topics; two of them travel in a
+     * different place, and this comment claimed otherwise.</strong> {@code change} and {@code dueAt} are in
+     * {@code data} on both. The address is {@code subject.email} on {@code patient-events} and
+     * {@code data.patientEmail} here, because item 124 settled that this channel's {@code subject} is the record. All
+     * three of {@code DeletionRequestMailer}, {@code DeletionAccountCloser} and {@code CareDelegationMailer} read
+     * {@code event.subject().email()}, and {@code PatientEvent.Subject} carries
+     * {@code @JsonIgnoreProperties(ignoreUnknown = true)} — so repointing the binding at this topic
+     * <strong>binds silently and hands every handler a null recipient</strong> rather than failing. The four deletion
+     * mails stop at a WARN, and <em>no gateway account is deactivated after an erasure</em>: {@code
+     * DeletionAccountCloser} logs "An erasure completed with no address on the event — no account was closed" and
+     * returns, which leaves a live login against an erased record. The gateway must move all three handlers to
+     * {@code data.patientEmail} <em>in the same commit as the rebind</em>.</p>
+     *
      * @param subjectAccountId resolved by the caller. {@link #complete} reads it before {@code erase} destroys the
      *     profile that holds it; see the comment there for why the order is load-bearing rather than incidental.
      */
@@ -247,6 +279,9 @@ public class DeletionRequestService {
             subjectAccountId,
             data
         );
+        // The same announcement on patient.event. The address is still the stored-at-raise copy and never a lookup —
+        // for COMPLETED the profile that would have answered one is already gone.
+        entityEvents.publishDeletionRequestChanged(request.getId(), change, request.getRequestedByEmail(), request.getDueAt());
     }
 
     /**
