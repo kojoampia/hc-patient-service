@@ -60,7 +60,9 @@ class MembershipStreamBindingTest {
     void everyOtherConsumerBindingStillHasOne() {
         // The rule above is a deliberate exception, and it only reads as one while the others are the other way. If
         // this ever fails, the exception has become the convention and the comment in application.yml is misleading.
-        assertThat(binding(MAIN, "patientPlanEventsConsumer-in-0")).containsEntry("group", "hc-patient-service");
+        // Renamed with its destination by item 47: `patientPlanEventsConsumer-in-0` on `patient-events-plan` became
+        // `adminEventConsumer-in-0` on `admin.event`. The group is the same string and for the same reason.
+        assertThat(binding(MAIN, "adminEventConsumer-in-0")).containsEntry("group", "hc-patient-service");
     }
 
     @Test

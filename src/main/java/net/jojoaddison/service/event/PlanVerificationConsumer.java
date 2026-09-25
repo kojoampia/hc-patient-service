@@ -1,5 +1,7 @@
 package net.jojoaddison.service.event;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -20,72 +22,165 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 /**
- * The one consumer bound to {@code patient-events-plan} — hc-admin's acknowledgement that an administrator decided a
- * patient's plan choice — which it applies by moving that patient's pending membership to {@code ACTIVE}.
+ * The one consumer bound to {@code admin.event} — hc-admin's own channel — which reads the frames addressed to this
+ * service and applies an administrator's plan verification by moving that patient's pending membership to
+ * {@code ACTIVE}.
  *
- * <h2>The first topic this service consumes that it does not own</h2>
+ * <h2>The only channel this service consumes that it does not own</h2>
  *
- * <p>Everything else here <em>publishes</em>: {@code patient-events} is this subsystem's own stream and both its
- * producers are ours. This is the return leg of the exchange item 18 opened — a patient chooses a tier, this service
- * writes a {@code PENDING} {@link Membership} and announces it, an administrator decides on it next door, and the
- * decision comes back here. Backlog item 19.</p>
+ * <p>Everything else here <em>publishes</em>: {@code patient-events} and {@code patient.event} are this subsystem's own
+ * streams and every producer on them is ours. This is the return leg of the exchange item 18 opened — a patient chooses
+ * a tier, this service writes a {@code PENDING} {@link Membership} and announces it, an administrator decides on it next
+ * door, and the decision comes back here. Backlog item 19 built it on {@code patient-events-plan}; <b>backlog item 47
+ * moved it to {@code admin.event} and removed that binding</b>, under the estate decision of 2026-09-17: one channel per
+ * product carrying everything that product has to say, so a new consumer subscribes rather than negotiating a topic.</p>
  *
  * <pre>
- * topic     patient-events-plan     hc-admin publishes, this repo consumes
- * subject   Patient.email           lower-cased, as every frame on patient-events is
- * payload   { Plan }                one field
+ * channel   admin.event                  hc-admin publishes, three products consume
+ * type      PlanVerified                 one of three types on the channel; see AdminEvent
+ * subject   ("DirectoryLink", linkId)    THE RECORD, NOT THE PERSON — the addressee is in data
+ * payload   { plan, subjectKey }         the decided tier, and the lower-cased email to apply it to
+ * key       DirectoryLink/&lt;linkId&gt;       and no patientKey header, unlike patient-events
  * </pre>
  *
- * <p><b>The method name IS the binding name.</b> Spring Cloud Stream derives {@code patientPlanEventsConsumer-in-0}
- * from the {@code @Bean} method, and {@code spring.cloud.function.definition} names it in YAML — so renaming the
- * method does not fail to compile and does not fail to start. The context comes up, every request is served, and
- * every acknowledgement hc-admin sends is dropped on the floor with nothing thrown and nothing logged at a level
- * anybody watches. {@code PlanVerificationConsumerBindingIT} is the only thing that can see that.</p>
+ * <h2>⚠ The subject moved, and reading {@code subject.email} here would refuse every real verification</h2>
  *
- * <p>And this class is deliberately not called {@code PatientPlanEventsConsumer}: Spring would derive that same bean
- * name for the component itself, and a {@code @Bean} method sharing its own class's bean name is a factory-bean
- * reference pointing at itself. The context refuses to start — the gateway's {@code PatientEventMailRouter} records
- * the same trap.</p>
+ * <p><b>This is the one thing about item 47 that nothing but hc-admin's source could have told us.</b> The frame they
+ * publish on {@code patient-events-plan} is this repo's own {@link PatientEvent} envelope, with the address in
+ * {@code subject.email} and {@code data} of exactly {@code {"plan": "…"}} — item 19 was written against it and it is
+ * still correct <em>there</em>. The frame they publish on {@code admin.event} is a <b>different class</b>
+ * ({@code PlanVerifiedEvent}, not {@code PlanVerificationEvent}) in <b>the channel's own envelope</b>: {@code subject}
+ * is {@code (entityType, entityId)} like every other frame on it, and the address travels as
+ * <b>{@code data.subjectKey}</b>. Their reasoning is the architect's D1 of 2026-09-25 — one channel, one meaning for
+ * {@code subject} — and {@link AdminEvent} carries it.</p>
+ *
+ * <p>A reader ported across by changing the destination alone would therefore refuse {@link Reason#NO_SUBJECT_KEY} on
+ * every genuine verification, dead-letter it, and stay green in every test written from the old shape. Both repositories
+ * have already paid for the general form of this once: <em>read the far end's code, not the specification.</em> Their
+ * {@code AdminEntityEvent} javadoc says so about us, and it is the reason this class was rewritten against their
+ * {@code main} at {@code 7deda9a} and against 7435 frames read off the live quality broker on 2026-09-25, rather than
+ * against item 47's prose — which describes the old envelope and was written before theirs existed.</p>
+ *
+ * <h2>A type that is not ours is the ORDINARY case now, and is ignored rather than refused</h2>
+ *
+ * <p><b>This inverts item 19's decision, and the inversion is the whole of item 47's behaviour change.</b>
+ * {@code patient-events-plan} carried one exchange between two products, so a frame of another type there was a contract
+ * change and refusing it — keeping the bytes in the dead-letter queue until somebody modelled it — was right.
+ * {@code admin.event} carries <em>everything hc-admin has to say</em>: measured on 2026-09-25, <b>7433 of its 7435
+ * frames were {@code EntityChanged}</b>, hc-admin's entity CRUD, of which this product has no use for a single one.
+ * Refusing an unexpected type on this channel would dead-letter the channel — four handlings and a dead letter per
+ * frame, for ever, growing with hc-admin's write rate.</p>
+ *
+ * <p><b>So {@link #apply} dispatches on {@code type} first, before every other check including the ledger read.</b> That
+ * ordering is load-bearing rather than tidy: an {@code EntityChanged} frame has a perfectly good {@code eventId}, so it
+ * sails past the blank-id guard, and under item 19's ordering it would have reached the type check and died there —
+ * 7433 times and counting. A frame that is not ours costs one string comparison and no database read at all.</p>
+ *
+ * <p><b>What that gives up, said plainly: a rejection frame is now ignored instead of held.</b> hc-admin's item 54
+ * promises a second control the moment a rejection path is decided, and this class used to dead-letter it so a person
+ * would find it. It will now be ignored — and the state that leaves behind is the safe one, because the membership stays
+ * {@code PENDING} and nothing is granted; the frame also stays on hc-admin's channel under its retention, where it can be
+ * replayed once somebody models it. The alternative — enumerate the types we know and refuse the rest — was rejected
+ * because hc-admin adding a type is not an event they tell us about. That is the point of one channel, and a consumer
+ * that dead-letters everything it has not been introduced to makes every new entity in their service an outage in ours.
+ * {@link #ignoredFrames} is what keeps the ignoring visible; see {@link #ignore}.</p>
+ *
+ * <p><b>⚠ And it gives up a second thing, which is less obvious and worse: the alarm moved.</b> {@link #PLAN_VERIFIED}
+ * is a literal pinned against a string another repository owns, so if it ever diverges — a rename, a casing change, an
+ * envelope of theirs that stops carrying {@code type} — <b>every</b> verification takes the ignore path. Nothing is
+ * refused, nothing is dead-lettered, nothing logs above {@code TRACE}, memberships stay {@code PENDING}, and the
+ * ignored count goes on climbing on their entity churn exactly as it does when all is well. Under item 19's rule that
+ * same drift dead-lettered loudly. The ignore is still right for a shared channel; what it needs is a different
+ * signal, and that is {@link #appliedFrames} — a rate that goes to zero against a live channel, which is a shape the
+ * ignored count alone cannot show.</p>
+ *
+ * <p><b>The method name IS the binding name.</b> Spring Cloud Stream derives {@code adminEventConsumer-in-0} from the
+ * {@code @Bean} method, and {@code spring.cloud.function.definition} names it in YAML — so renaming the method does not
+ * fail to compile and does not fail to start. The context comes up, every request is served, and every decision hc-admin
+ * sends is dropped on the floor with nothing thrown and nothing logged at a level anybody watches.
+ * {@code PlanVerificationConsumerBindingIT} is the only thing that can see that, and item 32 is what a binding bound to
+ * nothing cost this repository: reviewed five times, deployed, healthy, serving, and consuming a topic that did not
+ * exist.</p>
+ *
+ * <p><b>This class keeps its name although the binding no longer does, and that is not an oversight.</b> It is named for
+ * what it does, which has not changed; and a class called {@code AdminEventConsumer} would make Spring derive the bean
+ * name {@code adminEventConsumer} for the component itself, so the {@code @Bean} method below would be a factory-bean
+ * reference pointing at its own class. The context refuses to start — {@link MembershipStreamConsumer} and the gateway's
+ * {@code PatientEventMailRouter} both record the same trap.</p>
  *
  * <h2>The far end is built, and this class was written against their code rather than the backlog</h2>
  *
- * <p><b>hc-admin's item 54 landed on their {@code main} at {@code ceb9eae}, "Item 54: an admin verifies a plan choice
- * and hc-patient is told."</b> Everything below that names their behaviour was read from
- * {@code PlanVerificationEvent} and {@code PatientPlanVerificationService} on 2026-09-10, not from their entry — they
- * built their half by reading this file, and this paragraph closes the loop in the other direction. What their entry
- * still records and their code contradicts is noted where it matters.</p>
+ * <p><b>hc-admin's item 145 step 1 landed on their {@code main} at {@code 7deda9a}, "both return legs also publish on
+ * admin.event", and their image is already running on the quality box.</b> Everything here that names their behaviour
+ * was read from {@code PlanVerifiedEvent}, {@code PatientPlanVerificationService}, {@code AdminChannel} and
+ * {@code OutboundEventPublisher} on 2026-09-25, and then checked against frames on the live broker — not from either
+ * product's backlog entry. Item 19 did the same thing against their item 54 ({@code ceb9eae}) and was right about the
+ * topic it was written for; the entry describing <em>this</em> migration predates their envelope and describes the old
+ * one, which is exactly why the code was read instead.</p>
  *
- * <p>So three things that were assumptions here are now measured. They send <b>this repo's {@link PatientEvent}
- * envelope</b>, not the flat shape their only other outbound DTO uses; they set {@code subject.email} <b>lowercased
- * at the publish point</b>; and they set the Kafka <b>partition key</b> to the same address, through a four-argument
- * publish written for this exchange. No fallback to the record key is needed, and one would have been dead code:
- * their earlier publishers set no key expression at all.</p>
+ * <p><b>Their publish is additive and ours is a move, and the order is deliberate.</b> They still publish the old frame
+ * on {@code patient-events-plan} as well, and their {@code PlanVerifiedEvent} javadoc explains why they will not stop
+ * until this consumer's lag on the old topic is zero and its binding is gone: <em>remove the consumer before the
+ * producer</em> — a producer writing where nobody reads is harmless, a consumer reading where nobody writes is silence
+ * that looks like health. This commit is the consumer half. <b>Their lag was zero when it was written</b> (group
+ * {@code hc-patient-service}, {@code patient-events-plan}, current offset 4 of 4, measured 2026-09-25), so nothing on
+ * that topic is abandoned undelivered.</p>
  *
- * <p><b>It dispatches on the event type, which reverses this class's first decision.</b> That decision — apply every
- * frame, because the type string was never agreed — was right while their half was unbuilt: guessing a literal would
- * have reproduced item 18's fortnight-long half-loop inverted, with this side consuming and ignoring while the loop
- * read as working. It has stopped being right, because the literal is no longer a guess. {@code PlanVerified} is a
- * constant on both sides now, and the type each frame carries is still recorded on {@link PlanVerification} — which
- * is what let the question be answered from data, as intended.</p>
+ * <p><b>Three things that were assumptions in item 19 and are now measured, on the new channel.</b> They mint a
+ * <em>second</em> {@code eventId} for this frame rather than reusing the one on the old topic — "two channels, two
+ * identities" — so the two frames about one decision are two ledger rows if both are ever applied, and the ledger is not
+ * a defence against reading both channels at once. They lowercase and trim {@code data.subjectKey} at the publish point,
+ * and a test on their side pins it, because a wrong-cased join key is item 26's silent failure. And they key the
+ * partition on {@code DirectoryLink/<linkId>} with <b>no {@code patientKey} header</b>, so nothing about the Kafka key
+ * addresses a patient any more: the addressee is in the payload, which is where this class reads it.</p>
  *
- * <p>Keeping the old behaviour would have been the sharper hazard of the two. A rejection or correction frame
- * carrying a matching {@code plan} and no {@code status} <b>activated the membership</b>: {@link #assertActivating}
- * only fires when a status is present, and the settled payload has none. Their item 54 says a second control follows
- * the moment a rejection path is decided, so that frame is coming. See
- * {@link #assertTypeIsTheOneThisTopicCarries} for why it is refused rather than ignored.</p>
+ * <p><b>It dispatches on the event type, which reverses this class's first decision and then reverses what that
+ * reversal did with the frames it did not recognise.</b> The original decision — apply every frame, because the type
+ * string was never agreed — was right while their half was unbuilt. Item 19 replaced it with a refusal, which was right
+ * for a topic carrying one exchange. Item 47 keeps the dispatch and replaces the refusal with an ignore, because the
+ * channel now carries everything hc-admin has to say; see the section above, and {@link #ignore}. The type each applied
+ * frame carried is still recorded on {@link PlanVerification}, which is what let the earlier question be answered from
+ * data rather than from a comment.</p>
+ *
+ * <p>Applying an unrecognised frame would still be the sharpest hazard of the three, and it is worth keeping the reason
+ * visible. A rejection or correction frame carrying a matching {@code plan} and no {@code status} would <b>activate the
+ * membership</b>: {@link #assertActivating} only fires when a status is present, and the settled payload has none. So
+ * the choice was never between refusing and applying — it is between refusing and ignoring, and only one of those
+ * scales to a channel this service does not own.</p>
  *
  * <h2>Refusing, and what reaches the dead-letter queue</h2>
  *
- * <p>Twelve ways an acknowledgement can be wrong, enumerated in {@link Reason} and each refused separately so the log
- * says which. <b>Every refusal throws</b>, which dead-letters the frame with its bytes intact and advances the
- * offset, where a swallowed one would leave only a log line nothing alerts on. The binding is never at risk — the
- * binder retries, dead-letters and takes the next frame, which {@code PlanVerificationRoundTripIT} proves against a
- * real broker rather than asserting.</p>
+ * <p>Eleven ways a verification addressed to this service can be wrong, enumerated in {@link Reason} and each refused
+ * separately so the log says which. <b>Every refusal throws</b>, which dead-letters the frame with its bytes intact and
+ * advances the offset, where a swallowed one would leave only a log line nothing alerts on. The binding is never at risk
+ * — the binder retries, dead-letters and takes the next frame, which {@code PlanVerificationRoundTripIT} proves against
+ * a real broker rather than asserting.</p>
+ *
+ * <p><b>Only a frame that binds to {@link AdminEvent} <em>and</em> carries this service's own type can reach a refusal
+ * in this class</b>, which is what keeps the dead-letter queue readable now that the channel is shared: hc-admin's
+ * entity churn is ignored and never refused, so it does not fill the queue.</p>
+ *
+ * <p><b>⚠ That is not the same as "the queue holds nothing but our own type", and an earlier version of this
+ * paragraph claimed exactly that.</b> It said the queue holds plan verifications and nothing else, which this class's
+ * own tests falsify twice over:</p>
+ *
+ * <ul>
+ *   <li><b>Conversion runs before dispatch.</b> A frame that will not bind to {@link AdminEvent} is dead-lettered by
+ *       the binder, which has never seen {@link #PLAN_VERIFIED} and cannot — {@code apply} is not called at all.
+ *       {@code PlanVerificationRoundTripIT.aPoisonFrameIsDeadLetteredAndTheNextGoodFrameIsStillConsumed} puts one
+ *       there by construction, and any future frame of hc-admin's that this record cannot bind lands there too,
+ *       whatever its type. {@link AdminEvent} is as tolerant as it is precisely to keep that set small.</li>
+ *   <li><b>The null-frame guard precedes the type check</b>, necessarily — a null frame has no type to read — so a
+ *       tombstone refuses {@link Reason#NO_FRAME} whether or not it was ever addressed here.</li>
+ * </ul>
+ *
+ * <p>The distinction matters to whoever reads the queue: it is <em>mostly</em> ours, and a frame in it that is not a
+ * plan verification is a conversion failure or a tombstone rather than evidence that the type dispatch leaked.</p>
  *
  * <p><b>"Recoverable" is worth stating precisely, because the word flatters what it describes.</b> A dead-lettered
- * frame is recoverable only by a person reading {@code patient-events-plan.hc-patient-dlq} and replaying it after
- * fixing whatever caused the refusal. Nothing here retries it and nothing alerts on it. That is still better than a
- * log line — the bytes survive and the decision can be reapplied — but it is a human process, not a mechanism.</p>
+ * frame is recoverable only by a person reading {@code admin.event.hc-patient-dlq} and replaying it after fixing
+ * whatever caused the refusal. Nothing here retries it and nothing alerts on it. That is still better than a log line —
+ * the bytes survive and the decision can be reapplied — but it is a human process, not a mechanism.</p>
  *
  * <p><b>Two things are ignored rather than refused, and keeping the dead-letter queue meaningful depends on both.</b>
  * A frame this service has already applied, identified by its event id: at-least-once delivery working as specified.
@@ -96,7 +191,7 @@ import org.springframework.stereotype.Component;
  *
  * <h2>Idempotency</h2>
  *
- * <p>{@link PatientEvent#eventId()} keys {@link PlanVerification}, whose {@code _id} it is — so "have I applied this
+ * <p>{@link AdminEvent#eventId()} keys {@link PlanVerification}, whose {@code _id} it is — so "have I applied this
  * frame" is a primary-key read, and a replay produces neither a second write nor a second announcement. The ledger is
  * written <b>after</b> the membership, deliberately: writing it first would let a crash in the gap lose the
  * verification silently, and this file chooses the visible failure every time it has the choice.</p>
@@ -120,31 +215,82 @@ import org.springframework.stereotype.Component;
  * redelivery arriving after an erasure is no longer recognised as a replay and refuses
  * {@link Reason#UNKNOWN_PATIENT} instead. Loud, correct, and not a regression — see {@link PlanVerification}.</p>
  *
- * <h2>It no longer idles, and nothing end to end has been observed either</h2>
+ * <h2>The first start replays the whole channel, and that is chosen rather than tolerated</h2>
  *
- * <p>Item 19 built this half first on the argument that a consumer nobody publishes to idles harmlessly and drains
- * the backlog the day the producer starts — the opposite of item 18's publish-first, which spent a fortnight as a
- * half-loop. <b>That day arrived while this was in review.</b> The consumer group reads from {@code earliest}, which
- * is what makes "the backlog drains into it" true rather than hopeful; it is set explicitly in
- * {@code application.yml} rather than inherited, because it is the whole justification for the build order.</p>
+ * <p>The group keeps reading from {@code earliest}, set explicitly in {@code application.yml}. Kafka scopes offsets per
+ * {@code (group, topic)}, so {@code hc-patient-service} arrives on {@code admin.event} with no committed offset and
+ * <b>reads the channel from the beginning exactly once</b>: 7435 frames as of 2026-09-25, of which 7433 cost a string
+ * comparison each. {@code resetOffsets} stays at its default of false, which is the half that matters afterwards —
+ * {@code startOffset} applies only while the group has no committed offset, so a restart does not do this again.</p>
  *
- * <p><b>Both halves existing is not the same as the loop having been watched close.</b> Nothing here has been run
- * against their stack; every claim about their behaviour is read off their source. The proof that remains is two
- * services running together on the quality stacks, and it is item 19's last open bullet. Do not add a producer to
- * this repository to stand in for it — the only things that write to this topic are hc-admin and, in tests, a raw
- * Kafka producer inside the test.</p>
+ * <p><b>{@code latest} was the alternative and it is the one that loses a decision.</b> hc-admin has been publishing
+ * here since their roll; a verification pressed between their deploy and ours sits in that backlog, and {@code latest}
+ * would skip it silently — leaving a membership {@code PENDING} for ever with a healthy producer, a healthy consumer, no
+ * lag and no dead letter. That is the same argument item 19 made for the build order, and it survives the change of
+ * channel because ignoring a frame cheaply is what makes replaying a large backlog harmless.</p>
+ *
+ * <p><b>What the first replay may legitimately produce is one dead letter, and it is not a defect.</b> The one
+ * {@code PlanVerified} frame on the quality channel names a patient and a plan; if the membership it is about is no
+ * longer {@code PENDING} it is ignored as already satisfied, and if that patient is unknown here it is refused
+ * {@link Reason#UNKNOWN_PATIENT} and dead-lettered — which is the correct reading of an administrator's decision this
+ * service cannot apply.</p>
+ *
+ * <p><b>Nothing end to end has been observed on this channel from this repository.</b> Every claim above about hc-admin's
+ * behaviour is read off their source and off frames on the broker; no run of their service against this consumer has
+ * happened. Do not add a producer to this repository to stand in for it — the only things that write to this channel are
+ * hc-admin and, in tests, a raw Kafka producer inside the test.</p>
  */
 @Component
 public class PlanVerificationConsumer {
 
     /**
-     * The one event type this topic carries.
+     * The one type on this channel that is addressed to this service.
      *
-     * <p>A cross-repo contract held as a literal on both sides: hc-admin's {@code PlanVerificationEvent.TYPE}. A
-     * rename here is not a compile error there, so renaming it means changing both repositories and both sides'
-     * tests in the same breath — the same rule {@code PatientEventType.PLAN_CHOSEN} carries for the other direction.</p>
+     * <p>A cross-repo contract held as a literal on both sides: hc-admin's {@code PlanVerifiedEvent.TYPE}. A rename here
+     * is not a compile error there, so renaming it means changing both repositories and both sides' tests in the same
+     * breath — the same rule {@code PatientEventType.PLAN_CHOSEN} carries for the other direction.</p>
+     *
+     * <p>⚠ <b>hc-admin holds this string twice and says not to merge the two.</b> Their {@code PlanVerificationEvent.TYPE}
+     * is a fact about <em>this repository's</em> schema on the retired topic; their {@code PlanVerifiedEvent.TYPE} is a
+     * fact about their channel. The values coincide because they describe one decision. Pinned here against the second
+     * one.</p>
      */
     public static final String PLAN_VERIFIED = "PlanVerified";
+
+    /**
+     * The channel, for the one place this class names it: the tag on {@link #ignoredFrames}.
+     *
+     * <p>Not read by the binding, which is configured in {@code application.yml} — so this constant agreeing with the
+     * YAML is a convention rather than a mechanism, and {@code PlanVerificationConsumerBindingIT} pins the YAML with its
+     * own literal rather than with this field. A meter tag is operator-facing vocabulary and wants the topic's name.</p>
+     */
+    static final String CHANNEL = "admin.event";
+
+    /** See {@link #ignoredFrames}. Named here so a test cannot assert a meter under a name nothing registers. */
+    static final String IGNORED_METER_NAME = "events.consumption.ignored";
+
+    /** See {@link #appliedFrames}. */
+    static final String APPLIED_METER_NAME = "events.consumption.applied";
+
+    /** See {@link #refusedFrames}. */
+    static final String REFUSED_METER_NAME = "events.consumption.refused";
+
+    /** See {@link #satisfiedFrames}. */
+    static final String SATISFIED_METER_NAME = "events.consumption.satisfied";
+
+    static final String IGNORED_METER_DESCRIPTION =
+        "Frames read from another product's channel that this service is not addressed by. Not a fault: the ordinary case.";
+
+    static final String APPLIED_METER_DESCRIPTION =
+        "Plan verifications from hc-admin that moved a membership. The direct answer to 'are their decisions taking effect here'.";
+
+    static final String REFUSED_METER_DESCRIPTION =
+        "Plan verifications addressed to this service that it could not apply. Each one is also a dead letter.";
+
+    static final String SATISFIED_METER_DESCRIPTION =
+        "Plan verifications addressed to this service that asked for a state that already held — a replay, or a decision already applied.";
+
+    static final String METER_BASE_UNIT = "events";
 
     private final Logger log = LoggerFactory.getLogger(PlanVerificationConsumer.class);
 
@@ -154,55 +300,157 @@ public class PlanVerificationConsumer {
 
     private final PlanVerificationRepository planVerifications;
 
+    /**
+     * How many frames on {@code admin.event} were none of this service's business.
+     *
+     * <h2>A counter because "nothing happened" and "nothing arrived" are the same log line</h2>
+     *
+     * <p>Item 32 is the whole reason this exists. That consumer was reviewed five times, deployed, healthy and serving —
+     * and bound to nothing, because a compose file's empty {@code SPRING_CLOUD_FUNCTION_DEFINITION} stood the function
+     * down. It was invisible precisely because a correctly bound consumer on a quiet topic looks identical to an unbound
+     * one. <b>This channel is not quiet</b>, so the number of frames this consumer has declined is a direct answer to
+     * "is it reading at all" — and the applied path's {@code INFO} answers the other half. Without it, the ignore path
+     * this commit introduces would be the largest silent branch in the service.</p>
+     *
+     * <p>Shaped like {@link DroppedEventCounter}: one meter name with a {@code topic} tag rather than a name per
+     * consumer, which is this repository's house shape and what a dashboard wants. Deliberately <b>not</b> tagged with
+     * the frame's type — that string is hc-admin's to choose and a new one of theirs must not become a new time series
+     * here.</p>
+     *
+     * <p><b>⚠ On its own this meter cannot tell "reading, none of it ours" from "reading, ours is no longer
+     * recognised".</b> See {@link #appliedFrames}, which is the other half and the reason there are four of these
+     * rather than one.</p>
+     */
+    private final Counter ignoredFrames;
+
+    /**
+     * How many of hc-admin's decisions this service actually put into effect.
+     *
+     * <h2>⚠ The alarm the inversion moved, and nothing else took its place</h2>
+     *
+     * <p><b>This exists because {@link #ignoredFrames} alone is not a health signal, and reading it as one would be a
+     * mistake in the safe-looking direction.</b> {@link #PLAN_VERIFIED} is a literal pinned against a string hc-admin
+     * owns. If it ever diverges — a rename, a change of casing, an envelope of theirs that stops carrying {@code type}
+     * at all — then <b>every</b> verification takes the ignore path: the membership stays {@code PENDING}, nothing
+     * enters the dead-letter queue, nothing logs above {@code TRACE}, and the ignored counter keeps climbing on their
+     * entity churn exactly as it does when everything is well. Under item 19's rule that same drift dead-lettered
+     * loudly and an operator found it; the ignore is still the right decision for a shared channel, but it moved the
+     * alarm off the dead-letter queue and this is what takes its place.</p>
+     *
+     * <p>So the question worth alerting on is not "is anything arriving" but <b>"has this gone to zero while the
+     * channel is busy"</b> — {@code rate(events_consumption_applied_events_total)} against a live
+     * {@code events_consumption_ignored_events_total}. A drift shows as the second climbing while the first flatlines,
+     * which is a shape no single meter has.</p>
+     */
+    private final Counter appliedFrames;
+
+    /**
+     * How many frames addressed to this service it could not apply — every one of which is also a dead letter.
+     *
+     * <p>The counterpart to reading {@code admin.event.hc-patient-dlq}: the queue holds the bytes, this makes "did we
+     * refuse anything this week" answerable without reading it, which is the argument {@link DroppedEventCounter}
+     * makes for its own meter. Incremented in {@link #refuse}, the one funnel every refusal passes through.</p>
+     */
+    private final Counter refusedFrames;
+
+    /**
+     * How many frames addressed to this service needed no work: a replay, or a decision that already holds.
+     *
+     * <p><b>Neither is a fault and both are ordinary</b> — hc-admin mints a fresh event id per press of their verify
+     * button, so a recovery-republish is by their design indistinguishable from a second decision until this service
+     * looks at the state. Counted rather than merely logged for the reason {@link #appliedFrames} gives: these are the
+     * two paths that write nothing, announce nothing and throw nothing, so without a meter a test or an operator has
+     * only an absence to look at — and an absence is equally consistent with a consumer that received nothing at all.
+     * {@code PlanVerificationRoundTripIT} asserts on it for exactly that reason.</p>
+     */
+    private final Counter satisfiedFrames;
+
     public PlanVerificationConsumer(
         MembershipService membershipService,
         ProfileRepository profileRepository,
-        PlanVerificationRepository planVerifications
+        PlanVerificationRepository planVerifications,
+        MeterRegistry meterRegistry
     ) {
         this.membershipService = membershipService;
         this.profileRepository = profileRepository;
         this.planVerifications = planVerifications;
+        this.ignoredFrames = register(meterRegistry, IGNORED_METER_NAME, IGNORED_METER_DESCRIPTION);
+        this.appliedFrames = register(meterRegistry, APPLIED_METER_NAME, APPLIED_METER_DESCRIPTION);
+        this.refusedFrames = register(meterRegistry, REFUSED_METER_NAME, REFUSED_METER_DESCRIPTION);
+        this.satisfiedFrames = register(meterRegistry, SATISFIED_METER_NAME, SATISFIED_METER_DESCRIPTION);
+    }
+
+    /**
+     * One shape for all four meters, so a fifth outcome cannot arrive under a different unit or a different tag.
+     *
+     * <p>Registered eagerly in the constructor rather than on first use, deliberately: a meter that appears only once
+     * it has moved is a meter whose zero cannot be distinguished from its absence, and "applied has gone to zero" is
+     * precisely the condition {@link #appliedFrames} exists to make visible.</p>
+     *
+     * <p><b>The four are mutually exclusive and jointly exhaustive</b>, which is what makes them add up to frames
+     * received: every frame is ignored, applied, refused or satisfied, exactly once.
+     * {@code PlanVerificationConsumerTest} asserts that accounting rather than leaving it to this sentence.</p>
+     */
+    private static Counter register(MeterRegistry registry, String name, String description) {
+        return Counter
+            .builder(name)
+            .baseUnit(METER_BASE_UNIT)
+            .description(description)
+            .tag(DroppedEventCounter.TOPIC_DIMENSION, CHANNEL)
+            .register(registry);
     }
 
     @Bean
-    public Consumer<PatientEvent> patientPlanEventsConsumer() {
+    public Consumer<AdminEvent> adminEventConsumer() {
         return this::apply;
     }
 
     /**
-     * Applies one acknowledgement, or refuses it.
+     * Applies one verification, ignores a frame addressed to somebody else, or refuses one it cannot apply.
      *
-     * <p><b>The replay check comes first, then the frame's own shape, then the patient, then the membership.</b> The
-     * ledger read leads because a redelivery is the ordinary case on an at-least-once topic and must be cheap to
-     * dismiss — it is not that every database read comes last, and saying so would misdescribe the order. Everything
-     * after it is arranged so that a producer defect is reported as a producer defect whether or not the patient it
-     * names happens to exist here.</p>
+     * <p><b>The type comes first, then the replay check, then the frame's own shape, then the patient, then the
+     * membership.</b> Item 47 moved the type to the front and the ordering is load-bearing twice over. It is the only
+     * check that can be answered without touching the database, and it is the one that applies to almost every frame:
+     * 7433 of the 7435 on this channel on 2026-09-25 were none of this service's business, and paying a primary-key read
+     * for each of them would be a database round trip per write in another product. It also has to be first to be
+     * <em>correct</em> — an {@code EntityChanged} frame has a perfectly good {@code eventId}, so under item 19's ordering
+     * it sailed past the blank-id guard and reached the type check, which then refused and dead-lettered it.</p>
+     *
+     * <p>The replay check leads everything after it because a redelivery is the ordinary case on an at-least-once channel
+     * and must be cheap to dismiss. Everything after that is arranged so that a producer defect is reported as a producer
+     * defect whether or not the patient it names happens to exist here.</p>
      */
-    void apply(PatientEvent event) {
+    void apply(AdminEvent event) {
         if (event == null) {
             // The binder does not hand a function a null payload, so this is defensive rather than expected. Refused
-            // rather than returned, because a silent return would be indistinguishable from a frame applied — and
-            // under its own reason, because NO_EVENT_ID would send the next reader to hc-admin's serialiser.
-            throw refuse(Reason.NO_FRAME, "a null frame arrived on patient-events-plan");
+            // rather than ignored, and it is the one frame on this channel that cannot be ignored on type: a null frame
+            // has no type to read, so "not addressed to us" cannot be established. Under its own reason, because
+            // NO_EVENT_ID would send the next reader to hc-admin's serialiser.
+            throw refuse(Reason.NO_FRAME, "a null frame arrived on " + CHANNEL);
+        }
+
+        if (!PLAN_VERIFIED.equals(event.type())) {
+            ignore(event);
+            return;
         }
 
         String eventId = event.eventId();
         if (isBlank(eventId)) {
             throw refuse(
                 Reason.NO_EVENT_ID,
-                "an acknowledgement arrived with no eventId, so a replay of it could not be told from a first delivery"
+                "a verification arrived with no eventId, so a replay of it could not be told from a first delivery"
             );
         }
 
         if (planVerifications.existsById(eventId)) {
-            // At-least-once delivery working as specified. Not a fault, so not dead-lettered.
+            // At-least-once delivery working as specified. Not a fault, so not dead-lettered — and counted, because
+            // this path writes nothing, announces nothing and throws nothing, so a meter is the only receipt.
+            satisfiedFrames.increment();
             log.debug("Ignoring plan acknowledgement {} — already applied", eventId);
             return;
         }
 
-        assertTypeIsTheOneThisTopicCarries(event);
-
-        String email = subjectEmail(event);
+        String email = subjectKey(event);
         String planCode = planCodeIn(event.data());
         if (isBlank(planCode)) {
             throw refuse(
@@ -229,7 +477,9 @@ public class PlanVerificationConsumer {
         Optional<Membership> chosen = singlePendingMembership(eventId, email, patientId, planCode);
         if (chosen.isEmpty()) {
             // Already in the state this frame asks for. Not applied, not refused, not dead-lettered — see
-            // alreadySatisfied for why hc-admin's design makes this an ordinary event rather than an edge case.
+            // alreadySatisfied for why hc-admin's design makes this an ordinary event rather than an edge case, and
+            // satisfiedFrames for why the one outcome with no output of any kind is the one that has to be counted.
+            satisfiedFrames.increment();
             return;
         }
         Membership pending = chosen.orElseThrow();
@@ -249,6 +499,10 @@ public class PlanVerificationConsumer {
             );
 
         record(event, patientId, activated, planCode);
+        // After the write and after the ledger, so the meter counts decisions that took effect rather than frames that
+        // reached this far. It is the one signal that goes to zero if PLAN_VERIFIED ever stops matching what hc-admin
+        // sends — see appliedFrames, which is why that is worth alerting on and the ignored count is not.
+        appliedFrames.increment();
         log.info(
             "Applied plan acknowledgement {}: membership {} for patient {} on plan {} is now ACTIVE",
             eventId,
@@ -259,23 +513,57 @@ public class PlanVerificationConsumer {
     }
 
     /**
-     * The patient this acknowledgement is about.
+     * The patient this verification is about.
      *
-     * <p>Lower-cased here rather than trusted: the contract says the subject is lower-cased as every frame on
-     * {@code patient-events} is, and a producer that has not been written yet cannot be relied on to have remembered.
-     * The lookup is case-insensitive regardless; this is so that what is logged is what would have been keyed on.</p>
+     * <h2>⚠ {@code data.subjectKey}, not {@code subject.email} — and this is the migration's one real trap</h2>
+     *
+     * <p>On the retired {@code patient-events-plan} the address was in {@code subject.email}, because the frame there was
+     * this repository's own {@link PatientEvent} envelope. On {@code admin.event} the envelope is hc-admin's, and
+     * {@code subject} means {@code (entityType, entityId)} — the {@code DirectoryLink} the administrator pressed the
+     * button on — for every frame on the channel whatever its type. Their {@code PlanVerifiedEvent} therefore carries the
+     * addressee in {@code data.subjectKey}, with the reason stated in as many words: <em>"it is on the frame because
+     * hc-patient cannot ask — they have no route to this service"</em>.</p>
+     *
+     * <p><b>There is deliberately no fallback to {@code subject.email}</b>, and it is the one place this class refuses to
+     * be tolerant. Reading a second location would be reading a field the channel's envelope says does not exist, so a
+     * future frame that did carry an email in {@code subject} would mean something else and be silently accepted as an
+     * addressee. Their own javadoc makes the mirror-image point about publishing it in both places: two places to read one
+     * value is a way for them to disagree. A frame in the old envelope arriving here is a producer defect, and it refuses
+     * loudly with this method's message naming the field it looked in.</p>
+     *
+     * <p>Lower-cased and trimmed here rather than trusted, although they do it at the publish point and pin it with a
+     * test. The lookup is case-insensitive regardless; this is so that what is logged is what would have been joined on,
+     * and because a wrong-cased key is the failure that is silent on both sides at once.</p>
      */
-    private String subjectEmail(PatientEvent event) {
-        String email = event.subject() == null ? null : event.subject().email();
+    private String subjectKey(AdminEvent event) {
+        Object key = event.data() == null ? null : event.data().get("subjectKey");
+        String email = key instanceof String named ? named : null;
         if (isBlank(email)) {
             throw refuse(
                 Reason.NO_SUBJECT_KEY,
-                "acknowledgement " +
+                "verification " +
                 event.eventId() +
-                " carries no subject.email; every frame in this estate is keyed on the lower-cased email and one without it names nobody"
+                " carries no data.subjectKey, which is where " +
+                CHANNEL +
+                " puts the addressee; its subject names " +
+                (event.subject() == null ? "nothing" : event.subject().entityType() + "/" + event.subject().entityId()) +
+                ", which is a record in hc-admin's database and not a patient here"
             );
         }
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Records that a frame was not addressed to this service, and does nothing else.
+     *
+     * <p><b>This is the ordinary case on this channel and not an anomaly</b> — see the class javadoc. {@code TRACE}
+     * rather than {@code DEBUG} because the volume is hc-admin's write rate and a line per frame at {@code DEBUG} would
+     * make that level unusable on this service; {@link #ignoredFrames} is what makes the volume answerable without a log
+     * at all, and is the reason ignoring cannot be confused with a consumer that is bound to nothing.</p>
+     */
+    private void ignore(AdminEvent event) {
+        ignoredFrames.increment();
+        log.trace("Ignoring a {} frame on {} — this service is addressed by {} only", event.type(), CHANNEL, PLAN_VERIFIED);
     }
 
     /**
@@ -397,40 +685,7 @@ public class PlanVerificationConsumer {
     }
 
     /**
-     * Refuses a frame that is not the one type this topic carries.
-     *
-     * <p>Written as a literal because it is a cross-repo contract, and no longer a guess: hc-admin's
-     * {@code PlanVerificationEvent.TYPE} is {@code "PlanVerified"}, pinned on their side as a constant and read from
-     * their {@code main} at {@code ceb9eae} on 2026-09-10. Their own javadoc nominates it — <em>"it is what they
-     * should pin when they add dispatch"</em>. Both ends now assert it, which is the only thing that makes a rename a
-     * two-repository change rather than a silent one.</p>
-     *
-     * <p><b>Refused rather than ignored, which inverts the estate's usual rule on purpose.</b> That rule — meet a type
-     * you do not know and skip it — is written for {@code patient-events}, a shared topic where new types arrive
-     * routinely and skipping one costs nothing. This topic carries one exchange between two products, and the frame
-     * most likely to appear under a different name is a <em>rejection</em>: their item 54 says a second control
-     * follows the moment a rejection path is decided. Ignoring that would be the half-loop this repo keeps
-     * rediscovering; applying it — which is what happened before this check existed, since the settled payload
-     * carries no {@code status} for {@link #assertActivating} to catch — would activate a membership an administrator
-     * had refused. The dead-letter queue holds it instead, until somebody models it.</p>
-     */
-    private void assertTypeIsTheOneThisTopicCarries(PatientEvent event) {
-        if (!PLAN_VERIFIED.equals(event.type())) {
-            throw refuse(
-                Reason.UNEXPECTED_TYPE,
-                "acknowledgement " +
-                event.eventId() +
-                " is of type '" +
-                event.type() +
-                "' and this topic carries '" +
-                PLAN_VERIFIED +
-                "' only; a second type is a contract change and is held rather than guessed at"
-            );
-        }
-    }
-
-    /**
-     * Refuses an acknowledgement naming a plan the membership does not hold.
+     * Refuses a verification naming a plan the membership does not hold.
      *
      * <p><b>This is the whole reason {@code plan} is in a one-field payload.</b> It is a value this service wrote
      * itself and hc-admin echoes back, so it carries no new information — its use is exactly this refusal, which
@@ -569,7 +824,7 @@ public class PlanVerificationConsumer {
      * {@code log.error} rather than {@code log.warn} — a lost row is the one condition under which a duplicate
      * delivery can activate a membership nobody verified, and it is the line an operator should be able to find.</p>
      */
-    private void record(PatientEvent event, String patientId, Membership activated, String planCode) {
+    private void record(AdminEvent event, String patientId, Membership activated, String planCode) {
         try {
             planVerifications.insert(
                 new PlanVerification()
@@ -607,9 +862,18 @@ public class PlanVerificationConsumer {
      * <p><b>Expect four of these per refused frame, not one.</b> {@code maxAttempts: 3} counts retries after the first
      * delivery, so the refusal is logged once and then three times more over about eight seconds before the frame is
      * dead-lettered. It is set explicitly in {@code application.yml} so that repetition is a known number rather than
-     * a surprising one — a reader who sees the same event id four times should not go looking for four events.</p>
+     * a surprising one — a reader who sees the same event id four times should not go looking for four events.
+     * {@link #refusedFrames} counts the same four, for the same reason: it measures <em>handlings</em> that refused,
+     * not distinct frames, and a rate on it is read against that.</p>
+     *
+     * <p>⚠ <b>The counter lives here because this is the one funnel every refusal passes through, and that holds only
+     * while every caller throws what this returns.</b> It is built rather than thrown by three call sites, inside
+     * {@code orElseThrow} suppliers — which run only when the throw happens. A future call site that built a refusal
+     * and did not throw it would count a dead letter that never occurred; there is no such call site, and adding one
+     * would be a mistake on its own terms.</p>
      */
     private PlanVerificationRefusedException refuse(Reason reason, String message) {
+        refusedFrames.increment();
         log.warn("Refusing a plan acknowledgement [{}]: {}", reason, message);
         return new PlanVerificationRefusedException(reason, message);
     }

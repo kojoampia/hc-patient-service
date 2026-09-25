@@ -34,7 +34,9 @@ spring:
         enabled: false
       enabled: false
     function:
-      definition: patientPlanEventsConsumer;membershipStreamEvents
+      # Mirrors the main config. `patientPlanEventsConsumer` until backlog item 47; the bean method, both
+      # destinations and both copies of this line move together or the consumer silently unbinds.
+      definition: adminEventConsumer;membershipStreamEvents
     stream:
       kafka:
         binder:
@@ -66,11 +68,11 @@ spring:
           # Mirrors the main config. Without it the tests would run with no DLQ at all and the one property this
           # binding exists to prove — that a poison frame does not stall the partition — would be untested while
           # reading as configured. PlanVerificationConsumerBindingIT asserts the name, not just the flag.
-          patientPlanEventsConsumer-in-0:
+          adminEventConsumer-in-0:
             consumer:
               startOffset: earliest
               enableDlq: true
-              dlqName: patient-events-plan.hc-patient-dlq
+              dlqName: admin.event.hc-patient-dlq
           # Mirrors the main config. Without the key serializer the send fails with a ClassCastException at send time
           # rather than at startup, in a publisher that swallows its failures by design — the exact shape that has
           # already cost this repo a green suite over a lost event.
@@ -114,11 +116,17 @@ spring:
           destination: patient.event
           content-type: application/json
         # Mirrors the main config, for the reason the comment above gives. This one is the inbound half — backlog
-        # item 19 — and it is the first binding in this repo where the mirror does more than keep a destination
+        # items 19 and 47 — and it is the first binding in this repo where the mirror does more than keep a destination
         # honest: with no binding here there is no consumer group, no DLQ and no subscription, so every test of the
         # handler would exercise a method nothing calls.
-        patientPlanEventsConsumer-in-0:
-          destination: patient-events-plan
+        #
+        # ⚠ ITEM 47 MOVED THIS OFF `patient-events-plan`, AND A HALF-MIRROR HERE IS ITEM 32 AGAIN. This file REPLACES
+        # the main one rather than merging with it, so a suite left on the old destination would exercise a topic
+        # production no longer reads while every test passed — which is precisely the shape that shipped a consumer
+        # bound to nothing once already. PlanVerificationConsumerBindingIT asserts that no binding anywhere still
+        # points at the retired topic.
+        adminEventConsumer-in-0:
+          destination: admin.event
           content-type: application/json
           group: hc-patient-service
           consumer:

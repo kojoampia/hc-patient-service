@@ -19,8 +19,8 @@ import java.util.Optional;
  * {@code ACTIVE} directly, and the record of <em>who</em> approved and <em>when</em> is an audit fact kept beside the
  * membership rather than a state it passes through. A status that meant "approved but not yet in force" would be a
  * value neither client renders as held, which is a limbo a patient would read as their plan having quietly lapsed.
- * Where that audit record lives is settled with the inbound {@code patient-events-plan} consumer, which is blocked on
- * hc-admin; nothing here should anticipate its shape.</p>
+ * Where that audit record lives is settled with the inbound {@code admin.event} consumer, which applies hc-admin's
+ * decision; nothing here should anticipate its shape.</p>
  *
  * <h2>⚠ This overturns the ruling {@link IdentificationType} records, and the difference is the point</h2>
  *

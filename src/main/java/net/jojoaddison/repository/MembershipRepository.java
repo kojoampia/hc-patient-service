@@ -25,7 +25,7 @@ public interface MembershipRepository extends MongoRepository<Membership, String
     /**
      * One patient's memberships in one state.
      *
-     * <p>Added for the inbound {@code patient-events-plan} consumer, which is handed an email and has to decide which
+     * <p>Added for the inbound {@code admin.event} consumer, which is handed an email and has to decide which
      * membership a verification applies to. Item 19 settled that as <em>the patient's single {@code PENDING}
      * membership, refusing rather than guessing</em> — so the caller needs the whole set to count it, not the first
      * match. Returning a {@code List} where an {@code Optional} would read more neatly is the point: a second pending

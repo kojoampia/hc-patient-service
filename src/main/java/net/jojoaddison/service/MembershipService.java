@@ -37,7 +37,7 @@ import org.springframework.stereotype.Service;
  * So the seam is created rather than found. Backlog item 27.</p>
  *
  * <p><strong>A private helper on the resource would have worked today and been wrong within the week.</strong> Item
- * 19's inbound {@code patient-events-plan} consumer writes {@code PENDING → ACTIVE} and lives in this package since
+ * 19's inbound consumer — {@code admin.event} since item 47 — writes {@code PENDING → ACTIVE} and lives in this package since
  * 2026-09-10 ({@link net.jojoaddison.service.event.PlanVerificationConsumer}), where it could not have called a
  * private method on a {@code web} class at all. It inherited the announcement without a new call site, which is what
  * item 27 was for — and it needed one thing the seam did not have, {@link #activateIfPending}, for the reason that
@@ -262,7 +262,7 @@ public class MembershipService {
     /**
      * One patient's memberships awaiting a decision.
      *
-     * <p>For the inbound {@code patient-events-plan} consumer, which is handed an email rather than a membership id
+     * <p>For the inbound {@code admin.event} consumer, which is handed an email rather than a membership id
      * and has to decide which membership an acknowledgement applies to. It returns <em>all</em> of them because item
      * 19's rule is "the single {@code PENDING} one, refusing rather than guessing if there is not exactly one" — the
      * count is the decision, so the caller has to be able to see it.</p>

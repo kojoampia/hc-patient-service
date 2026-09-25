@@ -73,8 +73,8 @@ public final class PatientEventType {
      * {@code choosePlan} sets neither, and nothing in this service assigns them afterwards (backlog item 17). So on
      * the path this event exists for, their absence is a fact rather than an omission: if assigning them is the
      * back-office step this event exists to prompt, that work has no home in this service today and there is no
-     * inbound path for it either. The acknowledgement leg, {@code patient-events-plan}, is backlog item 19 and is not
-     * built.</p>
+     * inbound path for it either. The acknowledgement leg is backlog item 19, built on {@code patient-events-plan} and
+     * moved to {@code admin.event} by item 47 — it carries a plan verification and nothing about a team.</p>
      *
      * <p><b>The administrative CRUD path is the exception</b>, and a consumer should not generalise from the sentence
      * above: an administrator may post a {@code memberNumber} and a {@code renewalDate} and {@code POST

@@ -789,7 +789,7 @@ class MembershipStatusWriteGuardIT {
             .andExpect(status().isCreated());
     }
 
-    /** What the inbound {@code patient-events-plan} consumer counts before it decides anything. */
+    /** What the inbound {@code admin.event} consumer counts before it decides anything. */
     private List<Membership> pendingFor(String patientId) {
         return membershipRepository.findByPatientIdAndStatus(patientId, MembershipStatus.PENDING);
     }

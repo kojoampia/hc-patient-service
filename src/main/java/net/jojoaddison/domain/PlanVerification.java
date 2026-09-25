@@ -11,8 +11,8 @@ import org.springframework.data.mongodb.core.mapping.Field;
  *
  * <h2>The idempotency ledger</h2>
  *
- * <p>Delivery on {@code patient-events-plan} is at least once, so a redelivery is normal rather than exceptional and
- * {@code PatientEvent.eventId} exists — its own javadoc says so — for exactly this. <b>The event id is this
+ * <p>Delivery on {@code admin.event} is at least once, so a redelivery is normal rather than exceptional and
+ * {@code AdminEvent.eventId} exists for exactly this. <b>The event id is this
  * document's {@code _id}</b>, which makes "have I already applied this frame" a primary-key read and makes a second
  * insert of the same frame impossible rather than merely unlikely. Without it a replay would find the membership no
  * longer {@code PENDING}, refuse, and dead-letter a frame whose only fault was arriving twice.</p>
@@ -45,8 +45,8 @@ import org.springframework.data.mongodb.core.mapping.Field;
  * redelivery of a frame that was already applied, arriving <em>after</em> the patient is erased, is therefore no
  * longer recognised as a replay — it refuses {@code UNKNOWN_PATIENT}, because the {@code Profile} is gone, and is
  * dead-lettered. That is the right outcome and a loud one, and it leaks nothing new: the same frame is already
- * sitting on {@code patient-events-plan} under the broker's retention, so the dead-letter copy reveals nothing the
- * source topic does not.</p>
+ * sitting on {@code admin.event} under the broker's retention, so the dead-letter copy reveals nothing the
+ * source channel does not.</p>
  *
  * <h2>Two things it deliberately is not</h2>
  *

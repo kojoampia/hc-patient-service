@@ -1,15 +1,21 @@
 package net.jojoaddison.service.event;
 
 /**
- * An acknowledgement on {@code patient-events-plan} that this service will not apply.
+ * A plan verification on {@code admin.event} that this service will not apply.
  *
  * <h2>Thrown rather than logged, because throwing is what keeps the frame</h2>
  *
  * <p>Every refusal here is a decision an administrator took next door that has <em>not</em> taken effect. Swallowing
  * one would leave a log line, and nothing in this stack alerts on log lines — {@code deploy/observability/alert-rules.yml}
- * says so in as many words. Throwing sends the frame, bytes intact, to {@code patient-events-plan.hc-patient-dlq},
+ * says so in as many words. Throwing sends the frame, bytes intact, to {@code admin.event.hc-patient-dlq},
  * where it can be read to see what was actually sent and replayed once whatever caused the refusal is fixed. <b>A
  * refusal is recoverable; a log line is not.</b></p>
+ *
+ * <p>⚠ <b>Nothing here is reached by a frame of another type, and since backlog item 47 that is most of the channel.</b>
+ * {@code admin.event} carries everything hc-admin has to say — 7433 of its 7435 frames were entity-change notifications
+ * on 2026-09-25 — and {@code PlanVerificationConsumer} ignores those before any of these reasons can fire. A dead-letter
+ * queue that filled with another product's entity churn is one nobody would read, which is the same argument the two
+ * "ignored rather than refused" paths already make one level down.</p>
  *
  * <p><b>It does not stall the partition and it does not kill the binding.</b> The binder retries {@code maxAttempts}
  * times, dead-letters, commits the offset and takes the next frame — which is the whole reason the DLQ went in with
@@ -47,20 +53,23 @@ public class PlanVerificationRefusedException extends RuntimeException {
         NO_EVENT_ID,
 
         /**
-         * The frame is not the type this topic carries.
+         * No {@code data.subjectKey}, which is where this channel's envelope puts the addressee.
          *
-         * <p><b>hc-admin publishes {@code PlanVerified} and nothing else here</b>, so a second type is a contract
-         * change rather than an event to skip. The estate's usual rule — meet a type you do not know and ignore it —
-         * is written for {@code patient-events}, a shared topic where unknown types are normal and ignoring one costs
-         * nothing. This topic carries one exchange by agreement, and the frame most likely to arrive under another
-         * name is a <em>rejection</em>: ignoring it silently would be the half-loop, and applying it would activate a
-         * membership an administrator refused. Refusing keeps it in the dead-letter queue until somebody models it.
-         */
-        UNEXPECTED_TYPE,
-
-        /**
-         * No {@code subject.email}. Every frame in this estate is keyed on the lower-cased email, and one without it
-         * names nobody — the same shape {@link PatientEventPublisher} refuses to <em>send</em>.
+         * <p>⚠ <b>It was {@code subject.email} until backlog item 47, and the field moved when the channel did.</b> On
+         * {@code admin.event} the subject is the record hc-admin acted on — a {@code DirectoryLink} id, meaningless in
+         * this database — so a consumer reading {@code subject.email} there finds nothing and refuses this reason on
+         * every genuine verification. The join key itself is unchanged: still the lower-cased email, which is what
+         * makes this one migration rather than two.</p>
+         *
+         * <p>A frame reaching this is one that named a patient nowhere a patient can be named, which is the same shape
+         * {@link PatientEventPublisher} refuses to <em>send</em>.</p>
+         *
+         * <p><b>{@code UNEXPECTED_TYPE} sat above this constant until item 47 and is gone.</b> It refused a frame whose
+         * {@code type} was not {@code PlanVerified}, which was right while the binding read a topic carrying one
+         * exchange between two products. On a channel carrying everything hc-admin has to say it would dead-letter
+         * almost every frame, so the consumer ignores them instead and no reason is required — see
+         * {@code PlanVerificationConsumer.ignore}. Recorded rather than silently deleted because the argument for
+         * refusing was a good one on the topic it was written for.</p>
          */
         NO_SUBJECT_KEY,
 
