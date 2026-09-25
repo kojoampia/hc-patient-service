@@ -136,7 +136,7 @@ public class PatientEventPublisher {
         this.streamBridge = streamBridge;
         // The drop counter is the sender's constructor-enforced obligation (item 73): counted where the drop
         // happens, tagged by the topic that lost the frame, WARNed below in this class's own words.
-        Counter dropped = DroppedEventCounter.register(meterRegistry, "patient-events");
+        Counter dropped = DroppedEventCounter.register(meterRegistry, "patient-events", DroppedEventCounter.LIFECYCLE);
         this.sender = new AsyncEventSender("patient-event-publisher", QUEUE_CAPACITY, dropped::increment);
     }
 

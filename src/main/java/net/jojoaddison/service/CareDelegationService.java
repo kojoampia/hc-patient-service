@@ -14,6 +14,7 @@ import net.jojoaddison.domain.enumeration.DelegationStatus;
 import net.jojoaddison.repository.CareDelegationRepository;
 import net.jojoaddison.repository.ProfileRepository;
 import net.jojoaddison.security.SecurityUtils;
+import net.jojoaddison.service.event.EntityEventPublisher;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.slf4j.Logger;
@@ -51,14 +52,25 @@ public class CareDelegationService {
     private final ProfileRepository profileRepository;
     private final PatientEventPublisher events;
 
+    /**
+     * The second channel, since backlog item 46 — the same change, on {@code patient.event}.
+     *
+     * <p>Not a replacement for {@code events}: both are published on every transition so the gateway's mail router can
+     * be rebound to one channel per product without a window in which nobody is told. Removing the old one is the end
+     * of item 46 and belongs to the consumer side first.</p>
+     */
+    private final EntityEventPublisher entityEvents;
+
     public CareDelegationService(
         CareDelegationRepository careDelegationRepository,
         ProfileRepository profileRepository,
-        PatientEventPublisher events
+        PatientEventPublisher events,
+        EntityEventPublisher entityEvents
     ) {
         this.careDelegationRepository = careDelegationRepository;
         this.profileRepository = profileRepository;
         this.events = events;
+        this.entityEvents = entityEvents;
     }
 
     /**
@@ -273,6 +285,29 @@ public class CareDelegationService {
      * <p>Keyed on the patient's email rather than the angel's, so a delegation change sorts into the same partition as
      * that patient's onboarding and account events. The angel's address travels in the payload because the gateway's
      * consumer has to write to them, and it is a contact detail rather than anything clinical.</p>
+     *
+     * <h2>Announced on both channels since backlog item 46, and this is the add of add-before-removing</h2>
+     *
+     * <p>The {@code patient-events} frame below is <strong>unchanged, byte for byte</strong> — hc-admin's consumer and
+     * the gateway's mail router both still read it. The second call puts the same transition on {@code patient.event},
+     * which is the channel the estate is consolidating on. Two publishes rather than one, deliberately and temporarily:
+     * a producer writing where nobody reads is harmless, and the reverse is silence that looks like health.</p>
+     *
+     * <p>⛔ <strong>The gateway half is NOT a rebind on its own, and this comment said it was.</strong> The two frames
+     * carry the same <em>values</em> and put the patient's address in <em>different places</em>: {@code subject.email}
+     * on {@code patient-events}, {@code data.patientEmail} here — because item 124 settled that this channel's
+     * {@code subject} is the record. {@code CareDelegationMailer} reads {@code event.subject().email()}, and the
+     * gateway's {@code PatientEvent.Subject} carries {@code @JsonIgnoreProperties(ignoreUnknown = true)}, so pointing
+     * the binding at this topic <strong>does not fail — it binds and yields a null recipient</strong>, and the mail
+     * simply stops with a DEBUG line. So the gateway must move the handler to {@code data.patientEmail} <em>in the same
+     * commit as the rebind</em>.</p>
+     *
+     * <p>⚠ <strong>The new frame is narrower than the old one, on purpose.</strong> It carries the transition and the
+     * two addresses — measured to be the whole of what the gateway's {@code CareDelegationMailer} reads — and not
+     * {@code delegationId} (which <em>is</em> {@code subject.entityId} there, and carrying an id twice is how two copies
+     * of it come to disagree) nor the two signatory ids from {@code extra} (which no consumer reads, and which are
+     * recorded on the document and on this same channel's {@code EntityChanged} frame for the save). Widening it later
+     * costs nothing; a field on a channel that nobody needs cannot be taken back.</p>
      */
     private void publishChange(CareDelegation delegation, String change, Map<String, Object> extra) {
         Map<String, Object> data = new HashMap<>(extra);
@@ -283,13 +318,11 @@ public class CareDelegationService {
         // since 2026-09-24 — read off the same profile as the email, null when unset or unfound, never the
         // delegation's internal patientId, which no longer travels on this stream.
         Optional<Profile> patient = profileForPatient(delegation.getPatientId());
-        events.publish(
-            PatientEventType.CARE_DELEGATION_CHANGED,
-            patient.map(Profile::getEmail).orElse(null),
-            null,
-            patient.map(Profile::getAccountId).orElse(null),
-            data
-        );
+        String patientEmail = patient.map(Profile::getEmail).orElse(null);
+        events.publish(PatientEventType.CARE_DELEGATION_CHANGED, patientEmail, null, patient.map(Profile::getAccountId).orElse(null), data);
+        // The same change on patient.event, in that channel's envelope: the delegation is the subject, the values the
+        // transition decides are the payload. The one profile read above serves both frames.
+        entityEvents.publishCareDelegationChanged(delegation.getId(), change, patientEmail, delegation.getAngelEmail());
     }
 
     // --- internals ------------------------------------------------------------------------------------------------

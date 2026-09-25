@@ -17,6 +17,7 @@ import net.jojoaddison.domain.Profile;
 import net.jojoaddison.domain.enumeration.DeletionRequestStatus;
 import net.jojoaddison.repository.DeletionRequestRepository;
 import net.jojoaddison.repository.ProfileRepository;
+import net.jojoaddison.service.event.EntityEventPublisher;
 import net.jojoaddison.service.event.PatientEventPublisher;
 import net.jojoaddison.service.event.PatientEventType;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,7 @@ class DeletionRequestAnnouncementTest {
     private DeletionRequestRepository repository;
     private PatientErasureService erasure;
     private PatientEventPublisher events;
+    private EntityEventPublisher entityEvents;
     private ProfileRepository profiles;
     private DeletionRequestService service;
 
@@ -46,8 +48,9 @@ class DeletionRequestAnnouncementTest {
         repository = mock(DeletionRequestRepository.class);
         erasure = mock(PatientErasureService.class);
         events = mock(PatientEventPublisher.class);
+        entityEvents = mock(EntityEventPublisher.class);
         profiles = mock(ProfileRepository.class);
-        service = new DeletionRequestService(repository, erasure, events, profiles);
+        service = new DeletionRequestService(repository, erasure, events, profiles, entityEvents);
 
         when(repository.save(any(DeletionRequest.class))).thenAnswer(call -> call.getArgument(0));
         when(repository.findOneByPatientIdAndStatus(anyString(), any())).thenReturn(java.util.Optional.empty());
@@ -183,5 +186,70 @@ class DeletionRequestAnnouncementTest {
         order.verify(erasure).erase(anyString(), anyString());
         order.verify(events).publish(anyString(), anyString(), any(), any(), any());
         verify(events, times(1)).publish(anyString(), anyString(), any(), any(), any());
+    }
+
+    // --- backlog item 46: the same announcement on patient.event, and patient-events unchanged ------------------------
+
+    /**
+     * ⛔ The add-before-removing assertion, and the one that protects live mail.
+     *
+     * <p>Every test above describes the {@code patient-events} frame. This one says that adding the second channel
+     * changed none of it: one publish, same type, same address, same login, same account id, same payload keys. The
+     * gateway's mail router and hc-admin's directory consumer are both still reading that topic, so a change here is a
+     * change to production behaviour — and it would be invisible to every assertion that only looks at the new frame.</p>
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void patientEventsStillCarriesExactlyWhatItCarriedBefore() {
+        DeletionRequest request = pending();
+
+        service.cancel(request);
+
+        ArgumentCaptor<Map<String, Object>> data = ArgumentCaptor.forClass(Map.class);
+        verify(events, times(1))
+            .publish(
+                eq(PatientEventType.DELETION_REQUEST_CHANGED),
+                eq("kojo@example.test"),
+                eq("kojo"),
+                eq("account-kojo"),
+                data.capture()
+            );
+        assertThat(data.getValue().keySet()).containsExactlyInAnyOrder("requestId", "change", "dueAt");
+        assertThat(data.getValue()).containsEntry("change", "CANCELLED").containsEntry("requestId", request.getId());
+    }
+
+    /**
+     * The command frame the gateway will read once item 46's second half rebinds it.
+     *
+     * <p>Checked per transition rather than once, because {@code announce} has two overloads and {@code complete} takes
+     * the one that resolves its subject early — a change wired into only one of them would leave an erasure announced on
+     * the old channel alone, which is the transition a consumer must <em>act</em> on.</p>
+     */
+    @Test
+    void everyTransitionAlsoAnnouncesOnPatientEvent() {
+        DeletionRequest raised = pending();
+        service.raise("patient-1", "kojo@example.test", "kojo", "moving abroad");
+        verify(entityEvents).publishDeletionRequestChanged(any(), eq("RAISED"), eq("kojo@example.test"), any());
+
+        service.cancel(raised);
+        verify(entityEvents)
+            .publishDeletionRequestChanged(eq(raised.getId()), eq("CANCELLED"), eq("kojo@example.test"), eq(raised.getDueAt()));
+
+        service.reject(pending(), "admin", "We could not confirm this was you.");
+        verify(entityEvents).publishDeletionRequestChanged(any(), eq("REJECTED"), eq("kojo@example.test"), any());
+
+        service.complete(pending(), "admin");
+        verify(entityEvents).publishDeletionRequestChanged(any(), eq("COMPLETED"), eq("kojo@example.test"), any());
+    }
+
+    @Test
+    void theCompletedFrameStillReadsTheAddressOffTheRequestRatherThanTheErasedProfile() {
+        // The same property the patient-events frame has, asserted separately on the new channel: by the time COMPLETED
+        // is announced there is no Profile to resolve an address from, and the mail is the point of the frame.
+        when(profiles.findByPatientId("patient-1")).thenReturn(List.of());
+
+        service.complete(pending(), "admin");
+
+        verify(entityEvents).publishDeletionRequestChanged(any(), eq("COMPLETED"), eq("kojo@example.test"), any());
     }
 }
