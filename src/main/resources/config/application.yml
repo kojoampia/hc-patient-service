@@ -111,9 +111,9 @@ spring:
         watch:
           enabled: false
     function:
-      # `patientPlanEventsConsumer` is a @Bean METHOD NAME, and the binding name is derived from it —
+      # `adminEventConsumer` is a @Bean METHOD NAME, and the binding name is derived from it —
       # rename the method and Spring Cloud Stream has no function to bind, the context still starts,
-      # every request is still served, and hc-admin's acknowledgements are silently never applied.
+      # every request is still served, and hc-admin's decisions are silently never applied.
       # PlanVerificationConsumerBindingIT is what stops that being discovered in production.
       #
       # `membershipStreamEvents` is the same trap with a different victim: rename it and every
@@ -124,7 +124,12 @@ spring:
       # deleted with it. `kafkaProducer` was a Supplier<String> returning the literal "kakfa_producer",
       # which Spring Cloud Stream polls once a second — so this service published that string to a
       # topic nothing consumed, for ever. See the bindings block below.
-      definition: patientPlanEventsConsumer;membershipStreamEvents
+      #
+      # `patientPlanEventsConsumer` was here until backlog item 47 and is now `adminEventConsumer`. The bean method,
+      # both destinations and both copies of this line move together or the consumer silently unbinds — the name is
+      # a string in four places and a compile error in none of them. A stale name is its own defect here: the old one
+      # said `patientPlanEvents` while reading a channel called `admin.event`.
+      definition: adminEventConsumer;membershipStreamEvents
     stream:
       kafka:
         binder:
@@ -201,7 +206,7 @@ spring:
           # so one bad frame stalls the partition and every LATER patient's verification queues behind it.
           # The DLQ is the third answer: keep the bytes where they can be read and replayed, advance the offset,
           # take the next frame. A poison frame must cost one patient, never the binding.
-          patientPlanEventsConsumer-in-0:
+          adminEventConsumer-in-0:
             consumer:
               # EXPLICIT BECAUSE IT IS THE JUSTIFICATION FOR THE BUILD ORDER, not because the default differs.
               # Item 19 built this consumer before hc-admin's publisher on the argument that a consumer nobody
@@ -210,14 +215,29 @@ spring:
               # existed would skip every frame published before its first poll — the backlog would be silently
               # discarded and the loop would look healthy. hc-admin sets theirs explicitly with the same reasoning.
               #
+              # ⚠ ITEM 47 MAKES THIS COST SOMETHING FOR EXACTLY ONE START, and it is kept anyway. Kafka scopes offsets
+              # per (group, topic), so moving to `admin.event` means this group arrives with no committed offset and
+              # replays the whole channel once — 7435 frames as of 2026-09-25, of which 7433 are hc-admin's entity
+              # changes. That is affordable ONLY because PlanVerificationConsumer dispatches on `type` before it does
+              # anything else, so a frame that is not ours costs a string comparison and no database read. It would be
+              # catastrophic with the item 19 ordering, which dead-lettered an unrecognised type: 7433 dead letters,
+              # four handlings each. Do not reorder those checks without reading this line.
+              #
+              # `latest` was the alternative and it loses a decision: hc-admin has been publishing here since their
+              # item 145 roll, so a verification pressed between their deploy and ours is in that backlog, and skipping
+              # it leaves a membership PENDING for ever with no lag and no dead letter to show for it.
+              #
               # `resetOffsets` stays at its default of false, which is the half that matters afterwards: startOffset
-              # applies only while the group has no committed offset, so this cannot re-read the topic on a restart.
+              # applies only while the group has no committed offset, so this cannot re-read the channel on a restart.
               startOffset: earliest
               enableDlq: true
               # `<destination>.<who-dead-lettered-it>`, which is the shape hc-admin already uses for the other
               # direction (`patient-events.hc-admin-dlq`). The binder's default name is `error.<destination>.<group>`
-              # and would be the only topic in the estate not following that convention.
-              dlqName: patient-events-plan.hc-patient-dlq
+              # and would be the only topic in the estate not following that convention. The convention carries across
+              # with the destination: this was `patient-events-plan.hc-patient-dlq` until item 47, and the product
+              # naming half of it is which product could not apply the frame, not which one sent it — hc-professional
+              # and hc-vendor will each have their own on this same channel.
+              dlqName: admin.event.hc-patient-dlq
           # The patient-facing fan-out. Keyed on patientId rather than on the email every other topic
           # here uses: both ends of this one are in this repository and both already hold the id, so
           # keying on it costs no profile lookup inside a Kafka handler and cannot file an event under
@@ -282,19 +302,31 @@ spring:
         entityEvents-out-0:
           destination: patient.event
           content-type: application/json
-        # The return leg, and the only topic this service consumes that it does not own: hc-admin publishes an
-        # administrator's decision on a plan here and this service applies it. Backlog item 19.
+        # The return leg, and the only channel this service consumes that it does not own: hc-admin publishes an
+        # administrator's decision on a plan here and this service applies it. Backlog items 19 and 47.
         #
-        # A SEPARATE TOPIC RATHER THAN A TYPE ON `patient-events`, unlike everything above, because the producer is
-        # a different product. `patient-events` is this subsystem's own stream and both its producers are ours;
-        # a sibling writing into it would make our own ordering guarantee depend on their deploys.
+        # ⚠ `patient-events-plan` WAS THE DESTINATION UNTIL ITEM 47 AND IS GONE FROM THIS FILE. The estate decision of
+        # 2026-09-17 gives each product one channel carrying everything it has to say, and hc-admin's is `admin.event`.
+        # Their item 145 publishes the verification to BOTH for now and retires the old topic once this consumer's lag
+        # on it reaches zero — which it was when this changed (group hc-patient-service, offset 4 of 4, 2026-09-25).
+        # REMOVE THE CONSUMER BEFORE THE PRODUCER: a producer writing where nobody reads is harmless, a consumer
+        # reading where nobody writes is silence that looks like health.
+        #
+        # THE FRAME IS NOT THE SAME SHAPE ON THE TWO TOPICS, which is the part a destination change alone gets wrong.
+        # On the old topic hc-admin sent this repo's own PatientEvent envelope with the address in `subject.email`;
+        # on this channel `subject` is (entityType, entityId) — the DirectoryLink they acted on — and the address is
+        # in `data.subjectKey`. See AdminEvent and PlanVerificationConsumer.
+        #
+        # A CHANNEL SHARED WITH TWO OTHER PRODUCTS, so most of what arrives is addressed to somebody else and is
+        # ignored rather than dead-lettered. The DLQ above therefore still holds only plan verifications this service
+        # could not apply.
         #
         # THE GROUP IS WHAT MAKES A REPLICA A REPLICA. Without it every running instance receives every
-        # acknowledgement and each one tries the same PENDING → ACTIVE write. The name matches the other three
+        # decision and each one tries the same PENDING → ACTIVE write. The name matches the other three
         # bindings deliberately: Kafka scopes offsets per (group, topic), so one name across bindings is one
         # deployment consuming each topic once, not one queue shared between unrelated streams.
-        patientPlanEventsConsumer-in-0:
-          destination: patient-events-plan
+        adminEventConsumer-in-0:
+          destination: admin.event
           content-type: application/json
           group: hc-patient-service
           consumer:

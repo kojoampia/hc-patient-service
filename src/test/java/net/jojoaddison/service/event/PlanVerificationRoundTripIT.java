@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +42,8 @@ import org.springframework.core.env.Environment;
  *
  * <p>{@code PlanVerificationConsumerTest} proves the rules with the repositories mocked, and
  * {@code PlanVerificationConsumerBindingIT} proves the configuration. Neither can see a frame fail to <em>convert</em>
- * into a {@link PatientEvent}, and neither can see what the binder does with a failure. The sibling
+ * into an {@link AdminEvent} — the envelope item 47 moved this consumer onto, and the conversion that now decides what
+ * {@link AdminEvent}'s tolerance is worth — and neither can see what the binder does with a failure. The sibling
  * {@code PatientEventRoundTripIT} exists for the mirror-image reason on the outbound half, and it caught a key
  * serializer that lost every event while every test passed.</p>
  *
@@ -48,30 +51,65 @@ import org.springframework.core.env.Environment;
  * half, and item 19's scope fence is explicit that a fake publisher must not be built into main code to make the
  * consumer look alive. Nothing in {@code src/main} writes to this topic.</p>
  *
- * <h2>The frames are hc-admin's shape, checked against their code rather than the backlog</h2>
+ * <h2>The frames are hc-admin's shape, checked against their code and against their broker</h2>
  *
- * <p>Their half landed at {@code ceb9eae} — {@code PlanVerificationEvent} and {@code PatientPlanVerificationService},
- * read on 2026-09-10. {@link #frame} matches what they emit: this repo's envelope, {@code type} of
- * {@code PlanVerified}, {@code subject.email} lowercased, and {@code data} of {@code {"plan": "..."}}. It is written
- * as a <b>literal</b> rather than by serialising {@link PatientEvent}, deliberately — building it through our own
- * record would make the test agree with us by construction, and a field renamed here would rename it on both sides
- * at once while the contract silently moved.</p>
+ * <p><b>Item 47 changed that shape, and the change is why this class could not simply have its topic string
+ * edited.</b> Their half on the retired {@code patient-events-plan} was this repo's own envelope with the address in
+ * {@code subject.email}; their half on {@code admin.event} is a different class of theirs
+ * ({@code PlanVerifiedEvent}, landed at {@code 7deda9a}) in the channel's own envelope, where {@code subject} names
+ * the {@code DirectoryLink} an administrator pressed and the address travels in {@code data.subjectKey}.
+ * {@link #verification} matches what they emit, byte for byte against a real frame read off the live quality broker
+ * on 2026-09-25 — reproduced in the comment on {@link #ENTITY_CHANGED_ACTION} for the other type. It is written as a
+ * <b>literal</b> rather than by serialising {@link AdminEvent}, deliberately: building it through our own record
+ * would make the test agree with us by construction, and a field renamed here would rename it on both sides at once
+ * while the contract silently moved.</p>
+ *
+ * <h2>The channel is shared, so an absence is now most of what there is to assert — and absences are dangerous</h2>
+ *
+ * <p>The headline behaviour of item 47 is that hc-admin's entity churn is <b>ignored</b>: not applied, not refused,
+ * not dead-lettered. Every part of that is an absence, and <b>a test whose pass condition is an absence is satisfied
+ * by a consumer that is not running at all</b> — which is item 32, the commit that shipped this consumer bound to a
+ * topic that did not exist. So {@link #anEntityChangeIsIgnoredWhileARealVerificationInTheSameRunIsApplied} pairs the
+ * absence with three positive controls in the same run: a verification that <em>is</em> applied through the same
+ * binding, the ignored-frame counter, which can only move if the frame was received and declined, and the applied
+ * counter, which is the one signal a drift in the type literal would flatline.</p>
+ *
+ * <p><b>The same argument reaches the two tests whose whole subject is a frame that does nothing</b> — a redelivery,
+ * and an administrator's second press. Both asserted only that the dead-letter queue stayed empty, which a consumer
+ * that never received the frame satisfies just as well; both now take a receipt from the already-satisfied counter
+ * first. That path writes nothing, announces nothing and throws nothing, so a meter is the only thing on it that can
+ * speak.</p>
  *
  * <h2>What this still cannot prove, said plainly</h2>
  *
- * <p><b>Nothing end to end.</b> Both halves now exist, and neither has been run against the other. Everything here is
- * this repository's reading of their source, reproduced by a test producer — so it proves that a frame of the shape
- * they say they send is consumed, applied and announced, and that anything else is refused rather than half-applied.
- * It does not prove that what leaves their JVM is that shape. That needs both stacks up on the quality box, and it is
- * item 19's last open bullet.</p>
+ * <p><b>Nothing end to end.</b> Everything here is this repository's reading of their source and of frames on their
+ * channel, reproduced by a test producer — so it proves that a frame of the shape they publish is consumed, applied
+ * and announced, that a frame of every other shape on the channel is ignored, and that anything malformed and
+ * addressed to us is refused rather than half-applied. It does not prove that what leaves their JVM is that shape.
+ * That needs both stacks up on the quality box and a frame their service published.</p>
  *
- * <p>Backlog item 19.</p>
+ * <p>Backlog items 19 and 47.</p>
  */
 @IntegrationTest
 class PlanVerificationRoundTripIT {
 
-    private static final String TOPIC = "patient-events-plan";
-    private static final String DLQ = "patient-events-plan.hc-patient-dlq";
+    private static final String TOPIC = "admin.event";
+    private static final String DLQ = "admin.event.hc-patient-dlq";
+
+    /**
+     * hc-admin's own id for the record an administrator acted on, and the Kafka key derived from it.
+     *
+     * <p>{@code <EntityType>/<id>} is the rule for every frame on this channel, whatever its type — their
+     * {@code AdminChannel} is its one definition, and it is what keeps two presses for one link in order. <b>Note what
+     * it is not: the patient's address.</b> On the retired topic the key WAS the address, and both the key and a
+     * {@code patientKey} header carried it; on this channel nothing in the record's metadata names a patient at all.
+     * These tests therefore publish under this key and still expect the right membership to move, which is the whole
+     * of the migration in one assertion.</p>
+     */
+    private static final String LINK_KEY = "DirectoryLink/dl-round-trip";
+
+    /** The payload of hc-admin's commonest frame by three orders of magnitude. See {@link #entityChanged}. */
+    private static final String ENTITY_CHANGED_ACTION = "SAVED";
 
     /**
      * A plan code per test, each unique per run.
@@ -92,6 +130,10 @@ class PlanVerificationRoundTripIT {
 
     private static final String SATISFIED_PLAN = "GUAVA-" + UUID.randomUUID();
 
+    private static final String IGNORED_PLAN = "COCOA-" + UUID.randomUUID();
+
+    private static final String MALFORMED_PLAN = "CASSAVA-" + UUID.randomUUID();
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Autowired
@@ -105,6 +147,16 @@ class PlanVerificationRoundTripIT {
 
     @Autowired
     private Environment environment;
+
+    /**
+     * Read so that "nothing happened" can be told from "nothing arrived".
+     *
+     * <p>The registry is the application's own, so this counter is shared with every other test in the context and its
+     * absolute value means nothing. Only the <em>increase</em> across one publish is evidence, which is why every
+     * reading here is a before-and-after.</p>
+     */
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     private String brokers;
 
@@ -124,7 +176,7 @@ class PlanVerificationRoundTripIT {
 
         // Opened before the frame is published, so it reads only what this acknowledgement causes.
         try (KafkaConsumer<String, String> consumer = consumerFromNow("patient-events")) {
-            publish(TOPIC, "ama.verified@example.test", frame(UUID.randomUUID().toString(), email, Map.of("plan", VERIFIED_PLAN)));
+            publish(TOPIC, LINK_KEY, verification(UUID.randomUUID().toString(), email, Map.of("plan", VERIFIED_PLAN)));
 
             Membership activated = awaitStatus(membershipId, MembershipStatus.ACTIVE);
             assertThat(activated.getStatus())
@@ -144,8 +196,9 @@ class PlanVerificationRoundTripIT {
             );
 
             assertThat(announced).as("no PlanChosen carrying ACTIVE followed the acknowledgement").isNotNull();
-            // Still the patient's key. An approval filed under anybody else lands on a different partition from the
-            // choice it approves.
+            // Still the patient's key — OURS, on our own stream, and unchanged by item 47. hc-admin's frame arrived
+            // keyed on a DirectoryLink id, and this service does not carry that key over: an approval filed under
+            // anybody but the patient lands on a different partition from the choice it approves.
             assertThat(announced.key()).isEqualTo("ama.verified@example.test");
             assertThat(read(announced).path("type").asText()).isEqualTo("PlanChosen");
             assertThat(read(announced).path("data").path("membershipId").asText()).isEqualTo(membershipId);
@@ -212,16 +265,24 @@ class PlanVerificationRoundTripIT {
 
         // One event id, sent twice, which is exactly what at-least-once delivery does of its own accord.
         String eventId = UUID.randomUUID().toString();
-        String acknowledgement = frame(eventId, email, Map.of("plan", REPLAY_PLAN));
-        publish(TOPIC, "kofi.replay@example.test", acknowledgement);
+        String acknowledgement = verification(eventId, email, Map.of("plan", REPLAY_PLAN));
+        publish(TOPIC, LINK_KEY, acknowledgement);
         assertThat(awaitStatus(membershipId, MembershipStatus.ACTIVE).getStatus()).isEqualTo(MembershipStatus.ACTIVE);
 
         // The patient subscribes to the same tier again — a renewal, or a second household member. This membership
         // has been verified by nobody, and the frame below predates it.
         String chosenLater = givenAPendingMembership(email, patientId, REPLAY_PLAN);
+        double satisfiedBefore = satisfiedFrames();
 
         try (KafkaConsumer<String, String> dlq = consumerFromNow(DLQ)) {
-            publish(TOPIC, "kofi.replay@example.test", acknowledgement);
+            publish(TOPIC, LINK_KEY, acknowledgement);
+
+            // The receipt that the redelivery was received and recognised as one — the ledger branch increments this.
+            // Without it the three assertions below are absences, and "the consumer never saw the second frame"
+            // satisfies every one of them.
+            assertThat(awaitSatisfiedFramesAtLeast(satisfiedBefore + 1))
+                .as("the already-satisfied counter never moved, so nothing here proves the redelivery was received")
+                .isGreaterThan(satisfiedBefore);
 
             // Doubles as the settle window: longer than one delivery plus every retry, so "still PENDING" below means
             // the consumer decided not to touch it rather than not having got to it yet.
@@ -265,14 +326,24 @@ class PlanVerificationRoundTripIT {
         String patientId = "patient-adwoa-twice";
         String membershipId = givenAPendingMembership(email, patientId, SATISFIED_PLAN);
 
-        publish(TOPIC, "adwoa.twice@example.test", frame(UUID.randomUUID().toString(), email, Map.of("plan", SATISFIED_PLAN)));
+        publish(TOPIC, LINK_KEY, verification(UUID.randomUUID().toString(), email, Map.of("plan", SATISFIED_PLAN)));
         assertThat(awaitStatus(membershipId, MembershipStatus.ACTIVE).getStatus()).isEqualTo(MembershipStatus.ACTIVE);
 
         // A DIFFERENT event id, which is the whole point — the ledger cannot see this one coming.
         String secondPress = UUID.randomUUID().toString();
+        double satisfiedBefore = satisfiedFrames();
 
         try (KafkaConsumer<String, String> dlq = consumerFromNow(DLQ)) {
-            publish(TOPIC, "adwoa.twice@example.test", frame(secondPress, email, Map.of("plan", SATISFIED_PLAN)));
+            publish(TOPIC, LINK_KEY, verification(secondPress, email, Map.of("plan", SATISFIED_PLAN)));
+
+            // THE RECEIPT, and this test had none until the already-satisfied path was counted. Every outcome of that
+            // path is an absence — nothing written, nothing announced, nothing thrown, nothing dead-lettered — so the
+            // assertion below was equally satisfied by a consumer that never received the second press at all. That is
+            // item 32's failure exactly, and a counter is the only thing on this path that can speak.
+            assertThat(awaitSatisfiedFramesAtLeast(satisfiedBefore + 1))
+                .as("the already-satisfied counter never moved, so nothing here proves the second press was received")
+                .isGreaterThan(satisfiedBefore);
+
             ConsumerRecord<String, String> dead = pollFor(dlq, record -> record.value().contains(secondPress), Duration.ofSeconds(6));
 
             assertThat(dead).as("an administrator pressing verify twice dead-lettered the second press").isNull();
@@ -293,7 +364,7 @@ class PlanVerificationRoundTripIT {
 
         try (KafkaConsumer<String, String> dlq = consumerFromNow(DLQ)) {
             publish(TOPIC, "poison", poison);
-            publish(TOPIC, "esi.afterpoison@example.test", frame(UUID.randomUUID().toString(), email, Map.of("plan", POISON_PLAN)));
+            publish(TOPIC, LINK_KEY, verification(UUID.randomUUID().toString(), email, Map.of("plan", POISON_PLAN)));
 
             // THE ASSERTION THIS TEST EXISTS FOR: the frame behind the poison is still applied. A consumer that died,
             // or a partition that stopped, leaves this PENDING for ever.
@@ -316,7 +387,7 @@ class PlanVerificationRoundTripIT {
         String eventId = UUID.randomUUID().toString();
 
         try (KafkaConsumer<String, String> dlq = consumerFromNow(DLQ)) {
-            publish(TOPIC, "nobody@example.test", frame(eventId, "nobody@example.test", Map.of("plan", REFUSED_PLAN)));
+            publish(TOPIC, LINK_KEY, verification(eventId, "nobody@example.test", Map.of("plan", REFUSED_PLAN)));
             ConsumerRecord<String, String> dead = pollFor(
                 dlq,
                 record -> record.value() != null && record.value().contains(eventId),
@@ -325,8 +396,209 @@ class PlanVerificationRoundTripIT {
             assertThat(dead).as("a refused acknowledgement was dropped instead of dead-lettered").isNotNull();
             // The bytes as sent, so an operator can see what hc-admin actually put on the wire rather than this
             // service's paraphrase of it.
-            assertThat(read(dead).path("subject").path("email").asText()).isEqualTo("nobody@example.test");
+            assertThat(read(dead).path("data").path("subjectKey").asText()).isEqualTo("nobody@example.test");
         }
+    }
+
+    /**
+     * ⭐ <b>The headline behaviour of item 47, over a real broker: hc-admin's entity churn is ignored.</b>
+     *
+     * <p>Not applied, not refused, not dead-lettered — and every one of those is an <b>absence</b>, which is why this
+     * test carries two positive controls in the same run. <b>A test whose pass condition is an absence is satisfied by a
+     * consumer that never received anything at all</b>, and that is not a hypothetical here: item 32 shipped this
+     * consumer deployed, healthy and subscribed to a topic that did not exist, and no absence-shaped assertion anywhere
+     * could see it.</p>
+     *
+     * <p>The controls are the ignored-frame <b>counter</b>, which can only move if the frame reached the handler and was
+     * declined, and a real <b>verification published on the same binding in the same run</b>, which can only be applied
+     * if the subscription is live. Together they turn "nothing happened" into "the frame arrived, was read, and was
+     * deliberately let go".</p>
+     *
+     * <p>The entity change is published <em>first</em> deliberately: on one partition the consumer must get past it to
+     * reach the verification, so a consumer that dead-lettered or stalled on it fails the control rather than the
+     * absence.</p>
+     *
+     * <h2>⭐ And the two frames that measure what {@link AdminEvent}'s tolerance is actually worth</h2>
+     *
+     * <p>{@link AdminEvent} justifies making every component nullable on the grounds that another product's future
+     * frame shape must not become dead-letter noise here. <b>Nullability covers a field that is missing; it says
+     * nothing about a field that is the wrong shape</b> — and {@code Map<String, Object> data} is the strictest thing
+     * left in the record. Every other fixture in this class emits exactly the seven declared fields, so until these two
+     * frames the claim rested entirely on Jackson defaults that nothing here pinned.</p>
+     *
+     * <p><b>Measured on 2026-09-25, and the claim was half true.</b> The two frames differ in exactly one thing, which
+     * is what makes this a bisection rather than an anecdote:</p>
+     *
+     * <table>
+     *   <caption>Both carry a type nobody here has heard of and an envelope key the record does not declare</caption>
+     *   <tr><th>{@code data}</th><th>outcome</th></tr>
+     *   <tr><td>an object</td><td><b>ignored</b> — one string comparison, no database read, no dead letter</td></tr>
+     *   <tr><td>an array</td><td><b>dead-lettered</b> after four delivery attempts</td></tr>
+     * </table>
+     *
+     * <p>So an unknown <em>type</em> and an unknown <em>envelope key</em> really are free, and a wrong-shaped
+     * {@code data} is not. {@link AdminEvent} now says so in those terms rather than claiming tolerance it does not
+     * have, and this test is where that boundary is pinned — in both directions, so widening the record later fails
+     * here and has to be a decision.</p>
+     *
+     * <p>⚠ <b>The failure is reported as {@code ClassCastException: [B cannot be cast to AdminEvent}, which names
+     * nothing that is wrong.</b> Spring's JSON converter <em>declines</em> the message rather than throwing, the raw
+     * {@code byte[]} is handed to the function, and the cast fails on the way in. A future reader meeting that
+     * exception should read it as <em>this frame did not convert</em> and go looking at the payload — not at the
+     * binding, which is what its wording suggests.</p>
+     */
+    @Test
+    @Timeout(value = 90, unit = TimeUnit.SECONDS)
+    void anEntityChangeIsIgnoredWhileARealVerificationInTheSameRunIsApplied() throws Exception {
+        String email = "Yaa.Ignored@Example.Test";
+        String patientId = "patient-yaa-ignored";
+        String membershipId = givenAPendingMembership(email, patientId, IGNORED_PLAN);
+
+        String entityEventId = UUID.randomUUID().toString();
+        String unfamiliarEventId = UUID.randomUUID().toString();
+        String wrongShapedEventId = UUID.randomUUID().toString();
+        double ignoredBefore = ignoredFrames();
+        double appliedBefore = appliedFrames();
+
+        try (KafkaConsumer<String, String> dlq = consumerFromNow(DLQ)) {
+            publish(TOPIC, "Patient/6ab685b427645bf322b0326e", entityChanged(entityEventId));
+            publish(TOPIC, "WageRate/wr-9f2c", unfamiliarFrame(unfamiliarEventId, Map.of("rate", 12, "currency", "GHS")));
+            publish(TOPIC, "WageRate/wr-9f2d", unfamiliarFrame(wrongShapedEventId, List.of("audit", "only")));
+            publish(TOPIC, LINK_KEY, verification(UUID.randomUUID().toString(), email, Map.of("plan", IGNORED_PLAN)));
+
+            // POSITIVE CONTROL ONE: the binding is alive and the frame behind the entity change was applied. This also
+            // doubles as the settle window for the absences below — the consumer has demonstrably reached the later
+            // offset, so "the DLQ is empty" is about a frame it has already handled rather than one it has not seen.
+            assertThat(awaitStatus(membershipId, MembershipStatus.ACTIVE).getStatus())
+                .as("the verification behind the entity change was never applied — the frame was dead-lettered or the binding stalled")
+                .isEqualTo(MembershipStatus.ACTIVE);
+
+            // POSITIVE CONTROL TWO: the consumer saw both ignorable frames and declined them. Without this, every
+            // assertion below is also satisfied by a consumer that received nothing — and EXACTLY two, not "at least",
+            // because a third increment would mean the wrong-shaped frame reached the handler after all and the
+            // dead letter asserted below came from somewhere else.
+            assertThat(awaitIgnoredFramesAtLeast(ignoredBefore + 2))
+                .as("the ignored-frame counter did not move by exactly two — see the table in this test's javadoc for what each frame does")
+                .isEqualTo(ignoredBefore + 2);
+
+            // POSITIVE CONTROL THREE: the applied counter is the signal a drift in the type literal would flatline, so
+            // a run in which it never moves proves nothing about the ignores above it.
+            //
+            // ⚠ AWAITED, NOT READ. Reading it straight failed one run in three: the counter is incremented AFTER the
+            // membership write and after the ledger row, deliberately — it counts decisions that took effect — so
+            // awaitStatus can observe ACTIVE in the window between the two. That ordering is right and the test was
+            // wrong, which is worth stating because the obvious fix is to move the increment earlier and that would
+            // make the meter count frames that reached the write rather than writes that happened.
+            assertThat(awaitAppliedFramesAtLeast(appliedBefore + 1))
+                .as("the applied counter never moved, although a membership was activated on this binding")
+                .isGreaterThan(appliedBefore);
+
+            // ⚠ ONE DRAIN, THEN ASSERT — three pollFor calls here would be a false pass, and it was one before this
+            // comment existed. A Kafka consumer's position only moves forward, so the first poll looking for an
+            // ABSENCE reads the dead letter the third poll is looking for, finds it does not match, and drops it: the
+            // positive assertion then fails against a queue that really did hold its record. Drain once and assert
+            // against the collection. It stops as soon as the wrong-shaped frame arrives, which is sound because the
+            // DLQ is written in source-partition order and that frame is published after both of the others.
+            List<ConsumerRecord<String, String>> deadLetters = drainUntil(
+                dlq,
+                record -> record.value().contains(wrongShapedEventId),
+                Duration.ofSeconds(20)
+            );
+
+            // THE ABSENCE THIS TEST EXISTS FOR. Under item 19's rule this frame was refused, retried four times and
+            // dead-lettered — 7433 times over on the channel as it stood on 2026-09-25.
+            assertThat(valuesOf(deadLetters))
+                .filteredOn(value -> value.contains(entityEventId))
+                .as(
+                    "hc-admin's entity change was dead-lettered — the queue this service reads after a real refusal is now their audit trail"
+                )
+                .isEmpty();
+
+            // The half of AdminEvent's tolerance claim that HOLDS: an unknown type carrying an undeclared envelope key
+            // costs one string comparison, not a dead letter.
+            assertThat(valuesOf(deadLetters))
+                .filteredOn(value -> value.contains(unfamiliarEventId))
+                .as("a frame of an unknown type with an undeclared envelope key was dead-lettered rather than ignored")
+                .isEmpty();
+
+            // ⛔ AND THE HALF THAT DOES NOT, pinned as what it is rather than as what the javadoc wished. A `data` that
+            // is not an object does not convert, so the function never runs and the binder dead-letters the bytes.
+            assertThat(valuesOf(deadLetters))
+                .filteredOn(value -> value.contains(wrongShapedEventId))
+                .as("a frame whose `data` is not an object is no longer dead-lettered — AdminEvent got more tolerant, so say so there")
+                .hasSize(1);
+        }
+
+        // And it wrote nothing: no ledger row for a frame that was never applied, and no membership of its own. The
+        // ledger is scoped to the patient for the reason ledgerIdsFor gives; the entity change names no patient at all,
+        // so its id must appear under nobody.
+        assertThat(planVerificationRepository.findById(entityEventId))
+            .as("an ignored frame was recorded in the plan-verification ledger")
+            .isEmpty();
+    }
+
+    /**
+     * That a frame this service <em>is</em> addressed by and cannot read is still refused, still dead-lettered, and
+     * changes nothing.
+     *
+     * <p><b>The inversion must not have made the consumer permissive about its own frames.</b> "Ignore what is not
+     * yours" and "refuse what is yours and malformed" are one line apart in {@link PlanVerificationConsumer#apply}, and
+     * an ignore placed one check too late — or a type comparison loosened to "starts with Plan" — would swallow these
+     * silently.</p>
+     *
+     * <p><b>The patient here is real and holds a matching {@code PENDING} membership, and that is the whole design of
+     * this test rather than convenience.</b> Against an unknown patient every one of these frames would be
+     * dead-lettered <em>anyway</em> — {@code UNKNOWN_PATIENT} — so the dead-letter assertions would pass with the guard
+     * under test deleted, which is the trap
+     * {@link #aReplayCannotActivateAMembershipChosenAfterTheAcknowledgement} carries three scars from: <em>a test can
+     * fail, or pass, under the right mutation for the wrong reason.</em> With a real patient behind it, deleting the
+     * blank-{@code eventId} guard <b>activates the membership</b>, so the final assertion is what catches it and not the
+     * queue.</p>
+     *
+     * <p>⚠ What this cannot separate, said rather than implied: deleting the <em>no-plan</em> guard leaves the frame
+     * dead-lettered too, under {@code PLAN_DISAGREES}, because a null plan cannot match the one held. That guard's
+     * distinctness is {@code PlanVerificationConsumerTest}'s to assert on its {@link Reason}; here it is one of three
+     * frames proving the refusal path still reaches the queue at all.</p>
+     */
+    @Test
+    @Timeout(value = 90, unit = TimeUnit.SECONDS)
+    void aMalformedVerificationIsStillRefusedAndDeadLettered() throws Exception {
+        String email = "Esi.Malformed@Example.Test";
+        String patientId = "patient-esi-malformed";
+        String membershipId = givenAPendingMembership(email, patientId, MALFORMED_PLAN);
+
+        String withoutAnAddressee = UUID.randomUUID().toString();
+        String withoutAPlan = UUID.randomUUID().toString();
+
+        try (KafkaConsumer<String, String> dlq = consumerFromNow(DLQ)) {
+            // No data.subjectKey — the field that MOVED in item 47. A frame carrying only hc-admin's subject names a
+            // record in their database and nobody here, and it must not be mistaken for a frame addressed elsewhere.
+            publish(TOPIC, LINK_KEY, frame(withoutAnAddressee, "PlanVerified", Map.of("plan", MALFORMED_PLAN)));
+
+            // No plan, so the consistency check the payload exists for cannot be made.
+            publish(TOPIC, LINK_KEY, frame(withoutAPlan, "PlanVerified", Map.of("subjectKey", email)));
+
+            // A blank eventId, which is the guard the type check now runs before — and the one frame here that WOULD be
+            // applied if that guard went, because everything else about it is right.
+            publish(TOPIC, LINK_KEY, verification("  ", email, Map.of("plan", MALFORMED_PLAN)));
+
+            assertThat(pollFor(dlq, record -> record.value().contains(withoutAnAddressee), Duration.ofSeconds(20)))
+                .as("a PlanVerified frame with no data.subjectKey was accepted or ignored instead of refused")
+                .isNotNull();
+            assertThat(pollFor(dlq, record -> record.value().contains(withoutAPlan), Duration.ofSeconds(20)))
+                .as("a PlanVerified frame naming no plan was accepted or ignored instead of refused")
+                .isNotNull();
+            assertThat(pollFor(dlq, record -> record.value().contains("\"eventId\":\"  \""), Duration.ofSeconds(20)))
+                .as("a PlanVerified frame with a blank eventId was accepted or ignored instead of refused")
+                .isNotNull();
+        }
+
+        // ⭐ THE ASSERTION THE BLANK-eventId GUARD IS DETECTABLE BY. This membership is everything the third frame
+        // needed except an identity to be deduplicated on; without the guard it is ACTIVE, activated by a frame no
+        // replay of which could ever be recognised as one.
+        assertThat(membershipRepository.findById(membershipId).orElseThrow().getStatus())
+            .as("a malformed verification was applied — the ignore path has made the consumer permissive about its own frames")
+            .isEqualTo(MembershipStatus.PENDING);
     }
 
     // -------------------------------------------------------------------------------------------------------------
@@ -355,32 +627,98 @@ class PlanVerificationRoundTripIT {
     }
 
     /**
-     * hc-admin's frame, in the envelope item 18 and item 19 record: {@code subject.email} and a one-field payload.
+     * hc-admin's plan verification as it travels on {@code admin.event}.
      *
-     * <p>Written as a literal string rather than by serializing {@link PatientEvent}, deliberately. This is a contract
+     * <p>This is the frame read off the live quality broker on 2026-09-25, with the identifiers changed:</p>
+     *
+     * <pre>
+     * {"eventId":"52a14a67-…","type":"PlanVerified","version":1,"occurredAt":"2026-09-25T14:32:58.092Z",
+     *  "source":"hcAdminService","subject":{"entityType":"DirectoryLink","entityId":"dl-plan-a6"},
+     *  "data":{"plan":"PAWPAW","subjectKey":"k.darkwa@mail.gh"}}
+     * </pre>
+     *
+     * <p>⚠ <b>The address is in {@code data.subjectKey} and nowhere else.</b> There is no {@code subject.email} on this
+     * channel — the subject is the record, not the person — so a consumer still reading the old field refuses every one
+     * of these {@code NO_SUBJECT_KEY} and dead-letters it. That is the failure item 47 exists to avoid and this fixture
+     * is the only thing in the repository that can see it.</p>
+     *
+     * <p>Written as a literal string rather than by serializing {@link AdminEvent}, deliberately. This is a contract
      * with a repository that cannot be compiled against this one, and building it through our own record would make
      * the test agree with us by construction — a field renamed here would rename it on both sides at once and the
      * test would stay green while the contract moved.</p>
      */
-    private static String frame(String eventId, String email, Map<String, Object> data) throws Exception {
-        return MAPPER.writeValueAsString(
-            Map.of(
-                "eventId",
-                eventId,
-                "type",
-                "PlanVerified",
-                "version",
-                1,
-                "occurredAt",
-                Instant.now().toString(),
-                "source",
-                "hcAdminService",
-                "subject",
-                Map.of("email", email),
-                "data",
-                data
-            )
-        );
+    private static String verification(String eventId, String email, Map<String, Object> data) throws Exception {
+        Map<String, Object> payload = new java.util.HashMap<>(data);
+        payload.putIfAbsent("subjectKey", email);
+        return frame(eventId, "PlanVerified", payload);
+    }
+
+    /**
+     * hc-admin's entity-change notification — 7433 of the 7435 frames on this channel on 2026-09-25, and the shape this
+     * consumer must ignore without refusing.
+     *
+     * <p>Read off the broker the same day:</p>
+     *
+     * <pre>
+     * {"eventId":"f4177675-…","type":"EntityChanged","version":1,"occurredAt":"2026-09-25T14:31:16.766Z",
+     *  "source":"hcAdminService","subject":{"entityType":"Patient","entityId":"6ab685b4…"},"data":{"action":"SAVED"}}
+     * </pre>
+     *
+     * <p>Note that it carries a perfectly good {@code eventId} and no plan and no addressee, which is exactly why the
+     * type has to be dispatched on <em>first</em>: under item 19's ordering it passed the blank-id guard, reached the
+     * type check and was dead-lettered.</p>
+     */
+    private static String entityChanged(String eventId) throws Exception {
+        return frame(eventId, "EntityChanged", Map.of("action", ENTITY_CHANGED_ACTION));
+    }
+
+    /**
+     * A frame from hc-admin's future: a type nobody here has heard of, an envelope key this repository's record does
+     * not declare, and a {@code data} that is not an object.
+     *
+     * <h2>What it pins, and why it is one frame rather than three</h2>
+     *
+     * <p>{@link AdminEvent} argues that a lenient record keeps another product's future frames out of this service's
+     * dead-letter queue. <b>Nullability delivers only half of that.</b> It covers a field that is absent; it says
+     * nothing about one that arrives with the wrong shape, and {@code Map<String, Object> data} is the strictest
+     * remaining thing in the record — a {@code data} that is an array or a scalar is the obvious way a future frame of
+     * theirs stops binding. That the binder tolerates it rests on two Jackson defaults (unknown properties ignored,
+     * and how a mismatched {@code data} is handled), <em>neither of which this repository configures</em>, so this
+     * fixture is what stands between that paragraph and wishful thinking.</p>
+     *
+     * <p>All three departures ride one frame deliberately. The assertion is that it is ignored, so a frame per
+     * departure would cost three settle windows to prove one thing; and if it is ever dead-lettered instead, the
+     * bisection is three publishes of a fixture that already exists rather than a test that was never written.</p>
+     *
+     * <p><b>It is not hc-admin's — there is no {@code WageRateChanged} on the channel today.</b> That is the point: a
+     * shape this repository has never seen is exactly what the tolerance claim is about, and their real types are
+     * already covered by {@link #entityChanged} and by the frames in {@code PlanVerificationConsumerTest}.</p>
+     */
+    private static String unfamiliarFrame(String eventId, Object data) throws Exception {
+        Map<String, Object> envelope = new java.util.HashMap<>();
+        envelope.put("eventId", eventId);
+        envelope.put("type", "WageRateChanged");
+        envelope.put("version", 2);
+        envelope.put("occurredAt", Instant.now().toString());
+        envelope.put("source", "hcAdminService");
+        envelope.put("subject", Map.of("entityType", "WageRate", "entityId", "wr-9f2c"));
+        // An envelope key AdminEvent does not declare: their schema growing a field is not this service's business.
+        envelope.put("correlationId", UUID.randomUUID().toString());
+        envelope.put("data", data);
+        return MAPPER.writeValueAsString(envelope);
+    }
+
+    /** Any frame on the channel, in the envelope every type on it shares. */
+    private static String frame(String eventId, String type, Map<String, Object> data) throws Exception {
+        Map<String, Object> envelope = new java.util.HashMap<>();
+        envelope.put("eventId", eventId);
+        envelope.put("type", type);
+        envelope.put("version", 1);
+        envelope.put("occurredAt", Instant.now().toString());
+        envelope.put("source", "hcAdminService");
+        envelope.put("subject", Map.of("entityType", "DirectoryLink", "entityId", "dl-round-trip"));
+        envelope.put("data", data);
+        return MAPPER.writeValueAsString(envelope);
     }
 
     private void publish(String topic, String key, String value) throws Exception {
@@ -391,6 +729,66 @@ class PlanVerificationRoundTripIT {
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(properties)) {
             producer.send(new ProducerRecord<>(topic, key, value)).get();
         }
+    }
+
+    /** How many frames this consumer has declined so far, across the whole context. */
+    private double ignoredFrames() {
+        return count(PlanVerificationConsumer.IGNORED_METER_NAME);
+    }
+
+    /** How many of hc-admin's decisions have taken effect here — the signal a drift in the type literal flatlines. */
+    private double appliedFrames() {
+        return count(PlanVerificationConsumer.APPLIED_METER_NAME);
+    }
+
+    /**
+     * How many frames arrived asking for a state that already held.
+     *
+     * <p>The only observable output of that path: it writes nothing, announces nothing and throws nothing, so an
+     * assertion about it without this meter can only be an absence — and an absence is what a consumer that received
+     * nothing also produces.</p>
+     */
+    private double satisfiedFrames() {
+        return count(PlanVerificationConsumer.SATISFIED_METER_NAME);
+    }
+
+    private double count(String meterName) {
+        Counter counter = meterRegistry.find(meterName).tag("topic", PlanVerificationConsumer.CHANNEL).counter();
+        // Absent until the first increment on a fresh registry; the consumer registers all four eagerly, so this is
+        // belt and braces rather than an expected branch.
+        return counter == null ? 0 : counter.count();
+    }
+
+    /** Waits for the declined count to reach a target, because the consumer runs on its own thread. */
+    private double awaitIgnoredFramesAtLeast(double target) throws Exception {
+        return await(this::ignoredFrames, target);
+    }
+
+    /** Waits for the already-satisfied count to reach a target. */
+    private double awaitSatisfiedFramesAtLeast(double target) throws Exception {
+        return await(this::satisfiedFrames, target);
+    }
+
+    /** Waits for the applied count to reach a target — see the comment at its one call site on why the wait is needed. */
+    private double awaitAppliedFramesAtLeast(double target) throws Exception {
+        return await(this::appliedFrames, target);
+    }
+
+    /**
+     * Polls one meter until it reaches a target, or gives up with the value it actually holds.
+     *
+     * <p>Returns rather than asserts, so the caller's {@code as(...)} names what the absence would have meant. The
+     * deadline matches the DLQ polls: long enough to outlast a delivery and its retries, so a value short of the
+     * target means the frame was handled some other way rather than not yet handled.</p>
+     */
+    private double await(java.util.function.DoubleSupplier meter, double target) throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        double seen = meter.getAsDouble();
+        while (System.nanoTime() < deadline && seen < target) {
+            Thread.sleep(200);
+            seen = meter.getAsDouble();
+        }
+        return seen;
     }
 
     /** Reads the membership back until the consumer has moved it, or gives up with the status it actually holds. */
@@ -430,6 +828,53 @@ class PlanVerificationRoundTripIT {
         } catch (Exception e) {
             throw new IllegalStateException("not JSON: " + record.value(), e);
         }
+    }
+
+    /**
+     * Reads every record the topic produces until one matches, or the deadline passes — and <b>returns all of
+     * them</b>.
+     *
+     * <h2>⚠ Why this exists and {@link #pollFor} was not enough</h2>
+     *
+     * <p><b>A Kafka consumer's position only moves forward, so two {@code pollFor} calls on one consumer are not two
+     * independent questions.</b> The first one consumes and discards everything that does not match its own
+     * predicate — including the record the second one is about to look for. A test that polls for an <em>absence</em>
+     * and then for a <em>presence</em> therefore reports the presence missing whenever the queue delivered both
+     * inside the first window, which is a false failure that depends on timing and looks exactly like the behaviour
+     * under test having changed.</p>
+     *
+     * <p>{@code anEntityChangeIsIgnoredWhileARealVerificationInTheSameRunIsApplied} asks three questions of one
+     * queue, so it drains once and filters the result. Stopping early on a match is safe there because the
+     * dead-letter queue is written in source-partition order and the frame it waits for is published last of the
+     * three.</p>
+     */
+    private static List<ConsumerRecord<String, String>> drainUntil(
+        KafkaConsumer<String, String> consumer,
+        java.util.function.Predicate<ConsumerRecord<String, String>> until,
+        Duration deadlineAfter
+    ) {
+        List<ConsumerRecord<String, String>> seen = new java.util.ArrayList<>();
+        long deadline = System.nanoTime() + deadlineAfter.toNanos();
+        while (System.nanoTime() < deadline) {
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(2));
+            boolean done = false;
+            for (ConsumerRecord<String, String> record : records) {
+                if (record.value() == null) {
+                    continue;
+                }
+                seen.add(record);
+                done = done || until.test(record);
+            }
+            if (done) {
+                return seen;
+            }
+        }
+        return seen;
+    }
+
+    /** The payloads, so an assertion reads as a filter over strings rather than over Kafka machinery. */
+    private static List<String> valuesOf(List<ConsumerRecord<String, String>> records) {
+        return records.stream().map(ConsumerRecord::value).toList();
     }
 
     /**

@@ -47,7 +47,7 @@ import org.springframework.stereotype.Component;
  * {@code PENDING → ACTIVE} and {@code PENDING → CANCELLED} with {@code findAndModify}, because the atomicity of that
  * transition <em>is</em> its concurrency guard and must not be traded away for an event. <strong>So a plan activation
  * produces no frame on this channel.</strong> It is not thereby invisible to hc-admin — they publish the decision
- * that causes it and this service answers on {@code patient-events-plan} — but it is absent from the audit stream.</p>
+ * that causes it on {@code admin.event}, which this service consumes — but it is absent from the audit stream.</p>
  *
  * <p><strong>2. Criteria deletes raise an event that names no document.</strong> {@code AfterDeleteEvent} carries the
  * <em>query</em> rather than the removed document — after the fact there is nothing else left to carry — so a delete

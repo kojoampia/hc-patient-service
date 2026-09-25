@@ -401,7 +401,7 @@ public class MembershipResource {
      * status this method read, so the persisted value compares equal to it and no frame goes out.</p>
      *
      * <p>Today the only second writer is another HTTP request, which is the lost update every unversioned document in
-     * this service already has. <strong>Item 19's inbound {@code patient-events-plan} consumer is a real second
+     * this service already has. <strong>The inbound {@code admin.event} consumer is a real second
      * writer</strong> — {@link MembershipService}'s own javadoc plans for it — and it writes exactly the field this
      * window loses. The fix is not a third guard: it is for the compare and the write to read the document once, or
      * for the document to carry a version. Named here because the widening happened here.</p>

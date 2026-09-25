@@ -200,9 +200,9 @@ class MembershipStatusAnnouncementTest {
 
     @Test
     void aCallerOutsideTheWebLayerInheritsTheAnnouncementWithNoFurtherCallSite() {
-        // This is item 19's inbound patient-events-plan consumer, written out: read the patient's PENDING membership,
-        // set ACTIVE, save. It will live in this package, it calls this method, and it announces without adding a
-        // fourth call site or a second copy of the rule — which is the whole reason item 27 goes before it.
+        // This is item 19's inbound consumer — on admin.event since item 47 — written out: read the patient's PENDING
+        // membership, set ACTIVE, save. It lives in this package, it calls this method, and it announces without
+        // adding a fourth call site or a second copy of the rule — which is the whole reason item 27 went before it.
         Membership stored = membership(MembershipStatus.PENDING);
         MembershipStatus held = stored.getStatus();
         stored.setStatus(MembershipStatus.ACTIVE);
